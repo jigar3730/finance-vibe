@@ -18,15 +18,16 @@ def calculate_indicators(df):
     # CCI (20)
     tp = (df['High'] + df['Low'] + df['Close']) / 3
     ma = tp.rolling(window=20).mean()
-    mad = tp.rolling(window=20).apply(lambda x: pd.Series(x).mad() if hasattr(pd.Series(x), 'mad') else (x - x.mean()).abs().mean())
+    mad = tp.rolling(window=20).apply(lambda x: (x - x.mean()).abs().mean())
     df['CCI'] = (tp - ma) / (0.015 * mad)
     
     return df
 
 def generate_signals():
     files = glob.glob("data/raw/*.csv")
-    print(f"{'TICKER':<8} | {'TREND':<8} | {'MACD':<8} | {'CCI':<8} | {'ACTION'}")
-    print("-" * 60)
+    # Added RSI to the header
+    print(f"{'TICKER':<8} | {'TREND':<8} | {'MACD':<6} | {'RSI':<4} | {'CCI':<6} | {'ACTION'}")
+    print("-" * 65)
 
     for file in files:
         ticker = Path(file).stem
@@ -36,27 +37,30 @@ def generate_signals():
         last = df.iloc[-1]
         prev = df.iloc[-2]
 
-        # 1. Trend (Price vs 200MA)
+        # 1. Trend
         ma200 = df['Close'].rolling(window=200).mean().iloc[-1]
         is_bullish = last['Close'] > ma200
 
-        # 2. MACD Signal (Crossover)
-        macd_cross_up = prev['MACD'] < prev['Signal_Line'] and last['MACD'] > last['Signal_Line']
-        
-        # 3. CCI Signal
-        cci_oversold = last['CCI'] < -100
-        
-        # Final Logic
-        if is_bullish and macd_cross_up:
-            action = "🔥 STRONG BUY"
-        elif is_bullish and cci_oversold:
+        # 2. Logic Filters
+        macd_up = last['MACD'] > last['Signal_Line']
+        macd_cross_up = prev['MACD'] < prev['Signal_Line'] and macd_up
+        rsi_value = last['RSI']
+        cci_value = last['CCI']
+
+        # 3. Final Multi-Factor Action
+        # We only call it a STRONG BUY if Trend, MACD, and RSI (not overbought) align
+        if is_bullish and macd_cross_up and rsi_value < 65:
+            action = "🔥 STR. BUY"
+        elif is_bullish and cci_value < -100:
             action = "💎 DIP BUY"
-        elif not is_bullish and last['MACD'] < last['Signal_Line']:
-            action = "⚠️ AVOID"
+        elif rsi_value > 75:
+            action = "⚠️ OVEREXT."
+        elif not is_bullish and not macd_up:
+            action = "💀 BEARISH"
         else:
             action = "HOLD"
 
-        print(f"{ticker:<8} | {'BULL' if is_bullish else 'BEAR':<8} | {'UP' if last['MACD'] > last['Signal_Line'] else 'DOWN':<8} | {int(last['CCI']):>8} | {action}")
+        print(f"{ticker:<8} | {'BULL' if is_bullish else 'BEAR':<8} | {'UP' if macd_up else 'DWN':<6} | {int(rsi_value):<4} | {int(cci_value):>6} | {action}")
 
 if __name__ == "__main__":
     generate_signals()
