@@ -18,7 +18,8 @@ src/finance_vibe/
 - **config.py** — Central settings (5y Weekly data, Static ETFs, Paths)  
 - **ticker_provider.py** — Merges top active stocks with benchmark ETFs (SPY, QQQ, IWM)  
 - **data_ingestor.py** — Pulls 5 years of weekly historical data  
-- **analysis_engine.py** — The Math Engine (SMA, MACD, RSI, and Robust CCI)  
+- **analysis_engine.py** — The Math Engine -uses pandas and Pandas ta to calculate (SMA, MACD, RSI, and Robust CCI)  
+- **analysis_engine_local.py** - This uses local python code to generate (SMA, MACD, RSI, and Robust CCI)
 - **run_vibe.py** — Master script to run the full pipeline  
 
 ```

@@ -87,7 +87,8 @@ def ticker_from_filename(path: str) -> str:
 # CSV loader (fast-ish)
 # -----------------------------
 def _find_column(df: pd.DataFrame, candidates: Iterable[str]) -> Optional[str]:
-    norm = {c: c.strip().lower().replace("_", "").replace(" ", "") for c in df.columns}
+    norm = {c: c.strip().lower().replace("_", "").replace(" ", "")
+            for c in df.columns}
     want = {x.lower().replace("_", "").replace(" ", "") for x in candidates}
     for original, n in norm.items():
         if n in want:
@@ -108,7 +109,8 @@ def load_ohlc_csv(path: str) -> pd.DataFrame:
     df.columns = [c.strip() for c in df.columns]
 
     date_col = _find_column(df, ["date", "datetime", "time"])
-    close_col = _find_column(df, ["close", "adjclose", "adj close", "adj_close"])
+    close_col = _find_column(
+        df, ["close", "adjclose", "adj close", "adj_close"])
     if not date_col:
         raise ValueError("missing Date column")
     if not close_col:
@@ -131,7 +133,8 @@ def load_ohlc_csv(path: str) -> pd.DataFrame:
         out.rename(columns={low_col: "Low"}, inplace=True)
 
     out["Date"] = pd.to_datetime(out["Date"], errors="coerce")
-    out = out.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
+    out = out.dropna(subset=["Date"]).sort_values(
+        "Date").reset_index(drop=True)
 
     out["Close"] = pd.to_numeric(out["Close"], errors="coerce")
     out = out.dropna(subset=["Close"]).reset_index(drop=True)
@@ -183,7 +186,8 @@ def cci_fast(tp: pd.Series, period: int = 20) -> pd.Series:
     if n < period:
         return pd.Series(out, index=tp.index)
 
-    w = np.lib.stride_tricks.sliding_window_view(x, period)  # (n-period+1, period)
+    w = np.lib.stride_tricks.sliding_window_view(
+        x, period)  # (n-period+1, period)
     w_mean = w.mean(axis=1)
     w_md = np.mean(np.abs(w - w_mean[:, None]), axis=1)
 
@@ -191,7 +195,7 @@ def cci_fast(tp: pd.Series, period: int = 20) -> pd.Series:
     denom = np.where(np.abs(denom) > 1e-9, denom, 1e-9)
 
     tp_last = w[:, -1]
-    out[period - 1 :] = (tp_last - w_mean) / denom
+    out[period - 1:] = (tp_last - w_mean) / denom
     return pd.Series(out, index=tp.index)
 
 
@@ -209,7 +213,8 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["RSI_S"] = sma(out["RSI"], 10)
 
     if {"High", "Low"}.issubset(out.columns):
-        tp = (out["High"].astype(float) + out["Low"].astype(float) + close) / 3.0
+        tp = (out["High"].astype(float) +
+              out["Low"].astype(float) + close) / 3.0
     else:
         tp = close
 
@@ -223,7 +228,8 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 # Scoring
 # -----------------------------
 def score_last_row(last: pd.Series) -> int:
-    required = ["Close", "SMA20", "SMA50", "MACD_H", "MACD_S", "RSI", "RSI_S", "CCI", "CCI_S"]
+    required = ["Close", "SMA20", "SMA50", "MACD_H",
+                "MACD_S", "RSI", "RSI_S", "CCI", "CCI_S"]
     if any(pd.isna(last.get(k)) for k in required):
         raise ValueError("insufficient indicator history (NaN in last row)")
 
@@ -338,10 +344,11 @@ def run_scan(max_workers: Optional[int] = None) -> pd.DataFrame:
                 print(" -", msg)
         return out
 
-    out = out.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
+    out = out.sort_values(["Score", "Ticker"], ascending=[
+                          False, True]).reset_index(drop=True)
 
     stamp = datetime.now().strftime("%Y-%m-%d")
-    out_path = os.path.join(config.LOGS_DIR, f"{stamp}_scan.csv")
+    out_path = os.path.join(config.LOGS_DIR, f"vibe_report_local_{stamp}.csv")
     out.to_csv(out_path, index=False)
 
     # Print only top N to keep printing fast
