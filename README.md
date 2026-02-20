@@ -8,6 +8,11 @@ A professional-grade Python framework for algorithmic market analysis, focusing 
 - `src/finance_vibe/`: Core Python logic (Ingestion and Processing).
 - `data/raw/`: Original CSV files from Yahoo Finance (Ignored by Git).
 - `notebooks/`: Jupyter notebooks for data exploration.
+- `config.py`: The system "brain" containing shared parameters (5y Weekly data, Static ETFs).
+- `ticker_provider.py`: Discovers the top active stocks + benchmark ETFs (SPY, QQQ, IWM).
+- `data_ingestor.py`: Pulls and cleans 5 years of weekly historical data.
+- `analysis_engine.py`: Calculates RSI/CCI convergence trends.
+
 
 ## 🚀 How to Use
 1. **Open in Dev Container**: Ensure Docker is running and "Reopen in Container" in VS Code.
@@ -32,7 +37,9 @@ A professional-grade Python framework for algorithmic market analysis, focusing 
 | **Analysis** | Jupyter Notebooks | Reproducible research and visualizations. |
 | **History** | Git Initialized | You have a "Save Point" for every major change. |
 
-
+## ⚙️ Shared Logic
+All scripts use the naming convention defined in `config.py`:
+`{TICKER}_{PERIOD}_{INTERVAL}.csv`
 
 ---
 
@@ -72,24 +79,27 @@ The core "Actionable" logic is driven by a **Weighted Scoring System (0-10)** to
 
 ---
 
+## 🚀 How to Configur
+
+## 🛠 Project Configuration
+The project uses a centralized `src/finance_vibe/config.py` to ensure consistency.
+- **`PERIOD`**: Default `5y`
+- **`INTERVAL`**: Default `1wk`
+- **`STATIC_TICKERS`**: Always includes `SPY`, `QQQ`, `IWM`
+
 ## 🚀 How to Run
+
 1. **Ingest Data**:
    `python src/finance_vibe/bulk_ingest.py`
 2. **Run Scanner**:
    `python src/finance_vibe/mean_reversion.py`
-   # Finance Vibe Analysis 🚀
+3. **Discover Tickers**
+   Refreshes the `active_tickers.csv` by merging the top active market movers with the static ETF list from the config.
+   ```bash
+   python src/finance_vibe/ticker_provider.py
 
-A modular Python data pipeline that identifies "market vibes" by merging dynamic market discovery with technical indicators.
 
-## 🛠 Project Structure
-- `config.py`: The system "brain" containing shared parameters (5y Weekly data, Static ETFs).
-- `ticker_provider.py`: Discovers the top active stocks + benchmark ETFs (SPY, QQQ, IWM).
-- `data_ingestor.py`: Pulls and cleans 5 years of weekly historical data.
-- `analysis_engine.py`: Calculates RSI/CCI convergence trends.
 
-## ⚙️ Shared Logic
-All scripts use the naming convention defined in `config.py`:
-`{TICKER}_{PERIOD}_{INTERVAL}.csv`
 
 ---
 
