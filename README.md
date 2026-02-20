@@ -1,4 +1,90 @@
 # Finance Vibe 📈  
+## Project Intent & Engineering Philosophy
+
+The **Finance Vibe** project is engineered as a **Modular Data Pipeline**.  
+The intent is to transition from isolated "scripts" to a **Systematic Analysis Engine**.
+
+By decoupling **data ingestion**, **mathematical processing**, and **reporting layers**, we ensure the system is:
+
+- Idempotent  
+- Scalable  
+- Reproducible  
+
+This project prioritizes:
+
+- **Environmental Parity**
+- **Mathematical Robustness**
+
+The system operates within a stable **5-year weekly regime** to eliminate high-frequency noise and ensure reproducible results across any compute node.
+
+---
+
+## Key Architectural Decisions
+
+### Hermetic Environment (Dev Containers)
+
+We utilize **Docker-based Dev Containers** to enforce *Environment-as-Code*.
+
+This approach:
+
+- Locks the Python 3.12 interpreter
+- Locks system dependencies
+- Stores environment configuration in version control
+
+The environment becomes a **disposable, reproducible artifact**.
+
+---
+
+### Stateless Logic & State Isolation
+
+The repository architecture enforces a strict boundary between:
+
+- `/src/` — Application logic  
+- `/data/` — System state  
+
+Within `/data/`:
+
+- `/raw/` — Immutable source data  
+- `/logs/` — Analytical output  
+
+This isolation ensures:
+
+- The pipeline can be audited independently  
+- Data can be wiped without risking the codebase  
+- Code and state remain cleanly separated  
+
+---
+
+### Shadow Math (Architectural Redundancy)
+
+The system implements a **Dual-Engine Pattern** for logic verification.
+
+A **Shadow Engine** (`analysis_engine_local.py`) runs alongside the primary engine to enable:
+
+- Differential testing  
+- Safe mathematical experimentation  
+- Validation of scoring changes  
+
+This is particularly important for validating our **Manual Mean Absolute Deviation (MAD)** implementation before promoting changes to the main pipeline.
+
+---
+
+### Decoupled Orchestration
+
+`run_vibe.py` functions as a **Stateless Orchestrator**.
+
+It manages the lifecycle:
+
+```
+Discovery → Ingestion → Analysis → Comparison
+```
+
+This design allows:
+
+- Execution via external schedulers (Cron / GitHub Actions)
+- Clear exit codes for failure handling
+- Clean separation between orchestration and computation
+
 ## Strategic Trend & Momentum Pipeline
 
 A professional-grade Python framework for fetching and analyzing stock data from Yahoo Finance.
