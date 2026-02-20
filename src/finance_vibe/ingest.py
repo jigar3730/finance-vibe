@@ -17,4 +17,4 @@ def fetch_stock_data(ticker_symbol):
     print(f"Success! Data saved to {file_path}")
 
 if __name__ == "__main__":
-    fetch_stock_data("TSLA")
+    fetch_stock_data("aapl")

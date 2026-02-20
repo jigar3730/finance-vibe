@@ -11,8 +11,8 @@ def run_backtest(ticker_symbol):
     
     # 1. Re-calculate indicators
     ma200 = df['Close'].rolling(window=200).mean()
-    exp1 = df['Close'].ewm(span=12, adjust=False).mean()
-    exp2 = df['Close'].ewm(span=26, adjust=False).mean()
+    exp1 = df['Close'].ewm(span=15, adjust=False).mean()
+    exp2 = df['Close'].ewm(span=30, adjust=False).mean()
     macd = exp1 - exp2
     signal_line = macd.ewm(span=9, adjust=False).mean()
     
