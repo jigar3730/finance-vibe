@@ -1,57 +1,35 @@
 import yfinance as yf
-import pandas as pd
-import os
-import time
+import argparse
+from pathlib import Path
 
-def get_most_active_tickers(count=20):
-    """
-    Dynamically fetches the current top 20 most active tickers.
-    """
-    print(f"--- DISCOVERY: Finding top {count} most active tickers ---")
-    try:
-        # Use yfinance screener to get active stocks
-        active_df = yf.Search("", max_results=count).active
-        tickers = active_df['symbol'].tolist()
+def fetch_bulk_data(tickers, period="2y"): # Default changed to 2y
+    Path("data/raw").mkdir(parents=True, exist_ok=True)
+    
+    for symbol in tickers:
+        symbol = symbol.upper()
+        print(f"📥 Fetching {symbol} for period: {period}...")
         
-        # Clean list to ensure they are standard tickers
-        tickers = [t for t in tickers if t.isalpha() and len(t) <= 5]
-        print(f"Discovered: {tickers}")
-        return tickers
-    except Exception as e:
-        print(f"Discovery failed: {e}. Using fallback list.")
-        return ["SPY", "QQQ", "NVDA", "AAPL", "TSLA", "AMD", "MSFT", "AMZN", "META", "GOOGL"]
-
-def bulk_ingest():
-    # 1. Setup Directories
-    save_path = "data/raw"
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-
-    # 2. Get Dynamic Ticker List
-    tickers = get_most_active_tickers(20)
-
-    # 3. Download Data
-    print(f"\n--- INGESTION: Downloading data for {len(tickers)} tickers ---")
-    for ticker in tickers:
         try:
-            print(f"Downloading {ticker}...")
-            # We pull 2 years to ensure we have enough for 200-MA calculations
-            df = yf.download(ticker, period="5y", interval="1d", progress=False)
+            ticker = yf.Ticker(symbol)
+            # Use the period variable here
+            df = ticker.history(period=period)
             
-            if not df.empty:
-                # Standardize format: ensure index is Date and save
-                file_name = f"{save_path}/{ticker}.csv"
-                df.to_csv(file_name)
-            else:
-                print(f"Warning: No data found for {ticker}")
+            if df.empty:
+                print(f"⚠️  No data found for {symbol}.")
+                continue
                 
-            # Respectful delay for API
-            time.sleep(0.5)
+            file_path = f"data/raw/{symbol}.csv"
+            df.to_csv(file_path)
+            print(f"✅ Saved {symbol} ({len(df)} rows) to {file_path}")
             
         except Exception as e:
-            print(f"Failed to download {ticker}: {e}")
-
-    print("\n--- DONE: Bulk Ingestion Complete ---")
+            print(f"❌ Failed to download {symbol}: {e}")
 
 if __name__ == "__main__":
-    bulk_ingest()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("symbols", nargs="+")
+    # Added a flag to choose the timeframe (defaulting to 2y)
+    parser.add_argument("--period", default="2y", help="Time period (1mo, 1y, 2y, 5y, max)")
+    
+    args = parser.parse_args()
+    fetch_bulk_data(args.symbols, args.period)

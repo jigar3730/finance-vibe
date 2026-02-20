@@ -77,6 +77,19 @@ The core "Actionable" logic is driven by a **Weighted Scoring System (0-10)** to
    `python src/finance_vibe/bulk_ingest.py`
 2. **Run Scanner**:
    `python src/finance_vibe/mean_reversion.py`
+   # Finance Vibe Analysis 🚀
+
+A modular Python data pipeline that identifies "market vibes" by merging dynamic market discovery with technical indicators.
+
+## 🛠 Project Structure
+- `config.py`: The system "brain" containing shared parameters (5y Weekly data, Static ETFs).
+- `ticker_provider.py`: Discovers the top active stocks + benchmark ETFs (SPY, QQQ, IWM).
+- `data_ingestor.py`: Pulls and cleans 5 years of weekly historical data.
+- `analysis_engine.py`: Calculates RSI/CCI convergence trends.
+
+## ⚙️ Shared Logic
+All scripts use the naming convention defined in `config.py`:
+`{TICKER}_{PERIOD}_{INTERVAL}.csv`
 
 ---
 

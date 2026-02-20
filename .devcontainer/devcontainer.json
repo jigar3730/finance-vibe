@@ -10,6 +10,6 @@
             ]
         }
     },
-    "postCreateCommand": "pip install yfinance pandas matplotlib",
+    "postCreateCommand": "pip install pandas matplotlib pandas_ta yfinance yahooquery websockets",
     "remoteUser": "vscode"
 }
