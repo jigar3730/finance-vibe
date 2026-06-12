@@ -1,0 +1,16 @@
+name: finance-vibe
+
+services:
+  finance-vibe:
+    container_name: finance_vibe
+
+    build:
+      context: .
+
+    ports:
+      - "5000:5000"
+
+    volumes:
+      - /mnt/fast/finance-vibe-data:/app/data
+
+    restart: unless-stopped

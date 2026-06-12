@@ -1,0 +1,12 @@
+# Data and Logs
+data/
+*.log
+
+# Python junk
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Environment/OS
+.DS_Store
+.env

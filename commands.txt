@@ -1,0 +1,138 @@
+    1  touch src/finance_vibe/ingest.py
+    2  ls
+    3  cd src/
+    4  ls
+    5  cd finance_vibe/
+    6  ls
+    7  cd ..
+    8  python3 src/finance_vibe/ingest.py
+    9  git config --global user.name "jigar3730"
+   10  git config --global user.email "karishmap727@gmail.com"
+   11  cat <<EOF > .gitignore
+   12  # Data and Logs
+   13  data/
+   14  *.log
+   15  # Python junk
+   16  __pycache__/
+   17  *.pyc
+   18  .ipynb_checkpoints/
+   19  # Environment/OS
+   20  .DS_Store
+   21  .env
+   22  EOF
+   23  git init
+   24  git add .
+   25  git commit -m "Initial commit: Set up src layout and dev container"
+   26  git status
+   27  git ls-files
+   28  touch README.md
+   29  python3 src/finance_vibe/ingest.py
+   30  git add README.md
+   31  git commit -m "docs: add project readme with setup instructions"
+   32  touch notebooks/01_explore_data.ipynb
+   33  git add notebooks/01_explore_data.ipynb
+   34  git commit -m "feat: add initial data exploration notebook with moving average"
+   35  git add README.md
+   36  git commit -m "docs: add project health check table to readme"
+   37  touch src/finance_vibe/bulk_ingest.py
+   38  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA QQQ SPY
+   39  ls data/raw
+   40  rm data/raw/*.csv
+   41  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA QQQ SPY
+   42  python src/finance_vibe/ingest.py 
+   43  touch notebooks/02_comparison_analysis.ipynb
+   44  git add src/finance_vibe/bulk_ingest.py notebooks/02_comparison_analysis.ipynb
+   45  git commit -m "feat: add bulk ingestion script and multi-ticker comparison notebook"
+   46  git remote add origin https://github.com/jigar3730/finance-vibe.git
+   47  git branch -M main
+   48  git push -u origin main
+   49  # 1. Create a tag called v1.0
+   50  git tag -a v1.0 -m "Foundation Complete: Multi-ticker ingestion and comparison analysis"
+   51  # 2. Push the tag to GitHub
+   52  git push origin v1.0
+   53  git add notebooks/02_comparison_analysis.ipynb
+   54  git commit -m "feat: add robust data cleaning and ffill logic"
+   55  git push origin main
+   56  git add notebooks/02_comparison_analysis.ipynb
+   57  git commit -m "feat: add robust data cleaning and ffill logic"
+   58  git push origin main
+   59  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA QQQ SPY --period 2y
+   60  git add notebooks/02_comparison_analysis.ipynb
+   61  git commit -m "feat: add 50 and 200-day moving averages for trend analysis"
+   62  git push origin main
+   63  git add notebooks/02_comparison_analysis.ipynb
+   64  git commit -m "feat: add 50 and 200-day moving averages for trend analysis"
+   65  git push origin main
+   66  touch src/finance_vibe/signals.py
+   67  python src/finance_vibe/signals.py
+   68  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA MARA COIN IBIT QQQ SPY --period 5y
+   69  python src/finance_vibe/signals.py
+   70  git add src/finance_vibe/signals.py
+   71  git commit -m "feat: add automated signal generator for trend detection"
+   72  git push origin main
+   73  git add notebooks/02_comparison_analysis.ipynb
+   74  git commit -m "feat: add RSI momentum oscillator to analysis"
+   75  git push origin main
+   76  git add notebooks/02_comparison_analysis.ipynb
+   77  git commit -m "feat: add RSI momentum oscillator to analysis"
+   78  git push origin main
+   79  python src/finance_vibe/signals.py
+   80  git add src/finance_vibe/signals.py
+   81  git commit -m "feat: add RSI momentum and multi-factor action logic to signals"
+   82  git push origin main
+   83  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA MARA COIN IBIT QQQ SPY PLTR HOOD ONDS --period 5y
+   84  git add src/finance_vibe/signals.py
+   85  python src/finance_vibe/signals.py
+   86  git add src/finance_vibe/signals.py
+   87  git commit -m "feat: add MACD and CCI indicators for high-conviction signals"
+   88  git push origin main
+   89  python src/finance_vibe/signals.py
+   90  git add src/finance_vibe/signals.py
+   91  git commit -m "feat: integrate RSI back into multi-factor signal logic"
+   92  git push origin main
+   93  touch src/finance_vibe/backtest.py
+   94  python src/finance_vibe/backtest.py
+   95  git add src/finance_vibe/backtest.py
+   96  git commit -m "feat: add backtesting engine to validate strategy performance"
+   97  git push origin main
+   98  python src/finance_vibe/signals.py
+   99  touch src/finance_vibe/volatility.py
+  100  python src/finance_vibe/volatility.py
+  101  touch src/finance_vibe/mean_reversion.py
+  102  python src/finance_vibe/mean_reversion.py
+  103  git add src/finance_vibe/mean_reversion.py
+  104  git commit -m "feat: combine 200-MA distance and Bollinger Bands into mean_reversion.py"
+  105  git push origin main
+  106  python src/finance_vibe/mean_reversion.py
+  107  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA MARA COIN IBIT QQQ SPY PLTR HOOD ONDS SCHD PFE SCHG VTI  --period 5y
+  108  python src/finance_vibe/mean_reversion.py
+  109  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA MARA COIN IBIT QQQ SPY PLTR HOOD ONDS SCHD PFE SCHG VTI MSTR TSLL --period 5y
+  110  python src/finance_vibe/mean_reversion.py
+  111  git add src/finance_vibe/mean_reversion.py
+  112  git commit -m "feat: implement triple-check confluence for strong signals"
+  113  git push origin main
+  114  git add src/finance_vibe/mean_reversion.py
+  115  python src/finance_vibe/mean_reversion.py
+  116  # 1. Add all the new files and changes
+  117  git add src/finance_vibe/*.py
+  118  # 2. Create a meaningful commit message
+  119  git commit -m "feat: implement mean reversion logic with adaptive scoring and multi-indicator data points"
+  120  # 3. Push to your repository
+  121  git push origin main
+  122  python src/finance_vibe/mean_reversion.py
+  123  git add README.md src/finance_vibe/mean_reversion.py
+  124  git commit -m "docs: update README with project architecture and data science standards"
+  125  git push origin main
+  126  python src/finance_vibe/bulk_ingest.py
+  127  python -c "from src.finance_vibe.bulk_ingest import get_most_active_tickers; print(get_most_active_tickers(20))"
+  128  # Stage all changes (the new ingestor logic)
+  129  git add src/finance_vibe/bulk_ingest.py
+  130  # Commit with a descriptive message
+  131  git commit -m "fix: replace unstable discovery logic with robust high-volume ticker list"
+  132  git push origin main
+  133  git add README.md src/finance_vibe/mean_reversion.py
+  134  python -c "from src.finance_vibe.bulk_ingest import get_most_active_tickers; print(get_most_active_tickers(20))"
+  135  python ./src/finance_vibe/mean_reversion.py 
+  136  python ./src/finance_vibe/bulk_ingest.py 
+  137  python ./src/finance_vibe/bulk_ingest.py  tsla 5y
+  138  history > commands.txt

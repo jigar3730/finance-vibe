@@ -1,0 +1,33 @@
+    8  python3 src/finance_vibe/ingest.py
+   29  python3 src/finance_vibe/ingest.py
+   38  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA QQQ SPY
+   41  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA QQQ SPY
+   42  python src/finance_vibe/ingest.py 
+   59  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA QQQ SPY --period 2y
+   67  python src/finance_vibe/signals.py
+   68  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA MARA COIN IBIT QQQ SPY --period 5y
+   69  python src/finance_vibe/signals.py
+   79  python src/finance_vibe/signals.py
+   83  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA MARA COIN IBIT QQQ SPY PLTR HOOD ONDS --period 5y
+   85  python src/finance_vibe/signals.py
+   89  python src/finance_vibe/signals.py
+   94  python src/finance_vibe/backtest.py
+   98  python src/finance_vibe/signals.py
+  100  python src/finance_vibe/volatility.py
+  102  python src/finance_vibe/mean_reversion.py
+  106  python src/finance_vibe/mean_reversion.py
+  107  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA MARA COIN IBIT QQQ SPY PLTR HOOD ONDS SCHD PFE SCHG VTI  --period 5y
+  108  python src/finance_vibe/mean_reversion.py
+  109  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA MARA COIN IBIT QQQ SPY PLTR HOOD ONDS SCHD PFE SCHG VTI MSTR TSLL --period 5y
+  110  python src/finance_vibe/mean_reversion.py
+  115  python src/finance_vibe/mean_reversion.py
+  122  python src/finance_vibe/mean_reversion.py
+  126  python src/finance_vibe/bulk_ingest.py
+  127  python -c "from src.finance_vibe.bulk_ingest import get_most_active_tickers; print(get_most_active_tickers(20))"
+  134  python -c "from src.finance_vibe.bulk_ingest import get_most_active_tickers; print(get_most_active_tickers(20))"
+  135  python ./src/finance_vibe/mean_reversion.py 
+  136  python ./src/finance_vibe/bulk_ingest.py 
+  137  python ./src/finance_vibe/bulk_ingest.py  tsla 5y
+  139  python src/finance_vibe/bulk_ingest.py AAPL TSLA NVDA MARA COIN IBIT QQQ SPY --period 5y
+  140  python ./src/finance_vibe/mean_reversion.py 
+  141  history | grep "python" > python_logs.txt

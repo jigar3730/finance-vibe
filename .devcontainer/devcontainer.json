@@ -1,0 +1,19 @@
+{
+    "name": "Finance Data Science",
+    "image": "mcr.microsoft.com/devcontainers/python:3.12",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "GrapeCity.gc-excelviewer",
+                "mechatroner.rainbow-csv",
+                "njpwerner.autodocstring",
+                "KevinRose.vsc-python-indent",
+                "ms-toolsai.jupyter",
+            ]
+        }
+    },
+    "postCreateCommand": "pip install pandas matplotlib pandas_ta yfinance yahooquery websockets tabulate",
+    "remoteUser": "vscode"
+}
