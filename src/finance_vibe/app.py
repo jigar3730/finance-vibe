@@ -9,170 +9,274 @@ ROOT_DIR = Path(__file__).resolve().parents[2]
 LOGS_DIR = ROOT_DIR / "data" / "logs"
 DATE_PATTERN = re.compile(r".*_(\d{4}-\d{2}-\d{2})\.csv$")
 
-# Modern, high-scannability UX dashboard template
+# Pro-grade Widescreen Financial Dashboard Layout
 TEMPLATE = """<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Finance Vibe Dashboard</title>
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
       body { 
         font-family: 'Inter', -apple-system, sans-serif; 
-        background-color: #f8f9fa; 
-        color: #212529;
-        padding-top: 2rem; 
-        padding-bottom: 3rem; 
+        background-color: #f3f4f6; 
+        color: #111827;
+        padding-top: 1rem; 
+        padding-bottom: 2rem; 
       }
       .card {
-        border: 1px solid rgba(0,0,0,.08);
-        border-radius: 12px;
-        box-shadow: 0 2px 4px rgba(0,0,0,.02);
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+        background-color: #fff;
+        margin-bottom: 1rem;
       }
       .card-header-custom {
-        background-color: #fff;
-        border-bottom: 1px solid rgba(0,0,0,.08);
-        padding: 1rem 1.25rem;
+        background-color: #f9fafb;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 0.75rem 1rem;
       }
       .mono { 
         font-family: 'JetBrains Mono', monospace; 
-        font-size: 0.870em;
+        font-size: 0.85rem;
       }
       .table {
-        font-size: 0.9rem;
+        font-size: 0.825rem;
         vertical-align: middle;
+        margin-bottom: 0;
       }
       .table th {
         font-weight: 600;
         text-transform: uppercase;
-        font-size: 0.75rem;
+        font-size: 0.7rem;
         letter-spacing: 0.5px;
-        color: #6c757d;
-        background-color: #f8f9fa;
+        color: #4b5563;
+        background-color: #f9fafb;
+        border-bottom: 1px solid #e5e7eb;
+        padding: 0.5rem 0.75rem;
+      }
+      .table td {
+        padding: 0.5rem 0.75rem;
+        border-bottom: 1px solid #f3f4f6;
+        white-space: nowrap; /* Prevents ugly text-wrapping inside data frames */
       }
       .summary-value {
-        font-size: 1.75rem;
+        font-size: 1.5rem;
+        font-weight: 700;
+        color: #2563eb;
+      }
+      .ticker-link {
+        color: #2563eb;
         font-weight: 600;
-        color: #0d6efd;
+        text-decoration: none;
+        padding: 2px 6px;
+        border-radius: 4px;
+        background-color: rgba(37, 99, 235, 0.06);
+        transition: all 0.1s ease-in-out;
+      }
+      .ticker-link:hover {
+        background-color: #2563eb;
+        color: #fff;
+      }
+      /* Compact styling for horizontal filter bar */
+      .history-scroll-container {
+        display: flex;
+        overflow-x: auto;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        background-color: #fff;
+      }
+      .history-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.375rem 0.75rem;
+        background-color: #f3f4f6;
+        border: 1px solid #e5e7eb;
+        border-radius: 6px;
+        text-decoration: none;
+        color: #374151;
+        font-size: 0.825rem;
+        transition: all 0.1s ease;
+      }
+      .history-chip:hover {
+        background-color: #e5e7eb;
+        color: #111827;
+      }
+      .history-chip.active {
+        background-color: #2563eb;
+        border-color: #2563eb;
+        color: #fff;
+        font-weight: 500;
+      }
+      .history-chip.active .chip-count {
+        background-color: rgba(255,255,255,0.2);
+        color: #fff;
+      }
+      .chip-count {
+        font-family: 'JetBrains Mono', monospace;
+        font-size: 0.75rem;
+        background-color: #e5e7eb;
+        color: #4b5563;
+        padding: 1px 4px;
+        border-radius: 4px;
+      }
+      .tradingview-widget-container {
+        height: 550px;
+        width: 100%;
       }
     </style>
   </head>
   <body>
-    <div class="container-xl">
+    <div class="container-fluid px-4">
       
-      <header class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-4 pb-3 border-bottom gap-3">
+      <header class="d-flex flex-column flex-md-row justify-content-between align-items-start align-items-md-center mb-3 pb-2 border-bottom gap-2">
         <div>
-          <h1 class="h3 fw-bold mb-1">Finance Vibe Dashboard</h1>
-          <p class="text-muted mb-0">Latest weekly pipeline metrics and historical output previews.</p>
+          <h1 class="h4 fw-bold mb-0 text-dark">Finance Vibe Dashboard</h1>
+          <p class="text-muted small mb-0">Operational intelligence system & automated sequence parser.</p>
         </div>
         <div>
-          <a href="/" class="btn btn-white btn-sm border bg-white shadow-sm fw-medium">🔄 Refresh Dashboard</a>
+          <a href="/" class="btn btn-sm btn-white border bg-white shadow-sm fw-medium text-secondary">🔄 Hard Reset Workspace</a>
         </div>
       </header>
 
-      <div class="row g-3 mb-4">
-        <div class="col-md-6 col-lg-4">
-          <div class="card h-100">
-            <div class="card-body d-flex flex-column justify-content-between">
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          <div class="card h-100 mb-0">
+            <div class="card-body p-3 d-flex align-items-center justify-content-between">
               <div>
-                <h2 class="h6 text-muted text-uppercase fw-semibold mb-3">Latest Pipeline Run</h2>
+                <h2 class="h6 text-uppercase fw-bold text-muted small mb-1">Target Engine Sequence</h2>
                 {% if latest_date %}
-                  <div class="mb-2"><span class="badge bg-primary-subtle text-primary fw-medium mono">{{ latest_date }}</span></div>
-                  <div class="row g-2 pt-1 small">
-                    <div class="col-7 text-muted">Swing Setups:</div>
-                    <div class="col-5 text-end fw-semibold mono">{{ latest_counts.swing_setups }}</div>
-                    <div class="col-7 text-muted">Clean Trade Plans:</div>
-                    <div class="col-5 text-end fw-semibold mono">{{ latest_counts.trade_plan_clean }}</div>
-                  </div>
+                  <div><span class="badge bg-primary-subtle text-primary fw-semibold mono" style="font-size:0.85rem;">{{ latest_date }}</span></div>
                 {% else %}
-                  <p class="text-muted mb-0">No historical run data detected.</p>
+                  <span class="text-muted small">Null Index</span>
                 {% endif %}
               </div>
               {% if latest_date %}
-                <a href="/run/{{ latest_date }}" class="btn btn-primary btn-sm w-100 mt-3 fw-medium">View Latest Dataset</a>
+                <div class="text-end small">
+                  <div class="text-muted">Swing: <strong class="mono text-dark">{{ latest_counts.swing_setups }}</strong></div>
+                  <div class="text-muted">Clean: <strong class="mono text-dark">{{ latest_counts.trade_plan_clean }}</strong></div>
+                </div>
               {% endif %}
             </div>
           </div>
         </div>
 
-        <div class="col-md-6 col-lg-4">
-          <div class="card h-100">
-            <div class="card-body">
-              <h2 class="h6 text-muted text-uppercase fw-semibold mb-3">Historic Archive</h2>
-              <div class="summary-value mb-1">{{ summary|length }}</div>
-              <p class="text-muted small mb-0">Total historical snapshots processed and verified in the current pipeline directory.</p>
-            </div>
-          </div>
-        </div>
-
-        <div class="col-md-12 col-lg-4">
-          <div class="card h-100">
-            <div class="card-body">
-              <h2 class="h6 text-muted text-uppercase fw-semibold mb-2">Environment Meta</h2>
-              <div class="small pt-1">
-                <span class="text-muted d-block mb-1">Active Input Schema:</span>
-                <code class="d-block bg-light p-2 rounded border text-break mb-2 mono">..._[YYYY-MM-DD].csv</code>
-                <span class="text-muted d-block mb-1">Target Engine Directory:</span>
-                <span class="mono text-dark text-break small bg-light p-1 px-2 border rounded d-block">{{ logs_dir }}</span>
+        <div class="col-md-4">
+          <div class="card h-100 mb-0">
+            <div class="card-body p-3 d-flex align-items-center justify-content-between">
+              <div>
+                <h2 class="h6 text-uppercase fw-bold text-muted small mb-1">Historical Snapshots</h2>
+                <div class="summary-value">{{ summary|length }} <span class="text-muted fs-6 fw-normal">snapshots found</span></div>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div class="row g-4">
-        <div class="col-xl-4 col-lg-5">
-          <div class="card">
-            <div class="card-header-custom">
-              <h2 class="h6 fw-bold mb-0">Historical Log Pipeline</h2>
-            </div>
-            <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-              {{ summary_table|safe }}
-            </div>
-          </div>
-        </div>
-
-        <div class="col-xl-8 col-lg-7">
-          <div class="card">
-            <div class="card-header-custom">
-              <h2 class="h6 fw-bold mb-0">Data Stream Preview</h2>
-            </div>
-            <div class="card-body">
-              {% if details %}
-                <div class="alert alert-info bg-light border text-dark py-2 px-3 mb-4 d-flex justify-content-between align-items-center small">
-                  <div>Focus Target: <strong class="mono">{{ details.date }}</strong></div>
-                  <span class="text-muted">Showing first 20 records</span>
-                </div>
-                
-                {% for section in details.tables %}
-                  <div class="mb-5 border rounded bg-white">
-                    <div class="d-flex justify-content-between align-items-center bg-light p-2 px-3 border-bottom">
-                      <h3 class="h6 mb-0 fw-semibold text-secondary mono">{{ section.title }}</h3>
-                      <a href="/download/{{ section.filename }}" class="btn btn-sm btn-outline-primary py-0 px-2 small font-monospace" style="font-size:0.8rem;">
-                        📥 Download CSV
-                      </a>
-                    </div>
-                    <div class="table-responsive p-2" style="max-height: 350px;">
-                      {{ section.html|safe }}
-                    </div>
-                  </div>
-                {% endfor %}
-              {% else %}
-                <div class="text-center py-5 text-muted">
-                  <p class="mb-0">Select a snapshot version from the active tracking index table to map operational metrics.</p>
-                </div>
-              {% endif %}
+        <div class="col-md-4">
+          <div class="card h-100 mb-0">
+            <div class="card-body p-3 small d-flex flex-column justify-content-center">
+              <div class="text-truncate text-muted"><span class="fw-semibold">Path:</span> <span class="mono text-dark bg-light px-1 border rounded">{{ logs_dir }}</span></div>
             </div>
           </div>
         </div>
       </div>
 
-      <footer class="text-muted text-center small mt-5 pt-3 border-top">
-        Finance Vibe Internal Management Dashboard Engine • 2026 Production Environment
+      <div class="card mb-3">
+        <div class="card-header-custom py-2 px-3">
+          <h2 class="h6 fw-bold mb-0 text-secondary small text-uppercase">Log Archive Sequence Selection Index</h2>
+        </div>
+        <div class="history-scroll-container">
+          {{ horizontal_nav|safe }}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header-custom d-flex justify-content-between align-items-center">
+          <h2 class="h6 fw-bold mb-0">Active Snapshot Data Matrix: <span class="mono text-primary font-monospace fs-5">{% if details %}{{ details.date }}{% else %}No Focus Target Selected{% endif %}</span></h2>
+          {% if details %}
+            <span class="badge bg-light border text-secondary font-monospace small px-2 py-1">Display Bound: First 20 Rows</span>
+          {% endif %}
+        </div>
+        <div class="card-body p-3">
+          {% if details %}
+            {% for section in details.tables %}
+              <div class="mb-4 border rounded shadow-sm bg-white overflow-hidden">
+                <div class="d-flex justify-content-between align-items-center bg-light px-3 py-2 border-bottom">
+                  <h3 class="h6 mb-0 fw-bold text-dark mono">{{ section.title }}</h3>
+                  <a href="/download/{{ section.filename }}" class="btn btn-xs btn-outline-primary py-0 px-2 fw-medium mono" style="font-size:0.75rem; height:22px; line-height:20px;">
+                    📥 Download File
+                  </a>
+                </div>
+                <div class="table-responsive w-100">
+                  {{ section.html|safe }}
+                </div>
+              </div>
+            {% endfor %}
+          {% else %}
+            <div class="text-center py-5 text-muted">
+              <p class="mb-0">Select a snapshot timestamp variant string inside the control sequence vector above to bind processing threads.</p>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="modal fade" id="chartModal" tabindex="-1" aria-labelledby="chartModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+          <div class="modal-content border-0 shadow-lg" style="border-radius: 8px;">
+            <div class="modal-header bg-light py-2 px-3">
+              <h5 class="modal-title fw-bold small text-uppercase text-secondary" id="chartModalLabel">Technical Engine Analytics Frame</h5>
+              <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body p-0">
+              <div id="tradingview_workspace" class="tradingview-widget-container"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <footer class="text-muted text-center small mt-4 pt-2 border-top" style="font-size:0.75rem;">
+        Finance Vibe Engine Infrastructure v2.4 • 2026 Runtime Environment
       </footer>
     </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="text/javascript" src="https://s3.tradingview.com/tv.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function() {
+        const chartModal = new bootstrap.Modal(document.getElementById('chartModal'));
+        const modalTitle = document.getElementById('chartModalLabel');
+
+        document.body.addEventListener('click', function(e) {
+          if (e.target && e.target.classList.contains('ticker-link')) {
+            e.preventDefault();
+            const symbol = e.target.getAttribute('data-symbol').toUpperCase();
+            modalTitle.innerHTML = `Technical Analysis Interface Workspace Vector: <span class="text-primary font-monospace fw-bold">${symbol}</span>`;
+            chartModal.show();
+
+            setTimeout(() => {
+              new TradingView.widget({
+                "width": "100%",
+                "height": 550,
+                "symbol": symbol,
+                "interval": "D",
+                "timezone": "Etc/UTC",
+                "theme": "light",
+                "style": "1",
+                "locale": "en",
+                "toolbar_bg": "#f1f3f6",
+                "enable_publishing": false,
+                "hide_side_toolbar": false,
+                "allow_symbol_change": true,
+                "container_id": "tradingview_workspace"
+              });
+            }, 150);
+          }
+        });
+      });
+    </script>
   </body>
 </html>"""
 
@@ -200,31 +304,39 @@ def get_latest_date():
     return dates[0] if dates else None
 
 
-# Avoid crashing on reading raw dataframes; optimize presentation classes
 def load_csv_preview(path: Path, max_rows: int = 20):
     try:
         df = pd.read_csv(path)
         if df.empty:
-            return '<p class="text-muted p-3 mb-0">This CSV file contains no data fields.</p>'
-        preview = df.head(max_rows)
+            return '<p class="text-muted p-3 mb-0">Target data frame matrix contains zero entries.</p>'
+        
+        preview = df.head(max_rows).copy()
+        
+        symbol_col = next((col for col in preview.columns if col.upper() == "SYMBOL"), None)
+        if symbol_col:
+            preview[symbol_col] = preview[symbol_col].apply(
+                lambda s: f'<a href="#" class="ticker-link" data-symbol="{s}">{s}</a>' if pd.notna(s) else s
+            )
+
         return preview.to_html(
-            classes="table table-sm table-striped table-hover mb-0 mono align-middle border-top-0", 
+            classes="table table-sm table-striped table-hover mb-0 mono border-top-0", 
             index=False, 
             border=0, 
+            escape=False, 
             justify="left"
         )
     except Exception as exc:
-        return f'<div class="alert alert-danger m-3">Failed to load payload {path.name}: {exc}</div>'
+        return f'<div class="alert alert-danger m-2 p-2 small">Error loading structural dataset file {path.name}: {exc}</div>'
 
 
 def get_run_details(date):
     files = []
     file_manifest = [
-        (f"swing_setups_{date}.csv", "Swing Setups"),
-        (f"trade_plan_{date}.csv", "Trade Plan"),
-        (f"trade_plan_clean_{date}.csv", "Clean Trade Plan"),
-        (f"vibe_report_{date}.csv", "Vibe Report"),
-        (f"vibe_report_local_{date}.csv", "Local Vibe Report")
+        (f"swing_setups_{date}.csv", "Swing Setups Frame"),
+        (f"trade_plan_{date}.csv", "Trade Plan Vector Matrix"),
+        (f"trade_plan_clean_{date}.csv", "Optimized Core Trade Strategy"),
+        (f"vibe_report_{date}.csv", "Structural Market Vibe Report"),
+        (f"vibe_report_local_{date}.csv", "Localized Vibe Engine Log Execution")
     ]
     for name, label in file_manifest:
         path = LOGS_DIR / name
@@ -234,7 +346,6 @@ def get_run_details(date):
     return {"date": date, "tables": files}
 
 
-# Cache calculations for reading lines to maintain optimized server performance metrics
 @lru_cache(maxsize=128)
 def get_csv_length(path_str: str) -> str:
     path = Path(path_str)
@@ -246,50 +357,31 @@ def get_csv_length(path_str: str) -> str:
         return "Err"
 
 
-def build_summary_table(dates, active_date=None):
-    rows = []
+# Renders a sleek, responsive horizontal scroll bar component instead of a gigantic vertical table
+def build_horizontal_navigation(dates, active_date=None):
+    chips = []
     for date in dates:
         swing_path = LOGS_DIR / f"swing_setups_{date}.csv"
-        clean_path = LOGS_DIR / f"trade_plan_clean_{date}.csv"
-        
-        # Pull length counts using cached helper
         swing_len = get_csv_length(str(swing_path))
-        clean_len = get_csv_length(str(clean_path))
         
-        is_active = "table-active fw-semibold" if date == active_date else ""
+        is_active = "active" if date == active_date else ""
         
-        rows.append({
-            "Date": f'<span class="mono">{date}</span>',
-            "Swing": f'<span class="mono">{swing_len}</span>',
-            "Clean Plan": f'<span class="mono">{clean_len}</span>',
-            "Action": f"<a href='/run/{date}' class='btn btn-xs btn-primary py-0 px-2 fw-medium' style='font-size:0.75rem;'>View</a>",
-            "_css_class": is_active
-        })
-        
-    if not rows:
-        return '<p class="text-muted p-3 text-center mb-0">No active runs recorded.</p>'
-
-    # Programmatically convert to beautiful HTML table with state tracking variables
-    summary_df = pd.DataFrame(rows)
-    css_classes = summary_df["_css_class"].tolist()
-    summary_df = summary_df.drop(columns=["_css_class"])
-    
-    html = summary_df.to_html(classes="table table-hover mb-0 align-middle", index=False, escape=False, border=0, justify="left")
-    
-    # Inject active row tracking classes natively into bootstrap generation
-    if active_date:
-        for date, css in zip(dates, css_classes):
-            if css:
-                html = html.replace(f'<td><span class="mono">{date}</span></td>', f'<td class="{css}"><span class="mono">{date}</span></td>')
-                
-    return html
+        chips.append(
+            f'<a href="/run/{date}" class="history-chip {is_active} mono">'
+            f'<span>{date}</span>'
+            f'<span class="chip-count">{swing_len}</span>'
+            f'</a>'
+        )
+    if not chips:
+        return '<span class="text-muted small px-3 py-1">No recorded logs found in target engine workspace directory variables.</span>'
+    return "\\n".join(chips)
 
 
 @APP.route("/download/<path:filename>")
 def download_file(filename):
     safe_path = (LOGS_DIR / filename).resolve()
     if not safe_path.exists() or LOGS_DIR.resolve() not in safe_path.parents:
-        abort(404, description="File access violation or target file not found.")
+        abort(404, description="Target sandbox verification failed for requested asset.")
     return send_from_directory(LOGS_DIR, filename, as_attachment=True)
 
 
@@ -303,7 +395,7 @@ def home():
         "trade_plan_clean": get_csv_length(str(LOGS_DIR / f"trade_plan_clean_{latest_date}.csv")) if latest_date else "0",
     }
     
-    summary_table = build_summary_table(dates, active_date=latest_date)
+    horizontal_nav = build_horizontal_navigation(dates, active_date=latest_date)
     details = get_run_details(latest_date) if latest_date else None
     
     return render_template_string(
@@ -311,7 +403,7 @@ def home():
         latest_date=latest_date,
         latest_counts=latest_counts,
         summary=dates,
-        summary_table=summary_table,
+        horizontal_nav=horizontal_nav,
         details=details,
         logs_dir=str(LOGS_DIR)
     )
@@ -321,7 +413,7 @@ def home():
 def run_detail(date):
     dates = available_dates()
     if date not in dates:
-        abort(404, description=f"No processed run found containing date: {date}")
+        abort(404, description=f"Execution error finding directory reference matching date variable value: {date}")
         
     latest_date = get_latest_date()
     latest_counts = {
@@ -330,19 +422,18 @@ def run_detail(date):
     }
     
     details = get_run_details(date)
-    summary_table = build_summary_table(dates, active_date=date)
+    horizontal_nav = build_horizontal_navigation(dates, active_date=date)
     
     return render_template_string(
         TEMPLATE,
         latest_date=latest_date,
         latest_counts=latest_counts,
         summary=dates,
-        summary_table=summary_table,
+        horizontal_nav=horizontal_nav,
         details=details,
         logs_dir=str(LOGS_DIR)
     )
 
 
 if __name__ == "__main__":
-    # Internal dev server parameters
     APP.run(debug=True, host="0.0.0.0", port=5000)

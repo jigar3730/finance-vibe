@@ -3,3 +3,4 @@ pandas_ta
 yfinance
 yahooquery
 Flask
+tabulate
