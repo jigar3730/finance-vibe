@@ -1,4 +1,5 @@
 import os
+import sys
 import logging
 from datetime import datetime
 
@@ -6,12 +7,21 @@ import pandas as pd
 import pandas_ta as ta
 
 # =========================
+# PROFILE CONFIGURATION
+# =========================
+if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
+    mode = sys.argv[1].lower()
+else:
+    print("⚠️ Unknown mode parsed to scanner. Defaulting to 'weekly'.")
+    mode = "weekly"
+
+# =========================
 # PATHS
 # =========================
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw")
+RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw", mode)
 ACTIVE_TICKERS_PATH = os.path.join(BASE_DIR, "data", "active_tickers.csv")
-LOG_DIR = os.path.join(BASE_DIR, "data", "logs")
+LOG_DIR = os.path.join(BASE_DIR, "data", "logs", mode)
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -27,7 +37,6 @@ logger = logging.getLogger(__name__)
 # =========================
 # INDICATORS
 # =========================
-
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df["EMA20"] = ta.ema(df["Close"], length=20)
@@ -46,7 +55,6 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
 # =========================
 # MOMENTUM FILTER
 # =========================
-
 
 def momentum_ready_long(df: pd.DataFrame) -> bool:
     h = df["MACD_Hist"].tail(3)
@@ -79,7 +87,6 @@ def momentum_ready_short(df: pd.DataFrame) -> bool:
 # SETUP LOGIC
 # =========================
 
-
 def evaluate_setup(df: pd.DataFrame):
     latest = df.iloc[-1]
     prev = df.iloc[-2]
@@ -88,6 +95,9 @@ def evaluate_setup(df: pd.DataFrame):
     ema20 = latest["EMA20"]
     ema50 = latest["EMA50"]
 
+    # Minor profile adjustments for RSI tolerance boundaries
+    rsi_min_long = 40 if mode == "daily" else 45
+
     # -----------------
     # LONG SETUP
     # -----------------
@@ -95,7 +105,7 @@ def evaluate_setup(df: pd.DataFrame):
         ema20 > ema50 and
         ema50 > prev["EMA50"] and                 # EMA50 slope UP
         ema20 <= close <= ema20 * 1.02 and        # Buy zone
-        45 <= latest["RSI"] <= 60 and
+        rsi_min_long <= latest["RSI"] <= 60 and
         momentum_ready_long(df)
     ):
         return {
@@ -124,14 +134,22 @@ def evaluate_setup(df: pd.DataFrame):
 # SCANNER
 # =========================
 
-
 def run_scanner():
-    active_tickers = set(pd.read_csv(ACTIVE_TICKERS_PATH)
-                         ["Ticker"].str.upper())
+    logger.info(f"--- STEP 3: Scanning Trends & Pullbacks [{mode.upper()} MODE] ---")
+    
+    if not os.path.exists(ACTIVE_TICKERS_PATH):
+        logger.error(f"Missing active tickers inventory file at {ACTIVE_TICKERS_PATH}")
+        sys.exit(1)
+
+    active_tickers = set(pd.read_csv(ACTIVE_TICKERS_PATH)["Ticker"].str.upper())
     logger.info(f"Loaded {len(active_tickers)} active tickers")
 
+    if not os.path.exists(RAW_DATA_DIR):
+        logger.warning(f"Target raw directory empty or non-existent: {RAW_DATA_DIR}")
+        return
+
     raw_files = [f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")]
-    logger.info(f"Found {len(raw_files)} raw data files")
+    logger.info(f"Found {len(raw_files)} raw data files in target silo")
 
     results = []
     rejection_counts = {}
@@ -182,7 +200,7 @@ def run_scanner():
 
         logger.info(f"Archive created: {out_path}")
     else:
-        logger.warning("No valid swing setups found.")
+        logger.warning("No valid swing setups found for this timeframe window.")
 
     logger.info("Scanner rejection summary:")
     for k, v in rejection_counts.items():

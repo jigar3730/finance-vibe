@@ -62,7 +62,7 @@ def refresh_active_tickers():
                 seen.add(x)
 
         # Limit to a manageable number for the free tier
-        final_list = final_list[:150]
+        final_list = final_list[:250]
 
         # 5. Save using config path
         # We don't need os.makedirs here anymore because config.py handles it

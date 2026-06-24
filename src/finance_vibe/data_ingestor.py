@@ -3,32 +3,42 @@ import pandas as pd
 import os
 import sys
 
-# --- 1. PACKAGE IMPORT ---
+# --- 1. PACKAGE IMPORT (Upgraded for Multi-Environment Paths) ---
 try:
-    from finance_vibe import config
+    # 1st Priority: Docker module structure (python -m src.finance_vibe.data_ingestor)
+    from src.finance_vibe import config
 except ImportError:
-    # This allows the script to find config if run directly during testing
-    sys.path.append(os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "../../")))
-    from finance_vibe import config
+    try:
+        # 2nd Priority: Flat direct package fallback
+        from finance_vibe import config
+    except ImportError:
+        # 3rd Priority: Manual repository root insertion for local direct execution
+        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+        if repo_root not in sys.path:
+            sys.path.append(repo_root)
+        from src.finance_vibe import config
 
 
-def ingest_market_data():
-    # --- 2. EXTRACT SETTINGS FROM CONFIG ---
+def ingest_market_data(mode="weekly"):
+    # --- 2. EXTRACT SETTINGS DYNAMICALLY FROM PROFILE ---
+    mode_cfg = config.get_mode_config(mode)
+    
     csv_path = config.TICKER_LIST_PATH
-    raw_dir = config.RAW_DIR
-    PERIOD = config.PERIOD
-    INTERVAL = config.INTERVAL
+    raw_dir = mode_cfg['raw_dir']
+    PERIOD = mode_cfg['period']
+    INTERVAL = mode_cfg['interval']
 
     if not os.path.exists(csv_path):
-        print(
-            f"❌ Could not find ticker list at {csv_path}. Please run ticker_provider.py first.")
+        print(f"❌ Could not find ticker list at {csv_path}. Please run ticker_provider.py first.")
         return
+
+    # Ensure targeted sub-silo raw data directory exists
+    os.makedirs(raw_dir, exist_ok=True)
 
     # Read tickers and drop any duplicates/NaNs
     tickers = pd.read_csv(csv_path)['Ticker'].dropna().unique().tolist()
 
-    print(f"--- STEP 2: Ingesting {PERIOD} {INTERVAL} data ---")
+    print(f"\n--- STEP 2: Ingesting [{mode.upper()}] {PERIOD} {INTERVAL} data ---")
     print(f"Target Directory: {raw_dir}")
 
     for ticker in tickers:
@@ -58,7 +68,10 @@ def ingest_market_data():
             df.columns = [c.capitalize() for c in df.columns]
 
             # --- 5. SAVE ---
-            save_path = config.get_raw_path(ticker)
+            # Construct the path directly using the mode's target folder and parameters
+            filename = f"{ticker}_{PERIOD}_{INTERVAL}.csv"
+            save_path = os.path.join(raw_dir, filename)
+            
             df.to_csv(save_path)
             print(f"✅ {os.path.basename(save_path)}")
 
@@ -67,4 +80,13 @@ def ingest_market_data():
 
 
 if __name__ == "__main__":
-    ingest_market_data()
+    # Check for CLI argument, otherwise default to weekly execution
+    selected_mode = "weekly"
+    if len(sys.argv) > 1:
+        arg_mode = sys.argv[1].lower()
+        if arg_mode in ["weekly", "daily"]:
+            selected_mode = arg_mode
+        else:
+            print(f"⚠️ Unknown mode '{arg_mode}'. Defaulting to 'weekly'.")
+
+    ingest_market_data(mode=selected_mode)
