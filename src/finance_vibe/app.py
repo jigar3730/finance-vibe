@@ -25,15 +25,12 @@ def get_available_runs():
             continue
         
         # Look for trade plan files matching the naming pattern
-        # E.g., trade_plan_2026-06-23.csv or trade_plan_clean_2026-06-23.csv
         file_pattern = os.path.join(folder_path, "trade_plan_*.csv")
         all_files = glob.glob(file_pattern)
         
         seen_dates = set()
         for file_path in sorted(all_files, reverse=True):
             file_name = os.path.basename(file_path)
-            # Simple date parsing assuming format has YYYY-MM-DD
-            # Extracts date from trade_plan_YYYY-MM-DD.csv or trade_plan_clean_YYYY-MM-DD.csv
             parts = file_name.replace("trade_plan_clean_", "").replace("trade_plan_", "").replace(".csv", "")
             try:
                 # Validate string format is a valid date
@@ -129,9 +126,19 @@ VIEW_TEMPLATE = """
         .back { display: inline-block; margin-bottom: 20px; color: #0366d6; text-decoration: none; font-weight: 500; }
         .table-container { width: 100%; overflow-x: auto; background: #fff; border: 1px solid #e1e4e8; border-radius: 6px; }
         table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9em; }
-        th { background: #f6f8fa; padding: 12px; border-bottom: 2px solid #e1e4e8; font-weight: 600; }
+        th { background: #f6f8fa; padding: 12px; border-bottom: 2px solid #e1e4e8; font-weight: 600; text-transform: capitalize; }
         td { padding: 10px 12px; border-bottom: 1px solid #eaecef; }
         tr:hover { background: #f8f9fa; }
+        
+        /* Interactive ticker links layout modifications */
+        .ticker-link {
+            color: #1a73e8; 
+            text-decoration: none;
+            font-weight: bold;
+        }
+        .ticker-link:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
@@ -169,9 +176,28 @@ def view_run(mode, date):
         abort(404, f"The selected file record does not exist: {requested_file}")
         
     try:
-        # Load the pipeline outputs dynamically into a clean HTML table
         df = pd.read_csv(target_path)
-        table_html = df.to_html(classes="table", index=False, border=0)
+        
+        # Clean whitespaces out of column definitions to ensure formatting accuracy
+        df.columns = df.columns.str.strip()
+        
+        # Target the ticker symbol column dynamically regardless of exact capitalization variations
+        symbol_col = None
+        for col in df.columns:
+            if col.lower() in ["symbol", "ticker"]:
+                symbol_col = col
+                break
+                
+        if symbol_col is not None:
+            # Transform the plain strings into fully custom operational anchor tags
+            # Format pattern fits: https://www.google.com/finance/beta/quote/ECL:NYSE
+            df[symbol_col] = df[symbol_col].apply(
+                lambda x: f'<a href="https://www.google.com/finance/beta/quote/{str(x).strip().upper()}:NYSE" target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
+                if pd.notna(x) else ""
+            )
+            
+        # Crucial configuration shift: escape=False ensures Pandas treats raw HTML string injection as valid code blocks
+        table_html = df.to_html(classes="table", index=False, border=0, escape=False)
         return render_template_string(VIEW_TEMPLATE, mode=mode, date=date, file_name=requested_file, table_html=table_html)
     except Exception as e:
         return f"<h3>❌ Failed to parse data contents:</h3><pre>{str(e)}</pre>", 500
