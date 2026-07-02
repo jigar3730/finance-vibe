@@ -4,3 +4,4 @@ yfinance
 yahooquery
 Flask
 tabulate
+pytest>=8.0.0

@@ -207,5 +207,6 @@ if __name__ == "__main__":
     for path in MODES.values():
         os.makedirs(path, exist_ok=True)
         
+    debug = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")
     print("🚀 Launching Upgraded Finance Vibe UI Dashboard Context...")
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000, debug=debug)
