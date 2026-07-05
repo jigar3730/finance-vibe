@@ -1,3 +1,11 @@
+"""Macro Vibe Score engine for Finance Vibe.
+
+Scores each ticker in ``data/raw/{mode}/`` on a -10 to +10 scale using SMA trend,
+MACD/RSI momentum, pullback timing, and RSI/CCI risk governors. Output is written
+to ``data/logs/{mode}/vibe_report_<date>.csv``.
+
+Full rubric: Scoring_Logic.md in this package.
+"""
 from __future__ import annotations
 
 import os
@@ -162,6 +170,7 @@ def cci_fast(df: pd.DataFrame, period: int = 20) -> pd.Series:
 
 
 def build_features(df: pd.DataFrame) -> pd.DataFrame:
+    """Add SMA, MACD, RSI, and CCI columns required for scoring."""
     out = df.copy()
     close = out["Close"].astype(float)
     out["SMA20"] = sma(close, 20)
@@ -179,8 +188,15 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 # -----------------------------
 
 
-def score_last_row(last: pd.Series) -> int:
+def _compute_score(last: pd.Series) -> tuple[int, dict[str, int]]:
+    """Apply the Vibe Score rubric to the latest indicator row.
+
+    Returns the clipped integer score and a per-component point breakdown.
+    See Scoring_Logic.md for the full specification.
+    """
     score = 0
+    components: dict[str, int] = {}
+
     close = last["Close"]
     sma20 = last["SMA20"]
     sma50 = last["SMA50"]
@@ -191,56 +207,84 @@ def score_last_row(last: pd.Series) -> int:
     macd_h = last["MACD_H"]
     macd_s = last["MACD_S"]
 
-    # Trend
+    # Trend: full alignment only (+/-4)
     if close > sma20 > sma50:
-        score += 4
+        components["Trend"] = 4
     elif close < sma20 < sma50:
-        score -= 4
+        components["Trend"] = -4
+    else:
+        components["Trend"] = 0
+    score += components["Trend"]
 
-    # Momentum
+    # Momentum: MACD histogram and RSI vs their smoothers
     if macd_h > macd_s and rsi > rsi_s:
-        score += 2
+        components["Momentum"] = 2
     elif macd_h < macd_s and rsi < rsi_s:
-        score -= 2
+        components["Momentum"] = -2
+    else:
+        components["Momentum"] = 0
+    score += components["Momentum"]
 
-    # Momentum decay
-    if macd_h < macd_s and close > sma20:
-        score -= 1
+    # Weakening momentum while price holds above SMA20
+    components["MomentumDecay"] = -1 if macd_h < macd_s and close > sma20 else 0
+    score += components["MomentumDecay"]
 
-    # Timing / Pullback
+    # Pullback timing relative to SMA20
     dist_sma20 = (close - sma20) / sma20
     if 0.0 <= dist_sma20 <= 0.05:
-        score += 2
+        components["Timing"] = 2
     elif dist_sma20 > 0.12:
-        score -= 2
+        components["Timing"] = -2
     elif dist_sma20 < -0.05:
-        score -= 1
+        components["Timing"] = -1
+    else:
+        components["Timing"] = 0
+    score += components["Timing"]
 
-    # CCI
+    # CCI cyclical band (not used as raw momentum)
     if -100 < cci < 100 and cci > cci_s:
-        score += 1
+        components["CCI"] = 1
     elif cci > 200:
-        score -= 2
+        components["CCI"] = -2
     elif cci < -200:
-        score += 1
+        components["CCI"] = 1
+    else:
+        components["CCI"] = 0
+    score += components["CCI"]
 
-    # RSI risk
+    # RSI overextension caps
     if rsi > 80:
-        score = min(score, 5)
+        capped = min(score, 5)
+        components["RSI_Risk"] = capped - score
+        score = capped
     elif rsi > 70:
+        components["RSI_Risk"] = -1
         score -= 1
-    if rsi < 30:
+    elif rsi < 30:
+        components["RSI_Risk"] = 1
         score += 1
+    else:
+        components["RSI_Risk"] = 0
 
-    # High score persistence
-    if score >= 7:
-        if not (macd_h > 0 and rsi > 50):
-            score -= 2
+    # High scores need MACD > 0 and RSI > 50
+    if score >= 7 and not (macd_h > 0 and rsi > 50):
+        components["Persistence"] = -2
+        score -= 2
+    else:
+        components["Persistence"] = 0
 
-    return int(np.clip(score, -10, 10))
+    final = int(np.clip(score, -10, 10))
+    return final, components
+
+
+def score_last_row(last: pd.Series) -> int:
+    """Return the Vibe Score for the latest bar."""
+    score, _ = _compute_score(last)
+    return score
 
 
 def sentiment_action(score: int) -> tuple[str, str]:
+    """Map a Vibe Score to display sentiment and sizing-oriented action text."""
     if score >= 9:
         return "Bullish", "🟢 STARTER + ADD ON PULLBACK"
     if 7 <= score <= 8:
@@ -289,51 +333,23 @@ def scan_one_file(path: str) -> ScanRow:
 
 
 def calculate_vibe_score(ticker: str, df: pd.DataFrame, return_components: bool = False) -> dict:
+    """Score a single OHLC DataFrame (used by tests and ad-hoc analysis).
+
+    Args:
+        ticker: Symbol label (included for API compatibility; not used in math).
+        df: OHLCV history with Date and Close columns.
+        return_components: If True, include per-component point breakdown.
+
+    Returns:
+        Dict with ``Score`` and optionally ``Components`` or ``Error``.
+    """
     try:
         feat = build_features(df)
         last = feat.iloc[-1]
-        score = score_last_row(last)
+        score, components = _compute_score(last)
 
         if return_components:
-            close = last["Close"]
-            sma20 = last["SMA20"]
-            sma50 = last["SMA50"]
-            rsi = last["RSI"]
-            rsi_s = last["RSI_S"]
-            cci = last["CCI"]
-            cci_s = last["CCI_S"]
-            macd_h = last["MACD_H"]
-            macd_s = last["MACD_S"]
-
-            trend = 4 if close > sma20 > sma50 else (
-                -4 if close < sma20 < sma50 else 0)
-            momentum = 2 if macd_h > macd_s and rsi > rsi_s else (
-                -2 if macd_h < macd_s and rsi < rsi_s else 0)
-            momentum_decay = -1 if macd_h < macd_s and close > sma20 else 0
-            dist_sma20 = (close - sma20) / sma20
-            timing = 2 if 0.0 <= dist_sma20 <= 0.05 else (
-                -2 if dist_sma20 > 0.12 else (-1 if dist_sma20 < -0.05 else 0))
-            rsi_risk = - \
-                1 if 70 < rsi <= 80 else (
-                    min(score, 5) if rsi > 80 else (1 if rsi < 30 else 0))
-            cci_logic = 1 if - \
-                100 < cci < 100 and cci > cci_s else (-2 if cci > 200 else (1 if cci < -200 else 0))
-            weekly_bonus = 1 if score >= 7 and (macd_h > 0 and rsi > 50) else 0
-            persistence_check = 0  # placeholder
-
-            components = {
-                "Trend": trend,
-                "Momentum": momentum,
-                "MomentumDecay": momentum_decay,
-                "Timing": timing,
-                "CCI_Logic": cci_logic,
-                "RSI_Risk": rsi_risk,
-                "WeeklyBonus": weekly_bonus,
-                "PersistenceCheck": persistence_check
-            }
-
             return {"Score": score, "Components": components}
-
         return {"Score": score}
 
     except Exception as e:
@@ -341,6 +357,7 @@ def calculate_vibe_score(ticker: str, df: pd.DataFrame, return_components: bool 
 
 
 def run_scan(mode: str = "weekly", max_workers: Optional[int] = None) -> pd.DataFrame:
+    """Scan all raw CSVs for a mode and write the ranked vibe report."""
     mode_cfg = config.get_mode_config(mode)
     raw_dir = mode_cfg["raw_dir"]
     logs_dir = mode_cfg["logs_dir"]

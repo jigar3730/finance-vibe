@@ -1,4 +1,5 @@
 pandas
+numpy
 pandas_ta
 yfinance
 yahooquery

@@ -6,56 +6,54 @@ Stable
 
 ## Purpose
 
-This manual describes how to operate the Finance Vibe pipeline, the responsibilities of each script, and how to maintain or extend the project.
+This manual describes how to operate the Finance Vibe pipeline: data ingestion, macro scoring, tactical scanning, trade plan generation, and optional UI review.
 
-## Environment Requirements
+## Environment
 
-Recommended environment:
-
-- Python 3.10 or newer
-- pandas
-- pandas_ta
-- yfinance
-- yahooquery
-
-Install required packages with:
+- Python 3.10+
+- Install from repo root:
 
 ```bash
-python -m pip install pandas pandas_ta yfinance yahooquery
+python -m pip install -r requirements.txt
 ```
 
-> The repository is compatible with a dev container, but it can also run in any standard Python environment with the required packages installed.
+Core packages: `pandas`, `numpy`, `pandas_ta`, `yfinance`, `yahooquery`, `Flask`.
 
-## Directory Structure
+Compatible with the dev container or any standard Python environment with `PYTHONPATH=./src`.
 
-- `src/finance_vibe/` — Pipeline source code
-- `data/raw/{mode}/` — downloaded ticker CSV files
-- `data/logs/{mode}/` — generated vibe, scanner, and trade plan outputs
-- `data/active_tickers.csv` — ticker universe produced by `ticker_provider.py`
+## Directory layout
 
-## Standard Operating Procedure
+| Path | Contents |
+| ---- | -------- |
+| `src/finance_vibe/` | Pipeline source |
+| `data/active_tickers.csv` | Ticker universe |
+| `data/raw/weekly/` | Weekly OHLCV CSVs (`*_10y_1wk.csv`) |
+| `data/raw/daily/` | Daily OHLCV CSVs (`*_2y_1d.csv`) |
+| `data/logs/weekly/` | Weekly reports and trade plans |
+| `data/logs/daily/` | Daily reports and trade plans |
 
-### Full pipeline execution
+## Standard operating procedure
 
-From the repository root, run:
+### Full pipeline
 
 ```bash
 python src/finance_vibe/run_vibe.py
+python src/finance_vibe/run_vibe.py --mode daily
 ```
 
-This sequence is executed:
+Execution order:
 
-1. Deletes all files in `data/raw/{mode}/`.
-2. Runs `src/finance_vibe/ticker_provider.py` to regenerate `data/active_tickers.csv`.
-3. Runs `src/finance_vibe/data_ingestor.py` to download price data.
-4. Runs `src/finance_vibe/analysis_engine.py` to produce `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv`.
-5. Runs `src/finance_vibe/swing_scanner.py` to detect setups and save `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv`.
-6. Runs `src/finance_vibe/trade_planner.py` to build `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv`.
-7. Runs `src/finance_vibe/trade_plan_helper.py` to validate and save `data/logs/{mode}/trade_plan_clean_<YYYY-MM-DD>.csv`.
+| Step | Script | Output |
+| ---- | ------ | ------ |
+| 0 | (orchestrator) | Clears `data/raw/{mode}/` |
+| 1 | `ticker_provider.py` | `data/active_tickers.csv` |
+| 2 | `data_ingestor.py` | Raw CSVs in `data/raw/{mode}/` |
+| 3 | `analysis_engine.py` | `vibe_report_<date>.csv` |
+| 4 | `swing_scanner.py` | `swing_setups_<date>.csv` |
+| 5 | `trade_planner.py` | `trade_plan_<date>.csv` |
+| 6 | `trade_plan_helper.py` | `trade_plan_clean_<date>.csv` |
 
-### Manual script execution
-
-Run individual modules directly when needed:
+### Manual stages
 
 ```bash
 python src/finance_vibe/ticker_provider.py
@@ -66,105 +64,107 @@ python src/finance_vibe/trade_planner.py weekly
 python src/finance_vibe/trade_plan_helper.py weekly
 ```
 
-## Script Responsibilities
+Replace `weekly` with `daily` for the daily profile.
 
-### `src/finance_vibe/ticker_provider.py`
+## Script reference
 
-- Loads static tickers from `src/finance_vibe/config.py`.
-- Reads `src/finance_vibe/ticker_manifest.csv` if present.
-- Uses Yahoo Finance screeners to discover active tickers.
-- Saves the final ticker list to `data/active_tickers.csv`.
-- Limits the final list to 150 symbols for manageable ingestion.
+### `ticker_provider.py`
 
-### `src/finance_vibe/data_ingestor.py`
+- Merges `STATIC_TICKERS` (`config.py`), `ticker_manifest.csv`, and Yahoo Finance screeners
+- Writes `data/active_tickers.csv` (capped at 150 symbols)
 
-- Reads `data/active_tickers.csv`.
-- Downloads weekly OHLCV data with `yfinance`.
-- Writes each ticker file as `data/raw/<TICKER>_10y_1wk.csv`.
-- Standardizes column capitalization and drops incomplete weekly candles.
+### `data_ingestor.py`
 
-### `src/finance_vibe/analysis_engine.py`
+- Reads active tickers; downloads via `yfinance` using `TIMEFRAME_PROFILES` in `config.py`
+- Drops incomplete weekly candles (last bar if not Friday)
+- Uses `auto_adjust=True` for split/dividend-adjusted prices
 
-- Scores each ticker on a −10 to +10 macro Vibe Score (trend, momentum, timing, risk governors).
-- Reads raw CSV files from `data/raw/{mode}/`.
-- Saves ranked output to `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv`.
+### `analysis_engine.py` (macro layer)
 
-### `src/finance_vibe/swing_scanner.py`
+- Scores every raw CSV in `data/raw/{mode}/` on a **−10 to +10** Vibe Score
+- Requires ≥ 60 bars per file
+- Parallel scan via `ProcessPoolExecutor`
+- **Specification:** `src/finance_vibe/Scoring_Logic.md`
 
-- Loads active tickers and available raw data files.
-- Computes `EMA20`, `EMA50`, `MACD_Hist`, `RSI`, and `ATR`.
-- Applies long and short setup rules based on trend, momentum, and proximity to EMA20.
-- Saves matching setups to `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv`.
+### `swing_scanner.py` (tactical layer)
 
-### `src/finance_vibe/trade_planner.py`
+- Filters to symbols in `active_tickers.csv`
+- EMA20/50 trend, RSI band, MACD histogram slope + std-dev cap, ATR output
+- Only tickers passing setup rules appear in output
+- Weekly long RSI floor: 45; daily long RSI floor: 40
 
-- Reads the latest `swing_setups_*.csv` file from `data/logs/{mode}/`.
-- Calculates stock entry, stop, target levels, LEAPS type, and suggested delta.
-- Writes the result to `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv`.
+### `trade_planner.py`
 
-### `src/finance_vibe/trade_plan_helper.py`
+- Reads latest `swing_setups_*.csv` in `data/logs/{mode}/`
+- Computes stock entry, stop, 1R/2R targets from ATR and EMA levels
+- Weekly: LEAPS metadata (12–24 mo expiry); daily: options metadata (1–3 mo expiry)
 
-- Loads the expected trade plan for today using `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv`.
-- Cleans numeric columns and parses the delta range.
-- Writes a cleaned file to `data/logs/{mode}/trade_plan_clean_<YYYY-MM-DD>.csv`.
+### `trade_plan_helper.py`
 
-## Data Maintenance
+- Loads today’s `trade_plan_<date>.csv`
+- Parses delta range; adds Risk Per Share and R:R columns
+- Writes `trade_plan_clean_<date>.csv`
 
-To force a fresh ingestion run, remove raw data files:
-
-```bash
-rm data/raw/weekly/*.csv
-```
-
-## Optional UI Dashboard
-
-A lightweight dashboard is available at `src/finance_vibe/app.py`.
-
-Run the dashboard from the repository root:
+## UI dashboard
 
 ```bash
 python src/finance_vibe/app.py
 ```
 
-Open the browser at:
+Open `http://127.0.0.1:5000` to browse trade plans by mode and date.
 
-```text
-http://127.0.0.1:5000
+## Data maintenance
+
+Force re-download for one mode:
+
+```bash
+rm data/raw/weekly/*.csv
+python src/finance_vibe/run_vibe.py
 ```
-
-The UI shows the latest pipeline run and provides links to historic run details.
 
 ## Troubleshooting
 
-- If `data/active_tickers.csv` is missing, run `ticker_provider.py` first.
-- If `data_ingestor.py` shows no data for a ticker, that symbol is skipped.
-- If `swing_scanner.py` reports no valid setups, the current filters did not match any symbols.
-- If `trade_plan_helper.py` cannot find a file, ensure a matching `trade_plan_<YYYY-MM-DD>.csv` exists for today.
+| Symptom | Action |
+| ------- | ------ |
+| Missing `active_tickers.csv` | Run `ticker_provider.py` |
+| Ingest skips a symbol | No yfinance data for that ticker; check symbol validity |
+| Empty `swing_setups_*.csv` | No tickers matched tactical filters (expected in quiet markets) |
+| `trade_plan_helper` file not found | Run full pipeline first; helper expects today’s dated file |
+| Macro report missing tickers | Check ingest logs; file needs ≥ 60 rows |
 
-## Extending the Project
+## Extending the project
 
-### Add permanent tickers
+### Add tickers
 
-Edit `src/finance_vibe/config.py` and add symbols to `STATIC_TICKERS`.
+- Edit `STATIC_TICKERS` in `config.py`, or
+- Add rows to `ticker_manifest.csv`
 
-### Add or adjust indicator rules
+### Change lookback or cadence
 
-1. Update `src/finance_vibe/swing_scanner.py` for new setup logic.
-2. Update `src/finance_vibe/trade_planner.py` for any new level or options logic.
-3. Re-run the pipeline and verify output in `data/logs/{mode}/`.
+Edit `TIMEFRAME_PROFILES` in `config.py`:
 
-### Change the data window
+```python
+"weekly": {"period": "10y", "interval": "1wk", ...}
+"daily":  {"period": "2y",  "interval": "1d",  ...}
+```
 
-Edit `TIMEFRAME_PROFILES` in `src/finance_vibe/config.py` (e.g. `period: "10y"`, `interval: "1wk"` for weekly).
+### Change scoring or setup rules
 
-## Output Files
+1. Macro: edit `score_last_row()` in `analysis_engine.py`; update `Scoring_Logic.md`
+2. Tactical: edit `evaluate_setup()` in `swing_scanner.py`; update `swing_setup_readme.md`
+3. Execution: edit `trade_planner.py` for level/options logic
 
-- `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv` — macro Vibe Score scan
-- `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv` — tactical scanner results
-- `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv` — trade plan export for chosen setups
-- `data/logs/{mode}/trade_plan_clean_<YYYY-MM-DD>.csv` — cleaned trade plan export
+## Output files
+
+| File | Layer |
+| ---- | ----- |
+| `vibe_report_<date>.csv` | Macro |
+| `swing_setups_<date>.csv` | Tactical |
+| `trade_plan_<date>.csv` | Execution |
+| `trade_plan_clean_<date>.csv` | Execution (cleaned) |
 
 ## Notes
 
-- `run_vibe.py` clears raw data each run, so existing downloaded files are removed before ingestion.
-- `trade_plan_helper.py` currently expects a same-day `trade_plan_` file and will fail if the file date does not match today.
+- Each pipeline run clears `data/raw/{mode}/` before ingestion.
+- Macro (SMA) and tactical (EMA) indicators are intentionally different.
+- `trade_plan_helper.py` fails if the trade plan date does not match today when run alone.

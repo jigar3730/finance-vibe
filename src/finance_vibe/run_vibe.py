@@ -1,3 +1,8 @@
+"""Finance Vibe pipeline orchestrator.
+
+Runs ingestion, macro scoring, tactical scanning, and trade plan generation
+in sequence for a given timeframe profile (weekly or daily).
+"""
 import argparse
 from pathlib import Path
 import shutil
@@ -6,7 +11,7 @@ import sys
 import os
 
 def clean_raw_folder(root_dir, mode):
-    # Only clean the specific sub-silo to prevent cross-destruction
+    """Remove all files in data/raw/{mode}/ before a fresh ingestion run."""
     raw_dir = Path(root_dir) / "data" / "raw" / mode
     if not raw_dir.exists():
         print(f"⚠️ Raw '{mode}' folder does not exist. Skipping cleanup.")
@@ -24,7 +29,7 @@ def clean_raw_folder(root_dir, mode):
     print(f"🧹 Raw '{mode}' folder cleaned.\n")
 
 def run_workflow():
-    # 1. PARSE RUNTIME ARGUMENTS
+    """Parse CLI args and execute each pipeline stage as a subprocess."""
     parser = argparse.ArgumentParser(description="Finance-Vibe Pipeline Orchestrator")
     parser.add_argument(
         "--mode", 
@@ -78,7 +83,7 @@ def run_workflow():
             sys.exit(1)
 
     print("🏁 Workflow Complete!")
-    print(f"📁 Reports saved to: {os.path.join(ROOT_DIR, 'data/logs/')}")
+    print(f"📁 Reports saved to: {os.path.join(ROOT_DIR, 'data', 'logs', mode)}")
 
 if __name__ == "__main__":
     run_workflow()

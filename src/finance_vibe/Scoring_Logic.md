@@ -1,86 +1,124 @@
-## 🔧 Scoring Logic Overhaul (v2)
+# Macro Vibe Score — Scoring Logic
 
-This update fixes systemic flaws in the original scoring model that caused score saturation, late entries, and misleading “GO ALL IN” signals. The focus is now on **tradable opportunity**, not raw momentum.
+This document describes the **implemented** scoring rules in `analysis_engine.py`. The score ranks macro tradability on a **−10 to +10** scale. It favors trend structure and pullback timing over raw momentum.
 
----
-
-### 🚨 Problems Addressed
-
-- Scores frequently maxed out at 9–10 for overextended assets
-- RSI and CCI rewarded strength even in exhaustion zones
-- No distinction between trend quality and entry timing
-- Binary, reckless action labels (e.g. “GO ALL IN”)
+For tactical entry rules (EMA pullbacks), see `swing_scanner.py` and `swing_setup_readme.md`.
 
 ---
 
-### ✅ Key Improvements
+## Indicators (computed on each ticker’s OHLC CSV)
 
-#### 1. **Score Architecture Refactor**
+| Output | Definition |
+| ------ | ---------- |
+| **SMA20 / SMA50** | Simple moving average of `Close` (20 / 50 periods) |
+| **MACD_H** | MACD histogram: EMA(12) − EMA(26) of `Close`, minus 9-period EMA of that line |
+| **MACD_S** | 9-period EMA of `MACD_H` |
+| **RSI** | 14-period Wilder RSI on `Close` |
+| **RSI_S** | 10-period SMA of `RSI` |
+| **CCI** | 20-period CCI using typical price and **mean absolute deviation** (0.015 constant) |
+| **CCI_S** | 10-period SMA of `CCI` |
 
-Scores are now built from distinct components:
-
-- **Trend (0–4)** – structure via SMA20 > SMA50
-- **Momentum (−3 to +3)** – MACD + RSI direction with decay detection
-- **Timing (−2 to +2)** – distance from SMA20 (pullbacks favored)
-- **Risk Governors** – hard penalties for overextension
-
-This prevents score saturation and forces trade-offs.
-
----
-
-#### 2. **Overextension Penalties Added**
-
-Late-stage momentum is now explicitly penalized:
-
-- RSI > 70 → negative drift
-- RSI > 75 + CCI > 180 → strong penalty
-- RSI > 80 → hard cap on total score
-- Price > SMA20 by >12% → timing penalty
-
-Strength ≠ entry.
+Minimum history: **60 rows** per ticker (rows with insufficient data are skipped).
 
 ---
 
-#### 3. **CCI Logic Corrected**
+## Score components (additive, applied in order)
 
-CCI is no longer treated as a directional indicator:
+Each rule reads the **latest completed bar** only.
 
-- −100 to +100 → constructive zone
-- > +200 → exhaustion penalty
-- < −200 → rebound potential (small bonus)
+### 1. Trend (±4)
 
-This restores its mean-reversion intent.
+| Condition | Points |
+| --------- | ------ |
+| `Close > SMA20 > SMA50` | +4 |
+| `Close < SMA20 < SMA50` | −4 |
+| Otherwise | 0 |
+
+Partial trend credit (e.g. above SMA20 only) is **not** awarded.
+
+### 2. Momentum (±2)
+
+| Condition | Points |
+| --------- | ------ |
+| `MACD_H > MACD_S` **and** `RSI > RSI_S` | +2 |
+| `MACD_H < MACD_S` **and** `RSI < RSI_S` | −2 |
+| Otherwise | 0 |
+
+### 3. Momentum decay (−1)
+
+| Condition | Points |
+| --------- | ------ |
+| `MACD_H < MACD_S` **and** `Close > SMA20` | −1 |
+
+Penalizes bullish price structure with weakening momentum.
+
+### 4. Timing — distance from SMA20 (−2 to +2)
+
+Let `dist = (Close − SMA20) / SMA20`.
+
+| Condition | Points |
+| --------- | ------ |
+| `0.0 ≤ dist ≤ 0.05` (pullback into SMA20) | +2 |
+| `dist > 0.12` (overextended above SMA20) | −2 |
+| `dist < −0.05` (meaningfully below SMA20) | −1 |
+| Otherwise | 0 |
+
+### 5. CCI cyclical logic (−2 to +1)
+
+| Condition | Points |
+| --------- | ------ |
+| `−100 < CCI < 100` **and** `CCI > CCI_S` | +1 |
+| `CCI > 200` (exhaustion) | −2 |
+| `CCI < −200` (deep cyclical low) | +1 |
+| Otherwise | 0 |
+
+CCI is **not** used as a pure momentum booster outside the constructive band.
+
+### 6. RSI risk governors
+
+Applied **after** the components above:
+
+| Condition | Effect |
+| --------- | ------ |
+| `RSI > 80` | Cap total score at **5** (`min(score, 5)`) |
+| `70 < RSI ≤ 80` | −1 |
+| `RSI < 30` | +1 |
+
+### 7. High-score persistence (−2)
+
+If score is **≥ 7** after steps 1–6, require `MACD_H > 0` **and** `RSI > 50`. If not met, **−2**.
+
+### 8. Final clip
+
+Score is clipped to **\[−10, +10\]** and stored as an integer.
 
 ---
 
-#### 4. **Momentum Persistence Requirement**
+## Sentiment and action labels
 
-High scores now require **confirmation durability**:
-
-- Scores ≥ 8 must have MACD > 0 and RSI > 50
-- Prevents premature “top of first candle” signals
-
----
-
-#### 5. **Action Labels Replaced**
-
-Binary conviction removed. Actions now reflect position sizing and patience:
-
-| Score | Action                      |
-| ----- | --------------------------- |
-| 9+    | Starter + add on pullback   |
-| 7–8   | Starter position            |
-| 5–6   | Watch for pullback          |
-| 2–4   | Wait / No edge              |
-| ≤ −2  | Reduce / Avoid / Short bias |
+| Score | Sentiment | Action |
+| ----- | --------- | ------ |
+| ≥ 9 | Bullish | STARTER + ADD ON PULLBACK |
+| 7 – 8 | Bullish | STARTER POSITION |
+| 5 – 6 | Positive | WATCH / SCALE IN |
+| 2 – 4 | Neutral | WAIT |
+| −1 – 1 | Neutral | NO EDGE |
+| −4 – −2 | Bearish | REDUCE / HEDGE |
+| ≤ −5 | Bearish | AVOID / SHORT BIAS |
 
 ---
 
-### 📈 Result
+## Pipeline output
 
-- Fewer false positives
-- Clean score distribution (no mass 9–10s)
-- Overbought assets correctly downgraded
-- Scanner ranks **opportunity**, not hype
+- **File:** `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv`
+- **Columns:** Ticker, Price, SMA20, SMA50, CCI, CCI_S, MACD_H, MACD_S, RSI, RSI_S, Score, Sentiment, Action
+- **Sort:** Score descending, then Ticker ascending
 
-This version is intentionally quieter — and materially more tradable.
+---
+
+## Design intent
+
+- Penalize **overextension** (RSI caps, distance from SMA20, CCI > 200).
+- Reward **pullbacks into trend** (timing band near SMA20).
+- Use action labels that imply **position sizing**, not binary conviction.
+- Keep macro (SMA-based Vibe Score) separate from tactical (EMA-based swing scanner).

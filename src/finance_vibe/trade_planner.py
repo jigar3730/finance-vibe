@@ -1,3 +1,8 @@
+"""Trade plan generator: stock levels and options metadata from swing setups.
+
+Reads ``swing_setups_<date>.csv`` and writes ``trade_plan_<date>.csv`` with
+entry, stop, ATR targets, and LEAPS (weekly) or short-dated options (daily) fields.
+"""
 import os
 import sys
 import pandas as pd
@@ -26,6 +31,7 @@ OUTPUT_PREFIX = "trade_plan_"
 # --------- HELPER FUNCTIONS ----------
 
 def calculate_stock_levels(row):
+    """Derive entry, stop, targets, option side, and delta band from one setup row."""
     atr = row['ATR']
     close = row['Close']
     ema20 = row['EMA20']
@@ -69,6 +75,7 @@ def calculate_options_expiry():
 # --------- MAIN FUNCTION ----------
 
 def generate_trade_plan(scanner_csv_path=None):
+    """Build and export a trade plan CSV from the latest or provided scanner output."""
     print(f"--- STEP 5: Drafting Trade Execution Architectures [{mode.upper()} MODE] ---")
     
     # Auto-detect latest scanner CSV inside isolated subdirectory if none provided

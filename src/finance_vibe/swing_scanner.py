@@ -1,3 +1,11 @@
+"""Tactical swing setup scanner for Finance Vibe.
+
+Detects SETUP_LONG and SETUP_SHORT opportunities from EMA trend, RSI band,
+MACD histogram momentum, and proximity to EMA20. Output is written to
+``data/logs/{mode}/swing_setups_<date>.csv``.
+
+Macro regime context is provided separately by ``analysis_engine.py``.
+"""
 import os
 import sys
 import logging
@@ -39,6 +47,7 @@ logger = logging.getLogger(__name__)
 # =========================
 
 def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """Compute EMA, MACD histogram, RSI, and ATR; drop rows with NaN indicators."""
     df["EMA20"] = ta.ema(df["Close"], length=20)
     df["EMA50"] = ta.ema(df["Close"], length=50)
 
@@ -57,6 +66,7 @@ def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
 # =========================
 
 def momentum_ready_long(df: pd.DataFrame) -> bool:
+    """True when MACD histogram rose two consecutive bars and is not overextended."""
     h = df["MACD_Hist"].tail(3)
     if len(h) < 3:
         return False
@@ -71,6 +81,7 @@ def momentum_ready_long(df: pd.DataFrame) -> bool:
 
 
 def momentum_ready_short(df: pd.DataFrame) -> bool:
+    """True when MACD histogram fell two consecutive bars and is not overextended."""
     h = df["MACD_Hist"].tail(3)
     if len(h) < 3:
         return False
@@ -88,6 +99,7 @@ def momentum_ready_short(df: pd.DataFrame) -> bool:
 # =========================
 
 def evaluate_setup(df: pd.DataFrame):
+    """Return setup dict (SETUP_LONG/SHORT) or None if no tactical trigger."""
     latest = df.iloc[-1]
     prev = df.iloc[-2]
 
@@ -135,6 +147,7 @@ def evaluate_setup(df: pd.DataFrame):
 # =========================
 
 def run_scanner():
+    """Scan active tickers and archive matching setups to the mode log directory."""
     logger.info(f"--- STEP 4: Scanning Trends & Pullbacks [{mode.upper()} MODE] ---")
     
     if not os.path.exists(ACTIVE_TICKERS_PATH):
