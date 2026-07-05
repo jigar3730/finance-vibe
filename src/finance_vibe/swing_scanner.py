@@ -98,7 +98,7 @@ def momentum_ready_short(df: pd.DataFrame) -> bool:
 # SETUP LOGIC
 # =========================
 
-def evaluate_setup(df: pd.DataFrame):
+def evaluate_setup(df: pd.DataFrame, mode: str = "weekly"):
     """Return setup dict (SETUP_LONG/SHORT) or None if no tactical trigger."""
     latest = df.iloc[-1]
     prev = df.iloc[-2]
@@ -107,16 +107,12 @@ def evaluate_setup(df: pd.DataFrame):
     ema20 = latest["EMA20"]
     ema50 = latest["EMA50"]
 
-    # Minor profile adjustments for RSI tolerance boundaries
     rsi_min_long = 40 if mode == "daily" else 45
 
-    # -----------------
-    # LONG SETUP
-    # -----------------
     if (
         ema20 > ema50 and
-        ema50 > prev["EMA50"] and                 # EMA50 slope UP
-        ema20 <= close <= ema20 * 1.02 and        # Buy zone
+        ema50 > prev["EMA50"] and
+        ema20 <= close <= ema20 * 1.02 and
         rsi_min_long <= latest["RSI"] <= 60 and
         momentum_ready_long(df)
     ):
@@ -125,13 +121,10 @@ def evaluate_setup(df: pd.DataFrame):
             "Notes": "Pullback into 20EMA"
         }
 
-    # -----------------
-    # SHORT SETUP
-    # -----------------
     if (
         ema20 < ema50 and
-        ema50 < prev["EMA50"] and                 # EMA50 slope DOWN
-        ema20 * 0.98 <= close <= ema20 and        # Sell zone
+        ema50 < prev["EMA50"] and
+        ema20 * 0.98 <= close <= ema20 and
         50 <= latest["RSI"] <= 65 and
         momentum_ready_short(df)
     ):
@@ -141,6 +134,32 @@ def evaluate_setup(df: pd.DataFrame):
         }
 
     return None
+
+
+def detect_setup_at_bar(df: pd.DataFrame, symbol: str, mode: str = "weekly") -> dict | None:
+    """Evaluate the last bar of *df* and return a swing_setups-style row or None."""
+    if len(df) < 60:
+        return None
+
+    indicated = add_indicators(df.copy())
+    if len(indicated) < 2:
+        return None
+
+    setup = evaluate_setup(indicated, mode)
+    if not setup:
+        return None
+
+    latest = indicated.iloc[-1]
+    return {
+        "Symbol": symbol.upper(),
+        "Setup Type": setup["Setup Type"],
+        "Close": round(float(latest["Close"]), 2),
+        "EMA20": round(float(latest["EMA20"]), 2),
+        "EMA50": round(float(latest["EMA50"]), 2),
+        "RSI": round(float(latest["RSI"]), 2),
+        "ATR": round(float(latest["ATR"]), 2),
+        "Notes": setup["Notes"],
+    }
 
 # =========================
 # SCANNER
@@ -183,25 +202,12 @@ def run_scanner():
                 "insufficient_data", 0) + 1
             continue
 
-        df = add_indicators(df)
-
-        setup = evaluate_setup(df)
-        if not setup:
+        setup_row = detect_setup_at_bar(df, symbol, mode)
+        if not setup_row:
             rejection_counts["IGNORE"] = rejection_counts.get("IGNORE", 0) + 1
             continue
 
-        latest = df.iloc[-1]
-
-        results.append({
-            "Symbol": symbol,
-            "Setup Type": setup["Setup Type"],
-            "Close": round(latest["Close"], 2),
-            "EMA20": round(latest["EMA20"], 2),
-            "EMA50": round(latest["EMA50"], 2),
-            "RSI": round(latest["RSI"], 2),
-            "ATR": round(latest["ATR"], 2),
-            "Notes": setup["Notes"]
-        })
+        results.append(setup_row)
 
     if results:
         df_out = pd.DataFrame(results).sort_values("Symbol")

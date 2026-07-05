@@ -57,3 +57,11 @@ def get_raw_filename(ticker: str, cfg: dict) -> str:
 def get_raw_path(ticker: str, cfg: dict) -> str:
     """Absolute path to one ticker's raw CSV inside the active mode directory."""
     return os.path.join(cfg["raw_dir"], get_raw_filename(ticker, cfg))
+
+
+# Pipeline backtest defaults (offline validation; not part of run_vibe.py)
+BACKTEST_LONG_MIN_SCORE = 7
+BACKTEST_SHORT_MAX_SCORE = -2
+BACKTEST_WARMUP_BARS = 60
+BACKTEST_ENTRY_VALID_BARS = 4
+BACKTEST_MAX_HOLD_BARS = 12

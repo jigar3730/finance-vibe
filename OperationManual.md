@@ -105,6 +105,22 @@ Replace `weekly` with `daily` for the daily profile.
 - Parses delta range; adds Risk Per Share and R:R columns
 - Writes `trade_plan_clean_<date>.csv`
 
+### `src/finance_vibe/pipeline_backtest.py` (offline)
+
+Walk-forward validation of swing setup → trade-plan stock levels on historical OHLC CSVs.
+
+- Re-runs `detect_setup_at_bar()` and `calculate_stock_levels()` at each historical bar
+- Applies macro gate: LONG requires Vibe Score ≥ 7, SHORT requires Vibe Score ≤ −2
+- Simulates limit entry, stop, and ATR targets on forward High/Low bars
+- Writes `data/logs/{mode}/backtest_trades_<date>.csv`
+
+```bash
+python src/finance_vibe/pipeline_backtest.py weekly
+python src/finance_vibe/pipeline_backtest.py weekly --tickers SPY,QQQ
+```
+
+Not part of the default pipeline. Stock simulation only; no options P&L.
+
 ## UI dashboard
 
 ```bash
@@ -162,6 +178,7 @@ Edit `TIMEFRAME_PROFILES` in `config.py`:
 | `swing_setups_<date>.csv` | Tactical |
 | `trade_plan_<date>.csv` | Execution |
 | `trade_plan_clean_<date>.csv` | Execution (cleaned) |
+| `backtest_trades_<date>.csv` | Offline backtest (manual run) |
 
 ## Notes
 

@@ -124,6 +124,23 @@ python src/finance_vibe/app.py
 
 Browse historic trade plans by date and mode (weekly/daily).
 
+## Pipeline backtest (offline validation)
+
+Walk-forward backtest of swing setups + trade-plan stock levels on historical OHLC data, **with a macro Vibe Score gate** (not applied in the live pipeline today):
+
+- Long setups require Vibe Score ≥ 7
+- Short setups require Vibe Score ≤ −2
+
+```bash
+python src/finance_vibe/pipeline_backtest.py weekly
+python src/finance_vibe/pipeline_backtest.py weekly --tickers SPY,QQQ
+python src/finance_vibe/pipeline_backtest.py weekly --long-min-score 7 --short-max-score -2
+```
+
+Output: `data/logs/{mode}/backtest_trades_<date>.csv` plus a summary printed to stdout.
+
+**Limitations:** stock-level simulation only (no options); uses current `active_tickers.csv` universe; no transaction costs or slippage. Not part of the default `run_vibe.py` workflow.
+
 ## Notes
 
 - `run_vibe.py` deletes existing files in `data/raw/{mode}/` before each run.
@@ -135,3 +152,4 @@ Browse historic trade plans by date and mode (weekly/daily).
 - `OperationManual.md` — operations and troubleshooting
 - `src/finance_vibe/Scoring_Logic.md` — macro score specification
 - `swing_setup_readme.md` — tactical scanner reference
+- `src/finance_vibe/pipeline_backtest.py` — offline walk-forward validation

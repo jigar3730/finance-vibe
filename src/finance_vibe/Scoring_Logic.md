@@ -122,3 +122,14 @@ Score is clipped to **\[−10, +10\]** and stored as an integer.
 - Reward **pullbacks into trend** (timing band near SMA20).
 - Use action labels that imply **position sizing**, not binary conviction.
 - Keep macro (SMA-based Vibe Score) separate from tactical (EMA-based swing scanner).
+
+## Backtest macro gate
+
+The offline backtest in `pipeline_backtest.py` applies a macro filter that the live pipeline does **not** enforce today:
+
+| Setup | Required Vibe Score | Aligns with action band |
+| ----- | ------------------- | ----------------------- |
+| `SETUP_LONG` | ≥ 7 | STARTER POSITION or higher |
+| `SETUP_SHORT` | ≤ −2 | REDUCE / HEDGE or lower |
+
+Thresholds are configurable via `config.py` (`BACKTEST_LONG_MIN_SCORE`, `BACKTEST_SHORT_MAX_SCORE`) or CLI flags.
