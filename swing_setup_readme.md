@@ -1,142 +1,27 @@
-Here’s the **README** fully formatted as a proper Markdown file (`README.md`) that you can drop in your project:
-
----
-
-```markdown
-# Swing Scanner - README
+# Swing Scanner
 
 ## Overview
 
-`swing_scanner.py` is a **rule-based swing trading scanner** that analyzes stock price data and identifies potential **long and short swing trade setups** based on trend, momentum, volatility, and pullback conditions.  
+`swing_scanner.py` is the **tactical layer** of Finance Vibe. It detects `SETUP_LONG` and `SETUP_SHORT` opportunities from EMA trend, RSI band, MACD histogram momentum, and ATR-based volatility context.
 
-It is designed for weekly (or daily) price data in CSV format and provides a **scored output** along with actionable signals.
-
----
-
-## Features
-
-- Detects **SETUP_LONG** and **SETUP_SHORT** trades  
-- Calculates **SMA20/SMA50, EMA20/EMA50, RSI, MACD, CCI, ATR**  
-- Assigns **composite scores** to summarize trend + momentum + volatility  
-- Generates **Notes** to explain why each ticker triggered  
-- Archives results in `/data/logs`  
-- Full logging for debugging and audit purposes
-
----
-
-## Folder Structure
-
-```
-
-finance-vibe/
-├── data/
-│   ├── raw/                # Contains raw CSV files for tickers
-│   ├── logs/               # Scanner output and logs
-│   └── active_tickers.csv  # Optional: restrict scanner to specific tickers
-├── src/finance_vibe/
-│   └── swing_scanner.py
-
-````
-
----
-
-## Requirements
-
-- Python 3.10+
-- Packages:
-
-```bash
-pip install pandas pandas_ta
-````
-
----
-
-## CSV Format
-
-Each raw ticker CSV should include:
-
-| Date | Open | High | Low | Close | Volume |
-| ---- | ---- | ---- | --- | ----- | ------ |
-
-* `Date` must be parseable by Pandas (`YYYY-MM-DD`)
-* Recommended: **weekly bars** (`1wk`) or daily bars
-
----
+Macro regime context lives in `analysis_engine.py` (`vibe_report_<date>.csv`).
 
 ## Usage
 
-1. **Place raw data CSVs** in `/data/raw/`
-2. (Optional) Add `active_tickers.csv` with column `Ticker` to restrict scanning
-3. Run the scanner:
-
 ```bash
-python src/finance_vibe/swing_scanner.py
+python src/finance_vibe/swing_scanner.py weekly
+python src/finance_vibe/swing_scanner.py daily
 ```
-
----
 
 ## Output
 
-* Console output (Markdown table) shows:
+`data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv`
 
 | Symbol | Setup Type | Close | EMA20 | EMA50 | RSI | ATR | Notes |
 | ------ | ---------- | ----- | ----- | ----- | --- | --- | ----- |
 
-* CSV archive saved automatically to:
+## Logic Summary
 
-```
-data/logs/swing_setups_YYYY-MM-DD.csv
-```
+**Long:** EMA20 > EMA50, rising EMA50, price within 2% of EMA20, RSI 45–60 (40–60 daily), MACD histogram rising without overextension.
 
-* **Setup Type**:
-
-  * `SETUP_LONG` → Bullish swing setup
-  * `SETUP_SHORT` → Bearish swing setup
-* **Notes** → Reason setup triggered (e.g., “Pullback into 20EMA”)
-
----
-
-## Scanner Logic Overview
-
-1. **Trend Check**: Price relative to EMA20/EMA50
-2. **Momentum Check**: RSI and MACD alignment
-3. **Volatility Check**: ATR / CCI threshold
-4. **Pullback Filter**: Price near short-term moving average
-5. **Composite Scoring**:
-
-   * Trend + Momentum + Volatility = Total Score
-   * Score ≥ threshold → flagged as trade setup
-
----
-
-## Logging
-
-* Logs saved to `/data/logs/swing_scanner.log`
-* Info includes:
-
-  * Number of raw files found
-  * Number of tickers scanned
-  * Reason for rejections (insufficient data, inactive tickers, failing filters)
-
----
-
-## Example
-
-```
-| Symbol | Setup Type | Close  | EMA20  | EMA50  | RSI  | ATR  | Notes               |
-|--------|------------|--------|--------|--------|------|------|--------------------|
-| SPY    | SETUP_LONG | 687.35 | 687.13 | 685.25 | 50.1 | 8.10 | Pullback into 20EMA|
-| QQQ    | SETUP_SHORT| 607.87 | 609.81 | 612.99 | 47.4 | 9.95 | Pullback into 20EMA|
-```
-
----
-
-## Tips
-
-* Verify **Notes** and chart visually before entering a trade
-* Use **ATR** to set stop-loss levels
-* Archive CSVs for historical performance tracking
-* Adjust EMA, RSI, or pullback thresholds in code to fine-tune your strategy
-
----
-
+**Short:** EMA20 < EMA50, falling EMA50, price within 2% of EMA20, RSI 50–65, MACD histogram falling without overextension.

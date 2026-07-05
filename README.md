@@ -17,19 +17,21 @@ This repository separates application logic from generated output data. The core
 
 - `src/finance_vibe/run_vibe.py` - Orchestrates the full pipeline in sequence
 - `src/finance_vibe/ticker_provider.py` - Builds `data/active_tickers.csv` from a manifest, static tickers, and Yahoo Finance screeners
-- `src/finance_vibe/data_ingestor.py` - Downloads weekly market data using `yfinance`
-- `src/finance_vibe/swing_scanner.py` - Scans raw data for swing trade setups using EMA, RSI, MACD, and ATR rules
+- `src/finance_vibe/data_ingestor.py` - Downloads weekly/daily market data using `yfinance`
+- `src/finance_vibe/analysis_engine.py` - Macro Vibe Score scan (−10 to +10) across the active universe
+- `src/finance_vibe/swing_scanner.py` - Tactical swing setup scan using EMA, RSI, MACD, and ATR rules
 - `src/finance_vibe/trade_planner.py` - Converts scanner output into stock levels, targets, and LEAPS guidance
 - `src/finance_vibe/trade_plan_helper.py` - Cleans the latest generated trade plan and exports a cleaned CSV
 
 ## Pipeline Flow
 
-1. `run_vibe.py` cleans `data/raw/`.
+1. `run_vibe.py` cleans `data/raw/{mode}/`.
 2. It runs `ticker_provider.py` to generate `data/active_tickers.csv`.
-3. It runs `data_ingestor.py` to download weekly OHLCV data for each active ticker.
-4. It runs `swing_scanner.py` to detect setups and save `data/logs/swing_setups_<YYYY-MM-DD>.csv`.
-5. It runs `trade_planner.py` to create `data/logs/trade_plan_<YYYY-MM-DD>.csv`.
-6. It runs `trade_plan_helper.py` to validate and save `data/logs/trade_plan_clean_<YYYY-MM-DD>.csv`.
+3. It runs `data_ingestor.py` to download OHLCV data for each active ticker.
+4. It runs `analysis_engine.py` to score macro trend/momentum and save `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv`.
+5. It runs `swing_scanner.py` to detect setups and save `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv`.
+6. It runs `trade_planner.py` to create `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv`.
+7. It runs `trade_plan_helper.py` to validate and save `data/logs/{mode}/trade_plan_clean_<YYYY-MM-DD>.csv`.
 
 ## Running the Project
 
@@ -45,19 +47,23 @@ This executes the full pipeline and writes output into `data/logs/`.
 
 ```bash
 python src/finance_vibe/ticker_provider.py
-python src/finance_vibe/data_ingestor.py
-python src/finance_vibe/swing_scanner.py
-python src/finance_vibe/trade_planner.py
-python src/finance_vibe/trade_plan_helper.py
+python src/finance_vibe/data_ingestor.py weekly
+python src/finance_vibe/analysis_engine.py weekly
+python src/finance_vibe/swing_scanner.py weekly
+python src/finance_vibe/trade_planner.py weekly
+python src/finance_vibe/trade_plan_helper.py weekly
 ```
+
+Use `daily` instead of `weekly` for the daily profile.
 
 ## Data Files
 
 - `data/active_tickers.csv` — Active ticker universe created by `ticker_provider.py`
-- `data/raw/<TICKER>_10y_1wk.csv` — Raw weekly OHLCV source files
-- `data/logs/swing_setups_<YYYY-MM-DD>.csv` — Scanner output with detected setups
-- `data/logs/trade_plan_<YYYY-MM-DD>.csv` — Generated trade plan from scanner output
-- `data/logs/trade_plan_clean_<YYYY-MM-DD>.csv` — Cleaned version of the latest trade plan
+- `data/raw/{mode}/<TICKER>_<period>_<interval>.csv` — Raw OHLCV source files
+- `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv` — Macro Vibe Score scan across the universe
+- `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv` — Tactical swing scanner output
+- `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv` — Generated trade plan from scanner output
+- `data/logs/{mode}/trade_plan_clean_<YYYY-MM-DD>.csv` — Cleaned version of the latest trade plan
 
 ## Core Logic Summary
 
@@ -73,6 +79,12 @@ python src/finance_vibe/trade_plan_helper.py
 - `data_ingestor.py` reads `data/active_tickers.csv` and downloads weekly data with `yfinance`.
 - Raw files are saved using the configured period and interval from `src/finance_vibe/config.py`.
 - The ingestion step normalizes columns and drops incomplete weekly candles.
+
+### Macro Vibe Score
+
+- `analysis_engine.py` scores each ticker on a −10 to +10 scale using SMA trend, MACD/RSI momentum, pullback timing, and RSI/CCI risk governors.
+- Output is saved to `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv`.
+- See `src/finance_vibe/Scoring_Logic.md` for the full rubric.
 
 ### Swing Scanner Rules
 
@@ -137,10 +149,9 @@ Use the home page to see the latest run summary and click individual dates for h
 
 ## Notes and Caveats
 
-- The pipeline is designed for weekly analysis, not intraday trading.
-- `run_vibe.py` removes all files from `data/raw/` before ingestion.
+- The pipeline supports `weekly` (default) and `daily` modes via `--mode`.
+- `run_vibe.py` removes all files from `data/raw/{mode}/` before ingestion.
 - `trade_plan_helper.py` expects a same-day trade plan file when run manually.
-- `analysis_engine.py` and `analysis_engine_local.py` exist for validation and comparison but are not executed by the default workflow.
 
 ## Recommended Next Steps
 

@@ -29,8 +29,8 @@ python -m pip install pandas pandas_ta yfinance yahooquery
 ## Directory Structure
 
 - `src/finance_vibe/` — Pipeline source code
-- `data/raw/` — downloaded weekly ticker CSV files
-- `data/logs/` — generated scanner and trade plan outputs
+- `data/raw/{mode}/` — downloaded ticker CSV files
+- `data/logs/{mode}/` — generated vibe, scanner, and trade plan outputs
 - `data/active_tickers.csv` — ticker universe produced by `ticker_provider.py`
 
 ## Standard Operating Procedure
@@ -45,12 +45,13 @@ python src/finance_vibe/run_vibe.py
 
 This sequence is executed:
 
-1. Deletes all files in `data/raw/`.
+1. Deletes all files in `data/raw/{mode}/`.
 2. Runs `src/finance_vibe/ticker_provider.py` to regenerate `data/active_tickers.csv`.
-3. Runs `src/finance_vibe/data_ingestor.py` to download weekly price data.
-4. Runs `src/finance_vibe/swing_scanner.py` to detect setups and save `data/logs/swing_setups_<YYYY-MM-DD>.csv`.
-5. Runs `src/finance_vibe/trade_planner.py` to build `data/logs/trade_plan_<YYYY-MM-DD>.csv`.
-6. Runs `src/finance_vibe/trade_plan_helper.py` to validate and save `data/logs/trade_plan_clean_<YYYY-MM-DD>.csv`.
+3. Runs `src/finance_vibe/data_ingestor.py` to download price data.
+4. Runs `src/finance_vibe/analysis_engine.py` to produce `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv`.
+5. Runs `src/finance_vibe/swing_scanner.py` to detect setups and save `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv`.
+6. Runs `src/finance_vibe/trade_planner.py` to build `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv`.
+7. Runs `src/finance_vibe/trade_plan_helper.py` to validate and save `data/logs/{mode}/trade_plan_clean_<YYYY-MM-DD>.csv`.
 
 ### Manual script execution
 
@@ -58,17 +59,11 @@ Run individual modules directly when needed:
 
 ```bash
 python src/finance_vibe/ticker_provider.py
-python src/finance_vibe/data_ingestor.py
-python src/finance_vibe/swing_scanner.py
-python src/finance_vibe/trade_planner.py
-python src/finance_vibe/trade_plan_helper.py
-```
-
-Additional analysis scripts are available for manual use but are not part of the default workflow:
-
-```bash
-python src/finance_vibe/analysis_engine.py
-python src/finance_vibe/analysis_engine_local.py
+python src/finance_vibe/data_ingestor.py weekly
+python src/finance_vibe/analysis_engine.py weekly
+python src/finance_vibe/swing_scanner.py weekly
+python src/finance_vibe/trade_planner.py weekly
+python src/finance_vibe/trade_plan_helper.py weekly
 ```
 
 ## Script Responsibilities
@@ -88,31 +83,37 @@ python src/finance_vibe/analysis_engine_local.py
 - Writes each ticker file as `data/raw/<TICKER>_10y_1wk.csv`.
 - Standardizes column capitalization and drops incomplete weekly candles.
 
+### `src/finance_vibe/analysis_engine.py`
+
+- Scores each ticker on a −10 to +10 macro Vibe Score (trend, momentum, timing, risk governors).
+- Reads raw CSV files from `data/raw/{mode}/`.
+- Saves ranked output to `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv`.
+
 ### `src/finance_vibe/swing_scanner.py`
 
 - Loads active tickers and available raw data files.
 - Computes `EMA20`, `EMA50`, `MACD_Hist`, `RSI`, and `ATR`.
 - Applies long and short setup rules based on trend, momentum, and proximity to EMA20.
-- Saves matching setups to `data/logs/swing_setups_<YYYY-MM-DD>.csv`.
+- Saves matching setups to `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv`.
 
 ### `src/finance_vibe/trade_planner.py`
 
-- Reads the latest `swing_setups_*.csv` file from `data/logs/`.
+- Reads the latest `swing_setups_*.csv` file from `data/logs/{mode}/`.
 - Calculates stock entry, stop, target levels, LEAPS type, and suggested delta.
-- Writes the result to `data/logs/trade_plan_<YYYY-MM-DD>.csv`.
+- Writes the result to `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv`.
 
 ### `src/finance_vibe/trade_plan_helper.py`
 
-- Loads the expected trade plan for today using `data/logs/trade_plan_<YYYY-MM-DD>.csv`.
+- Loads the expected trade plan for today using `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv`.
 - Cleans numeric columns and parses the delta range.
-- Writes a cleaned file to `data/logs/trade_plan_clean_<YYYY-MM-DD>.csv`.
+- Writes a cleaned file to `data/logs/{mode}/trade_plan_clean_<YYYY-MM-DD>.csv`.
 
 ## Data Maintenance
 
 To force a fresh ingestion run, remove raw data files:
 
 ```bash
-rm data/raw/*.csv
+rm data/raw/weekly/*.csv
 ```
 
 ## Optional UI Dashboard
@@ -150,23 +151,20 @@ Edit `src/finance_vibe/config.py` and add symbols to `STATIC_TICKERS`.
 
 1. Update `src/finance_vibe/swing_scanner.py` for new setup logic.
 2. Update `src/finance_vibe/trade_planner.py` for any new level or options logic.
-3. Re-run the pipeline and verify output in `data/logs/`.
+3. Re-run the pipeline and verify output in `data/logs/{mode}/`.
 
 ### Change the data window
 
-Edit the period and interval in `src/finance_vibe/config.py`:
-
-- `PERIOD = "10y"`
-- `INTERVAL = "1wk"`
+Edit `TIMEFRAME_PROFILES` in `src/finance_vibe/config.py` (e.g. `period: "10y"`, `interval: "1wk"` for weekly).
 
 ## Output Files
 
-- `data/logs/swing_setups_<YYYY-MM-DD>.csv` — scanner results with detected setups
-- `data/logs/trade_plan_<YYYY-MM-DD>.csv` — trade plan export for the chosen setups
-- `data/logs/trade_plan_clean_<YYYY-MM-DD>.csv` — cleaned trade plan export
+- `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv` — macro Vibe Score scan
+- `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv` — tactical scanner results
+- `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv` — trade plan export for chosen setups
+- `data/logs/{mode}/trade_plan_clean_<YYYY-MM-DD>.csv` — cleaned trade plan export
 
 ## Notes
 
 - `run_vibe.py` clears raw data each run, so existing downloaded files are removed before ingestion.
 - `trade_plan_helper.py` currently expects a same-day `trade_plan_` file and will fail if the file date does not match today.
-- `analysis_engine.py` and `analysis_engine_local.py` are available for validation and are not required for the default workflow.

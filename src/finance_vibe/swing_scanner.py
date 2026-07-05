@@ -135,7 +135,7 @@ def evaluate_setup(df: pd.DataFrame):
 # =========================
 
 def run_scanner():
-    logger.info(f"--- STEP 3: Scanning Trends & Pullbacks [{mode.upper()} MODE] ---")
+    logger.info(f"--- STEP 4: Scanning Trends & Pullbacks [{mode.upper()} MODE] ---")
     
     if not os.path.exists(ACTIVE_TICKERS_PATH):
         logger.error(f"Missing active tickers inventory file at {ACTIVE_TICKERS_PATH}")

@@ -69,7 +69,7 @@ def calculate_options_expiry():
 # --------- MAIN FUNCTION ----------
 
 def generate_trade_plan(scanner_csv_path=None):
-    print(f"--- STEP 4: Drafting Trade Execution Architectures [{mode.upper()} MODE] ---")
+    print(f"--- STEP 5: Drafting Trade Execution Architectures [{mode.upper()} MODE] ---")
     
     # Auto-detect latest scanner CSV inside isolated subdirectory if none provided
     if scanner_csv_path is None:
