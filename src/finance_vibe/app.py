@@ -2,6 +2,7 @@ import os
 import glob
 from datetime import datetime
 import pandas as pd
+import yfinance as yf  # Added for live price fetching
 from flask import Flask, render_template_string, request, abort
 
 app = Flask(__name__)
@@ -10,7 +11,7 @@ app = Flask(__name__)
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 LOGS_BASE_DIR = os.path.join(BASE_DIR, "data", "logs")
 
-# The new dual-timeframe folder structure paths
+# The dual-timeframe folder structure paths
 MODES = {
     "weekly": os.path.join(LOGS_BASE_DIR, "weekly"),
     "daily": os.path.join(LOGS_BASE_DIR, "daily")
@@ -47,6 +48,27 @@ def get_available_runs():
                 continue
                 
     return runs
+
+def fetch_live_prices(symbols):
+    """Fetches real-time prices efficiently using yfinance fast_info."""
+    if not symbols:
+        return {}
+    try:
+        # Create a batch query string (e.g., "DKNG GOOGL HLT")
+        tickers_str = " ".join(symbols)
+        tickers = yf.Tickers(tickers_str)
+        
+        prices = {}
+        for sym in symbols:
+            try:
+                # fast_info fetches the live feed price rapidly without scraping overhead
+                prices[sym] = round(tickers.tickers[sym].fast_info['last_price'], 2)
+            except Exception:
+                prices[sym] = "N/A"  # Fallback if ticker data fetch fails
+        return prices
+    except Exception as e:
+        print(f"Error fetching live prices: {e}")
+        return {sym: "N/A" for sym in symbols}
 
 # Embedded lightweight HTML templates for simple maintenance
 INDEX_TEMPLATE = """
@@ -132,12 +154,18 @@ VIEW_TEMPLATE = """
         
         /* Interactive ticker links layout modifications */
         .ticker-link {
-            color: #1a73e8; 
+            color: #0056b3; 
             text-decoration: none;
             font-weight: bold;
         }
         .ticker-link:hover {
             text-decoration: underline;
+        }
+        /* Highlight styling for the new Live Price field */
+        .live-price-cell {
+            font-weight: 600;
+            color: #2e7d32;
+            background-color: #f4faf4;
         }
     </style>
 </head>
@@ -178,10 +206,10 @@ def view_run(mode, date):
     try:
         df = pd.read_csv(target_path)
         
-        # Clean whitespaces out of column definitions to ensure formatting accuracy
+        # Clean whitespaces out of column definitions
         df.columns = df.columns.str.strip()
         
-        # Target the ticker symbol column dynamically regardless of exact capitalization variations
+        # Target the ticker symbol column dynamically
         symbol_col = None
         for col in df.columns:
             if col.lower() in ["symbol", "ticker"]:
@@ -189,14 +217,29 @@ def view_run(mode, date):
                 break
                 
         if symbol_col is not None:
-            # Transform the plain strings into fully custom operational anchor tags
-            # Format pattern fits: https://www.google.com/finance/beta/quote/ECL:NYSE
-            df[symbol_col] = df[symbol_col].apply(
-                lambda x: f'<a href="https://www.google.com/finance/beta/quote/{str(x).strip().upper()}:NYSE" target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
+            # 1. Gather clean, raw symbol strings to request live quotes
+            raw_symbols = [str(x).strip().upper() for x in df[symbol_col].dropna().unique()]
+            live_price_map = fetch_live_prices(raw_symbols)
+            
+            # 2. Add 'Live Price' values aligned with symbols
+            df['Live Price'] = df[symbol_col].apply(
+                lambda x: f'<span class="live-price-cell">${live_price_map.get(str(x).strip().upper(), "N/A")}</span>'
                 if pd.notna(x) else ""
             )
             
-        # Crucial configuration shift: escape=False ensures Pandas treats raw HTML string injection as valid code blocks
+            # 3. Restructure layout: Inject 'Live Price' right after the 'Symbol' column
+            cols = list(df.columns)
+            symbol_idx = cols.index(symbol_col)
+            cols.insert(symbol_idx + 1, cols.pop(cols.index('Live Price')))
+            df = df[cols]
+            
+            # 4. Convert plain strings into operational Yahoo Finance anchor links
+            df[symbol_col] = df[symbol_col].apply(
+                lambda x: f'<a href="https://finance.yahoo.com/quote/{str(x).strip().upper()}" target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
+                if pd.notna(x) else ""
+            )
+            
+        # escape=False ensures Pandas treats custom injected HTML elements cleanly
         table_html = df.to_html(classes="table", index=False, border=0, escape=False)
         return render_template_string(VIEW_TEMPLATE, mode=mode, date=date, file_name=requested_file, table_html=table_html)
     except Exception as e:
