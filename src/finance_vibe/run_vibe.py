@@ -54,7 +54,7 @@ def run_workflow():
     scripts_config = [
         {"path": "src/finance_vibe/ticker_provider.py", "pass_mode": False},
         {"path": "src/finance_vibe/data_ingestor.py", "pass_mode": True},
-        {"path": "src/finance_vibe/analysis_engine.py", "pass_mode": True},
+        #{"path": "src/finance_vibe/analysis_engine.py", "pass_mode": True},
         {"path": "src/finance_vibe/swing_scanner.py", "pass_mode": True},
         {"path": "src/finance_vibe/coiled_cobra.py", "pass_mode": True},
         {"path": "src/finance_vibe/trade_planner.py", "pass_mode": True},
