@@ -43,7 +43,7 @@ def get_mode_config(mode: str = None) -> dict:
 
 
 # Always-included symbols merged with manifest and screener output
-STATIC_TICKERS = ["SPY", "QQQ", "IWM", "SCHD"]
+STATIC_TICKERS = ["SPY", "QQQ", "IWM", "SCHD","IBIT","SCHG"]
 
 BASE_DIR = os.path.join(PROJECT_ROOT, "data")
 TICKER_LIST_PATH = os.path.join(BASE_DIR, "active_tickers.csv")
