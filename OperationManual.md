@@ -121,6 +121,24 @@ python src/finance_vibe/pipeline_backtest.py weekly --tickers SPY,QQQ
 
 Not part of the default pipeline. Stock simulation only; no options P&L.
 
+### `src/finance_vibe/coiled_cobra_backtest.py` (Coiled Cobra historical)
+
+Walk-forward validation and historical backfill for the Coiled Cobra macro-reversal scanner.
+
+- `--backfill` exports a historical Coiled Cobra signal archive to `data/logs/{mode}/coiled_cobra_backfill_<date>.csv`.
+- `--backtest` runs a walk-forward stock-level backtest and writes `data/logs/{mode}/coiled_cobra_backtest_trades_<date>.csv`.
+
+Usage (container recommended):
+
+```bash
+python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill
+python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
+```
+
+Notes:
+- Uses the same `evaluate_coiled_cobra()` engine as the live scanner but evaluates every eligible historical bar.
+- `trade_planner.py` now recognizes `Source` == `coiled_cobra` so Coiled Cobra setups use Fib 78.6% entry logic.
+
 ## UI dashboard
 
 ```bash

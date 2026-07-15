@@ -12,6 +12,7 @@ The orchestrator is `src/finance_vibe/run_vibe.py`.
 | ----- | ------ | ------ |
 | **Macro** | `analysis_engine.py` | `data/logs/{mode}/vibe_report_<date>.csv` |
 | **Tactical** | `swing_scanner.py` | `data/logs/{mode}/swing_setups_<date>.csv` |
+| **Coiled Cobra (Macro Reversal)** | `coiled_cobra.py` / `coiled_cobra_backtest.py` | `data/logs/{mode}/coiled_cobra_setups_<date>.csv`, `coiled_cobra_backfill_<date>.csv`, `coiled_cobra_backtest_trades_<date>.csv` |
 
 Macro scoring rules: `src/finance_vibe/Scoring_Logic.md`.
 
@@ -44,6 +45,14 @@ Full pipeline (weekly default):
 ```bash
 python src/finance_vibe/run_vibe.py
 python src/finance_vibe/run_vibe.py --mode daily
+```
+
+Run Coiled Cobra backfill/backtest directly (container recommended):
+
+```bash
+python src/finance_vibe/coiled_cobra.py weekly            # run live scanner (latest bar)
+python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill   # export historical signal archive
+python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest    # run walk-forward backtest
 ```
 
 Individual stages (pass `weekly` or `daily` where noted):
@@ -135,6 +144,10 @@ Walk-forward backtest of swing setups + trade-plan stock levels on historical OH
 python src/finance_vibe/pipeline_backtest.py weekly
 python src/finance_vibe/pipeline_backtest.py weekly --tickers SPY,QQQ
 python src/finance_vibe/pipeline_backtest.py weekly --long-min-score 7 --short-max-score -2
+
+# Coiled Cobra backtest (separate module)
+python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
+python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill
 ```
 
 Output: `data/logs/{mode}/backtest_trades_<date>.csv` plus a summary printed to stdout.
@@ -146,6 +159,8 @@ Output: `data/logs/{mode}/backtest_trades_<date>.csv` plus a summary printed to 
 - `run_vibe.py` deletes existing files in `data/raw/{mode}/` before each run.
 - `trade_plan_helper.py` expects a same-day `trade_plan_<date>.csv` when run standalone.
 - Macro and tactical layers use different moving averages (SMA vs EMA) by design.
+ - `trade_planner.py` now normalizes `Source` values for Coiled Cobra (`coiled_cobra`) so the Coiled Cobra branch is applied when backtesting/backfilling.
+ - `evaluate_coiled_cobra()` may return `None` for non-qualifying bars; code now treats that return as optional in backtest logic.
 
 ## Further reading
 
