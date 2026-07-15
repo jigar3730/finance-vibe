@@ -18,9 +18,9 @@ def test_passes_macro_gate_short():
 def test_simulate_trade_long_stopped():
     df = pd.DataFrame({
         "Date": pd.date_range("2024-01-01", periods=4, freq="W"),
-        "High": [110.0, 108.0, 99.0, 100.0],
+        "High": [110.0, 101.0, 99.0, 100.0],
         "Low": [100.0, 100.0, 95.0, 96.0],
-        "Close": [105.0, 102.0, 97.0, 98.0],
+        "Close": [105.0, 100.0, 97.0, 98.0],
     })
     outcome, exit_date, exit_price, r_mult = simulate_trade(
         df,

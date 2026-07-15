@@ -45,7 +45,7 @@ def calculate_stock_levels(row):
     ema20 = row["EMA20"]
     ema50 = row["EMA50"]
     fib786 = row.get("Fib 78.6%", None)
-    source = row.get("Source", "swing")
+    source = str(row.get("Source", "swing")).strip().lower()
     setup_type = row["Setup Type"]
 
     # Default option params (long-only for now)
@@ -53,7 +53,7 @@ def calculate_stock_levels(row):
     delta_range = DELTA_LONG
 
     if setup_type == "SETUP_LONG":
-        if source == "coiled_cobra" and fib786 is not None:
+        if source in {"coiled_cobra", "cobra"} and fib786 is not None:
             # --- Coiled Cobra macro-reversal long ---
             # Entry: near Fib 78.6 or slight pullback from close
             entry = max(fib786, close - 0.25 * atr)
@@ -154,14 +154,14 @@ def generate_trade_plan(scanner_csv_path=None):
     df_swing = None
     if swing_csv_path:
         df_swing = pd.read_csv(swing_csv_path)
-        df_swing["Source"] = "Swing"
+        df_swing["Source"] = "swing"
         print(f"Loaded {len(df_swing)} swing setups.")
 
     # Load Coiled Cobra setups
     df_cobra = None
     if cobra_csv_path:
         df_cobra = pd.read_csv(cobra_csv_path)
-        df_cobra["Source"] = "Cobra"
+        df_cobra["Source"] = "coiled_cobra"
         print(f"Loaded {len(df_cobra)} Coiled Cobra setups.")
 
     # Combine into one DataFrame
