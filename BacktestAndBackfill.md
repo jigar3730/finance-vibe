@@ -324,6 +324,34 @@ If neither `--backfill` nor `--backtest` is passed, **backtest** is the default.
 
 Outcomes: `no_fill`, `stopped`, `target1`, `target2`, `expired` with a single `R Multiple` (not blended).
 
+#### Trade CSV columns (ML-relevant)
+
+| Zone | Columns |
+| ---- | ------- |
+| Identity | `Symbol`, `Signal Date`, `Setup Type` |
+| Pre-signal features | `Score`, `Grade`, `Pct_From_EMA20`, `Pct_From_EMA50`, `Pct_From_Fib618`, `Pct_From_Fib786`, `ATR_Pct` |
+| Execution / leakage | `Stock Entry`, `Stock Stop`, `Target 1`, `Target 2`, `Outcome`, `Exit Date`, `Exit Price`, `R Multiple`, `Target_Label`, `Target_R_Mult` |
+| Continuous targets | `Forward_Return_5w`, `Forward_Return_13w`, `Forward_Return_26w` |
+
+`Forward_Return_{Nw}` is `(Close[t+N] − Close[t]) / Close[t]` when enough future bars exist; otherwise `None` / NaN.
+
+### ML baseline (downstream of backtest)
+
+**Module:** `src/finance_vibe/coiled_cobra_ml_training.py`  
+**Doc:** **`CoiledCobraML.md`**
+
+Consumes `coiled_cobra_backtest_trades_*.csv` to train XGBoost + LightGBM regressors on **`Forward_Return_13w`** with:
+
+- 6 pre-signal features (`Grade` excluded — collinear with `Score`)
+- Strict temporal split (train ≤2023 / val 2024 / test 2025–Jul 2026) — **no random K-fold**
+- Leakage columns dropped; `no_fill` rows kept
+- MAE objectives (`reg:absoluteerror` / `regression_l1`) + `ATR_Pct` sample weights
+
+```bash
+python src/finance_vibe/coiled_cobra_ml_training.py \
+  --csv data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv
+```
+
 ### Live scanner vs historical modules
 
 | Task | Command |
@@ -331,6 +359,7 @@ Outcomes: `no_fill`, `stopped`, `target1`, `target2`, `expired` with a single `R
 | Live Coiled Cobra (latest bar) | `python src/finance_vibe/coiled_cobra.py weekly` |
 | Historical signal archive | `.../coiled_cobra_backtest.py weekly --backfill` |
 | Historical trade simulation | `.../coiled_cobra_backtest.py weekly --backtest` |
+| ML baseline training | `.../coiled_cobra_ml_training.py [--csv PATH]` |
 
 ---
 
@@ -406,6 +435,7 @@ python -m pytest tests/ -q   # full suite
 | Zero signals (high_beta) | Missing QQQ, regime/RS too strict, or risk band rejecting all | Check `QQQ_5y_1d.csv`; run filter ablation; inspect `max_risk_atr` |
 | Uses short history | Only `*_2y_1d.csv` present after period change | Re-ingest daily → `*_5y_1d.csv` |
 | Stale results in Docker | Host edits not in container | `docker cp` or rebuild |
+| ML `FileNotFoundError` for trades CSV | Backtest CSV missing on volume | Run cobra `--backtest`; see **`CoiledCobraML.md`** |
 | Coiled Cobra empty backfill | Wrong mode / insufficient bars | Need weekly history; lookback ≈ 60+ bars |
 | `ImportError: finance_vibe` | `PYTHONPATH` unset | `export PYTHONPATH=src` (or `/app/src`) |
 | Unexpected short trades in high_beta | Old code without `long_only` | Sync latest `swing_scanner` / `pipeline_backtest` |
@@ -431,6 +461,7 @@ PY
 | --- | -------- |
 | `README.md` | Project overview and quick commands |
 | `OperationManual.md` | Day-to-day pipeline ops |
+| `CoiledCobraML.md` | Coiled Cobra ML baseline (features, splits, metrics) |
 | `swing_setup_readme.md` | Quality-swing rules and geometry table |
 | `src/finance_vibe/Scoring_Logic.md` | Vibe Score rubric |
 | `Coiled Cobra Rubric .MD` | Coiled Cobra checklist / grades |
@@ -449,5 +480,6 @@ PY
 | `trade_planner.py` | `calculate_stock_levels` (row Mode authoritative; cobra Fib path preserved) |
 | `pipeline_backtest.py` | Swing walk-forward + scaled simulator + reporting |
 | `coiled_cobra_backtest.py` | Cobra signal backfill + legacy trade simulation |
+| `coiled_cobra_ml_training.py` | XGBoost/LightGBM baseline on `Forward_Return_13w` |
 | `tests/test_pipeline_backtest.py` | Scale-out, gap, slippage, long-only, cooldown contracts |
 | `tests/test_coiled_cobra_backtest.py` | Cobra planner + backtest smoke tests |

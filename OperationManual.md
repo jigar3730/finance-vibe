@@ -19,6 +19,8 @@ python -m pip install -r requirements.txt
 
 Core packages: `pandas`, `numpy`, `pandas_ta`, `yfinance`, `yahooquery`, `Flask`.
 
+ML baseline extras (in `requirements.txt`): `xgboost`, `lightgbm`, `scikit-learn`, `matplotlib`.
+
 Compatible with the dev container or any standard Python environment with `PYTHONPATH=./src`.
 
 ## Directory layout
@@ -138,6 +140,23 @@ Notes:
 - `trade_planner.py` recognizes `Source` == `coiled_cobra` so Coiled Cobra setups use Fib 78.6% entry logic.
 - Details and recipes: **`BacktestAndBackfill.md`**.
 
+### `src/finance_vibe/coiled_cobra_ml_training.py` (offline ML)
+
+Trains XGBoost + LightGBM regressors to predict `Forward_Return_13w` from Coiled Cobra backtest exports.
+
+- Input: `data/logs/weekly/coiled_cobra_backtest_trades_<date>.csv` (from `--backtest`)
+- Features: 6 pre-signal columns (`Score`, EMA/Fib distances, `ATR_Pct`); `Grade` excluded
+- Split: train ≤2023 / val 2024 / test 2025–Jul 2026 on `Signal Date` (no random K-fold)
+- Objectives: XGBoost `reg:absoluteerror`, LightGBM `regression_l1`; `sample_weight=ATR_Pct`
+- Output: stdout MAE/RMSE + ASCII importances; PNG `coiled_cobra_ml_feature_importance.png`
+
+```bash
+python src/finance_vibe/coiled_cobra_ml_training.py \
+  --csv data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv
+```
+
+Not part of the default pipeline. Full specification: **`CoiledCobraML.md`**.
+
 ## UI dashboard
 
 ```bash
@@ -164,6 +183,7 @@ python src/finance_vibe/run_vibe.py
 | Empty `swing_setups_*.csv` | No tickers matched tactical filters (expected in quiet markets) |
 | `trade_plan_helper` file not found | Run full pipeline first; helper expects today’s dated file |
 | Macro report missing tickers | Check ingest logs; file needs ≥ 60 rows |
+| ML script cannot find trades CSV | Run `coiled_cobra_backtest.py weekly --backtest`; pass `--csv`; see **`CoiledCobraML.md`** |
 
 ## Extending the project
 
@@ -196,6 +216,8 @@ Edit `TIMEFRAME_PROFILES` in `config.py`:
 | `trade_plan_<date>.csv` | Execution |
 | `trade_plan_clean_<date>.csv` | Execution (cleaned) |
 | `backtest_trades_<date>.csv` | Offline backtest (manual run) |
+| `coiled_cobra_backtest_trades_<date>.csv` | Coiled Cobra walk-forward trades (ML source) |
+| `coiled_cobra_ml_feature_importance.png` | ML feature-importance chart (manual ML run) |
 
 ## Notes
 

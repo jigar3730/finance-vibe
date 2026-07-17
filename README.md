@@ -13,6 +13,7 @@ The orchestrator is `src/finance_vibe/run_vibe.py`.
 | **Macro** | `analysis_engine.py` | `data/logs/{mode}/vibe_report_<date>.csv` |
 | **Tactical** | `swing_scanner.py` | `data/logs/{mode}/swing_setups_<date>.csv` |
 | **Coiled Cobra (Macro Reversal)** | `coiled_cobra.py` / `coiled_cobra_backtest.py` | `data/logs/{mode}/coiled_cobra_setups_<date>.csv`, `coiled_cobra_backfill_<date>.csv`, `coiled_cobra_backtest_trades_<date>.csv` |
+| **Coiled Cobra ML (offline)** | `coiled_cobra_ml_training.py` | Trains XGBoost/LightGBM on backtest trades → MAE/RMSE + `coiled_cobra_ml_feature_importance.png` |
 
 Macro scoring rules: `src/finance_vibe/Scoring_Logic.md`.
 
@@ -26,6 +27,7 @@ finance-vibe/
 │   ├── raw/{weekly|daily}/    # Ingested OHLCV CSVs
 │   └── logs/{weekly|daily|high_beta}/  # Reports, trade plans, backtests
 ├── BacktestAndBackfill.md     # Offline validation guide
+├── CoiledCobraML.md           # ML baseline (XGBoost / LightGBM)
 └── tests/
 ```
 
@@ -122,7 +124,7 @@ Quality swing profile only (see `swing_setup_readme.md`):
 ## Requirements
 
 - Python 3.10+
-- See `requirements.txt` (`pandas`, `numpy`, `pandas_ta`, `yfinance`, `yahooquery`, `Flask`, …)
+- See `requirements.txt` (`pandas`, `numpy`, `pandas_ta`, `yfinance`, `yahooquery`, `Flask`, `xgboost`, `lightgbm`, `scikit-learn`, `matplotlib`, …)
 
 ```bash
 python -m pip install -r requirements.txt
@@ -149,9 +151,13 @@ python src/finance_vibe/pipeline_backtest.py high_beta --tickers PLTR,TSLA,HOOD
 # Coiled Cobra signal archive + trade simulation
 python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill
 python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
+
+# Coiled Cobra ML baseline (predict Forward_Return_13w)
+python src/finance_vibe/coiled_cobra_ml_training.py \
+  --csv data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv
 ```
 
-Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI, execution model, data backfill steps, and promotion gates: **`BacktestAndBackfill.md`**.
+Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI, execution model, data backfill steps, and promotion gates: **`BacktestAndBackfill.md`**. ML feature isolation, temporal split, and metrics: **`CoiledCobraML.md`**.
 
 **Limitations (summary):** stock-level only (no options P&L); not part of `run_vibe.py`. The scaled simulator includes gap/slippage and 50%-at-1R scale-out; Coiled Cobra still uses the legacy full-exit simulator.
 
@@ -166,6 +172,7 @@ Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI, execution mo
 ## Further reading
 
 - `BacktestAndBackfill.md` — **data backfill, signal backfill, and walk-forward backtests**
+- `CoiledCobraML.md` — **Coiled Cobra ML baseline (XGBoost / LightGBM)**
 - `OperationManual.md` — operations and troubleshooting
 - `src/finance_vibe/Scoring_Logic.md` — macro score specification
 - `swing_setup_readme.md` — tactical scanner reference
