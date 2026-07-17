@@ -4,11 +4,17 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 
 def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -> tuple[Path, Path]:
-    """Locate today's trade plan CSV under data/logs/{mode}/ or legacy flat dirs."""
+    """Locate a trade plan CSV under data/logs/{mode}/ or legacy flat dirs.
+
+    Prefers ``trade_plan_{today}.csv``; if that is missing, falls back to the
+    latest dated ``trade_plan_<date>.csv`` (excluding the ``_clean`` variant) so
+    the helper stays coupled to whatever date the planner actually produced.
+    """
     today_str = today or datetime.now().strftime("%Y-%m-%d")
     filename = f"trade_plan_{today_str}.csv"
     base_dir = Path(__file__).resolve().parents[2]
@@ -29,6 +35,18 @@ def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -
         if check_path.exists():
             return p_dir, check_path
 
+    # Fallback: newest dated trade plan in the first directory that has one.
+    for p_dir in possible_dirs:
+        if not p_dir.exists():
+            continue
+        candidates = sorted(
+            (f for f in p_dir.glob("trade_plan_*.csv") if "clean" not in f.stem),
+            key=lambda f: f.stem.split("_")[-1],
+            reverse=True,
+        )
+        if candidates:
+            return p_dir, candidates[0]
+
     raise FileNotFoundError(
         f"{filename} not found (mode={mode}); checked data/logs/{mode}/ and legacy data/logs/"
     )
@@ -39,6 +57,10 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
     today_str = today or datetime.now().strftime("%Y-%m-%d")
     trade_plan_dir, scanner_csv = resolve_trade_plan_path(mode, today=today_str)
     print(f"🎯 Target trade plan file located: {scanner_csv}")
+
+    # Couple the cleaned-file date to the plan we actually resolved (may be a
+    # fallback older than "today").
+    resolved_date = scanner_csv.stem.split("_")[-1]
 
     try:
         df = pd.read_csv(scanner_csv)
@@ -58,24 +80,38 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
 
     print("🧮 Calculating Risk-to-Reward distributions...")
     try:
-        df["Risk Per Share"] = df["Stock Entry"] - df["Stock Stop"]
-        df["Reward T1"] = df["Target 1"] - df["Stock Entry"]
-        df["Reward T2"] = df["Target 2"] - df["Stock Entry"]
+        # Direction-aware: reward is measured toward the trade's target side and
+        # risk is always the absolute entry-to-stop distance.
+        if "Setup Type" in df.columns:
+            is_long = df["Setup Type"].astype(str).str.upper() != "SETUP_SHORT"
+        else:
+            is_long = pd.Series(True, index=df.index)
+
+        df["Risk Per Share"] = (df["Stock Entry"] - df["Stock Stop"]).abs()
+        reward_t1 = np.where(
+            is_long, df["Target 1"] - df["Stock Entry"], df["Stock Entry"] - df["Target 1"]
+        )
+        reward_t2 = np.where(
+            is_long, df["Target 2"] - df["Stock Entry"], df["Stock Entry"] - df["Target 2"]
+        )
 
         safe_risk = df["Risk Per Share"].replace(0, pd.NA)
-        df["R:R T1"] = (df["Reward T1"].astype(float) / safe_risk.astype(float)).round(2)
-        df["R:R T2"] = (df["Reward T2"].astype(float) / safe_risk.astype(float)).round(2)
-
-        df.drop(columns=["Reward T1", "Reward T2"], errors="ignore", inplace=True)
+        df["R:R T1"] = (pd.Series(reward_t1, index=df.index, dtype="float") / safe_risk.astype(float)).round(2)
+        df["R:R T2"] = (pd.Series(reward_t2, index=df.index, dtype="float") / safe_risk.astype(float)).round(2)
     except Exception:
         print("❌ Fatal exception caught inside metrics distribution generation engine:")
         traceback.print_exc()
         raise SystemExit(1) from None
 
-    # Select only essential columns for the cleaned file
+    # Select essential columns for the cleaned file (only those that exist).
+    # Both LEAPS/Options label variants are listed so mode-specific columns
+    # survive the filter.
     essential_cols = [
         "Symbol",
+        "Setup Type",
         "Source",
+        "Mode",           # swing profile (weekly/daily/high_beta)
+        "AsOf Date",
         "Score",          # raw scanner score
         "Grade",          # e.g. "A - Institutional Setup"
         "Checks Met",     # e.g. "4/5"
@@ -86,6 +122,17 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         "Risk Per Share",
         "R:R T1",
         "R:R T2",
+        "ATR",
+        "RSI",
+        "Fib 78.6%",
+        "LEAPS Type",
+        "Options Type",
+        "Delta Min",
+        "Delta Max",
+        "LEAPS Expiry Min",
+        "LEAPS Expiry Max",
+        "Options Expiry Min",
+        "Options Expiry Max",
     ]
 
     # Keep only columns that exist
@@ -95,7 +142,7 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
     print("\n📄 Cleaned Trade Plan Preview:")
     print(df_clean.head(10).to_markdown(index=False))
 
-    clean_csv = trade_plan_dir / f"trade_plan_clean_{today_str}.csv"
+    clean_csv = trade_plan_dir / f"trade_plan_clean_{resolved_date}.csv"
     try:
         df_clean.to_csv(clean_csv, index=False)
         print(f"\n✅ Cleaned trade plan saved: {clean_csv}")
@@ -109,7 +156,7 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     mode = "weekly"
-    if argv and argv[0].lower() in ("weekly", "daily"):
+    if argv and argv[0].lower() in ("weekly", "daily", "high_beta"):
         mode = argv[0].lower()
     try:
         process_trade_plan(mode)

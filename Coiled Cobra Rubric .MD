@@ -1,39 +1,49 @@
 # Coiled Cobra Scanner
 ## Scoring Rubric & Technical Design
 
-Version: 1.0
+Version: 2.0 (Coil → Expansion)
 
 ---
 
 # Overview
 
-The **Coiled Cobra Scanner** is a systematic technical analysis model designed to identify **high-probability macro reversal opportunities**.
+The **Coiled Cobra Scanner** identifies **compressed leaders ready to expand**
+(coil → breakout), not swing pullbacks and not deep-discount mean reversion.
 
-Unlike momentum scanners that search for stocks already breaking out, this scanner attempts to identify securities that are:
+It looks for securities that are:
 
-- Deeply discounted
-- Near major Fibonacci support
-- Sitting on institutional volume shelves
-- Showing momentum exhaustion
-- Beginning a bullish reversal
+- Sitting in a volume / accumulation shelf
+- Compressing on MACD (tight MACD−Signal spread) — MACD may be ≥ 0
+- Holding healthy structure (price above a rising EMA50 / EMA100 stack)
+- Showing positive relative strength vs QQQ
+- Coiling in a tight N-bar range (low range / ATR)
+- Optionally printing an early bullish MACD cross
+
+Deep markdown under EMA20 was **removed** — it systematically filtered out
+high-base coils (NVDA / APP / MU-class) that the scanner is meant to catch
+before a monster run.
 
 The scanner produces a maximum score of **100 points**.
-
-Only high-confluence setups are returned.
+Only setups scoring ≥ 70 are returned.
 
 ---
 
-# Overall Scoring Matrix
+# Overall Scoring Matrix (v2 — Coil)
 
 | Category | Weight | Purpose |
 |----------|---------:|---------|
-| Fibonacci Confluence | 30 | Long-term structural support |
-| Volume Profile Shelf | 25 | Institutional accumulation |
-| Deep Markdown | 15 | Oversold discount |
-| MACD Compression | 20 | Selling exhaustion |
-| Bullish MACD Crossover | 10 | Entry trigger |
+| Volume Profile Shelf | 20 | Accumulation zone |
+| MACD Compression (ATR-normalized) | 20 | Coiled energy (no MACD &lt; 0) |
+| Structure (rising EMA stack) | 20 | Leader still healthy |
+| Relative Strength vs QQQ | 15 | Prefer names already leading |
+| Coil Width (range / ATR) | 15 | Tight base before expansion |
+| Bullish MACD Crossover | 10 | Early trigger |
+| Fib bonus (optional) | 5 | Context only — not a gate |
 
 Maximum Score = **100**
+
+Hard gates: MACD compression ≥ 5, structure ≥ 8, **and relative strength ≥ 12**
+(full RS pass vs QQQ). Negative-RS coils that only look tight (BA/DG-class) are rejected.
 
 ---
 
@@ -41,386 +51,95 @@ Maximum Score = **100**
 
 | Score | Grade | Meaning |
 |--------:|-------|---------|
-| 85-100 | A | Institutional Setup |
-| 70-84 | B | Valid Reversal |
+| 85-100 | A - Coil Ready | High-confluence pre-expansion |
+| 70-84 | B - Valid Coil | Actionable coil |
 | Below 70 | Reject | Insufficient confluence |
 
 ---
 
 # Indicator Details
 
-## 1. Fibonacci Confluence (30 Points)
+## 1. Volume Profile Shelf (20 Points)
 
-### Objective
+Auction-market bins over the lookback window. Scores topology near high-volume
+nodes, proximity to the POC, and close holding above the bin center.
 
-Determine whether price is sitting near a major long-term Fibonacci retracement.
-
-### Calculation
-
-Rolling Lookback
-
-- Weekly Mode = 52 weeks
-- Daily Mode = 252 trading days
-
-High
+## 2. MACD Compression (20 Points)
 
 ```
-Highest High
+spread = abs(MACD - Signal) / ATR
 ```
 
-Low
+| spread | Points |
+|--------|-------:|
+| ≤ 0.05 | 20 |
+| ≤ 0.10 | 15 |
+| ≤ 0.18 | 10 |
+| ≤ 0.30 | 5 |
+| else | 0 |
 
-```
-Lowest Low
-```
+No requirement that MACD &lt; 0 — uptrend coils compress near or above zero.
 
-Retracement Levels
+## 3. Structure (20 Points)
 
-```
-61.8%
+- Close &gt; EMA50 → +8
+- EMA50 rising → +6
+- EMA50 &gt; EMA100 → +6
 
-78.6%
-```
+Replaces the old deep-markdown pillar.
 
-### Pass Criteria
+## 4. Relative Strength vs QQQ (15 Points)
 
-Current price must be within **2.5%** of either level.
+Stock/QQQ ratio above its MA and positive lookback relative return
+(weekly: 13 bars / 5-bar MA; daily: 63 / 20). Stronger RS (&gt; +10%) scores full 15.
 
-```
-abs(price - Fib618) / Fib618 <= 2.5%
+## 5. Coil Width (15 Points)
 
-OR
+N-bar range / ATR (weekly N=8, daily N=30):
 
-abs(price - Fib786) / Fib786 <= 2.5%
-```
+| width | Points |
+|-------|-------:|
+| ≤ 4 ATR | 15 |
+| ≤ 6 ATR | 10 |
+| ≤ 8 ATR | 5 |
 
-### Points Awarded
+## 6. Bullish MACD Cross (10 Points)
 
-```
-30
-```
+Prior bar MACD ≤ Signal and current MACD &gt; Signal.
 
----
+## 7. Fib Bonus (0–5 Points)
 
-## 2. Volume Profile Shelf (25 Points)
-
-### Objective
-
-Identify institutional accumulation zones.
-
-### Method
-
-The scanner:
-
-1. Looks back over the analysis window
-2. Divides the entire price range into 10 equal bins
-3. Aggregates trading volume inside each price bin
-4. Finds the three highest-volume nodes (HVNs)
-
-If today's closing price falls inside one of those nodes:
-
-```
-PASS
-```
-
-### Points Awarded
-
-```
-25
-```
-
-### Purpose
-
-Institutions often accumulate positions over long periods.
-
-High-volume price shelves frequently become major support.
-
----
-
-## 3. Deep Markdown Extension (15 Points)
-
-### Objective
-
-Measure how deeply discounted the stock is relative to trend.
-
-### Daily Mode
-
-```
-Price < EMA20 × 0.93
-```
-
-### Weekly Mode
-
-```
-Price < EMA20 × 0.85
-```
-
-AND
-
-```
-Price < EMA50
-```
-
-### Points Awarded
-
-```
-15
-```
-
-### Purpose
-
-This prevents chasing stocks already extended upward.
-
----
-
-## 4. MACD Compression (20 Points)
-
-### Objective
-
-Identify momentum exhaustion.
-
-### Conditions
-
-```
-MACD < 0
-```
-
-AND
-
-```
-abs(MACD - Signal) / EMA20 <= 0.005
-```
-
-### Interpretation
-
-Momentum is no longer accelerating downward.
-
-Selling pressure has compressed.
-
-Many reversals begin during this condition.
-
-### Points Awarded
-
-```
-20
-```
-
----
-
-## 5. Bullish MACD Crossover (10 Points)
-
-### Objective
-
-Provide an entry trigger.
-
-### Conditions
-
-Previous Bar
-
-```
-MACD <= Signal
-```
-
-Current Bar
-
-```
-MACD > Signal
-```
-
-### Points Awarded
-
-```
-10
-```
-
-This factor intentionally carries the lowest weight.
-
-A MACD crossover alone is not considered a high-quality reversal.
-
----
-
-# Example Scores
-
-## Example A
-
-| Indicator | Score |
-|------------|------:|
-| Fibonacci | 30 |
-| Volume Shelf | 25 |
-| Markdown | 15 |
-| MACD Compression | 20 |
-| MACD Cross | 10 |
-
-Total
-
-```
-100
-```
-
-Grade
-
-```
-A
-```
-
----
-
-## Example B
-
-| Indicator | Score |
-|------------|------:|
-| Fibonacci | 30 |
-| Volume Shelf | 25 |
-| Markdown | 15 |
-| MACD Compression | 20 |
-| MACD Cross | 0 |
-
-Total
-
-```
-90
-```
-
-Grade
-
-```
-A
-```
-
----
-
-## Example C
-
-| Indicator | Score |
-|------------|------:|
-| Fibonacci | 30 |
-| Volume Shelf | 25 |
-| Markdown | 15 |
-| MACD Compression | 0 |
-| MACD Cross | 0 |
-
-Total
-
-```
-70
-```
-
-Grade
-
-```
-B
-```
+Optional proximity to rolling Fib 61.8 / 78.6 (ATR-normalized). Not required.
 
 ---
 
 # Scanner Philosophy
 
-The scanner favors:
+Favor:
 
-- Deep value
-- Institutional accumulation
-- Structural support
-- Momentum exhaustion
-- Confirmation rather than prediction
+- Compression before expansion
+- Relative-strength leaders
+- Structural health
+- Accumulation shelves
 
-It intentionally avoids chasing stocks making new highs.
+Avoid:
 
----
-
-# Strengths
-
-- Multi-factor scoring
-- Objective rules
-- No discretionary inputs
-- Easy to backtest
-- Low computational cost
-- Suitable for large watchlists
-- Supports daily and weekly timeframes
+- Chasing vertical breakouts already extended
+- Requiring deep discounts that miss high-base coils
+- Treating yearly Fib retracements as a mandatory gate
 
 ---
 
 # Known Limitations
 
-Current Version 1 does **not** consider:
-
-- Relative Strength vs SPY
-- Sector strength
-- ATR normalization
-- ADX trend strength
-- RSI recovery
-- Volume expansion
-- Multi-timeframe confirmation
-- 200 EMA trend direction
-- Market regime filters
-
-As a result, some "falling knife" setups may still pass the scanner.
+- Trade planner still uses Fib-anchored bounce geometry for Cobra rows;
+  coil-breakout entry/stop logic is a follow-up.
+- IPO / short-history names (GEV, APP early years) may lack EMA100 / RS history.
+- Weekly is the primary horizon for multi-month monster runs; daily is secondary.
 
 ---
 
-# Recommended Version 2 Scoring Matrix
+# Legacy v1 note
 
-| Factor | Weight |
-|---------|--------:|
-| Fibonacci Confluence | 20 |
-| Volume Profile Shelf | 15 |
-| Deep Markdown | 10 |
-| MACD Compression | 10 |
-| Bullish MACD Cross | 5 |
-| Relative Strength vs SPY | 10 |
-| Weekly RSI Recovery | 10 |
-| ADX Trend Strength | 5 |
-| Sector Relative Strength | 5 |
-| 200 EMA Trend Filter | 5 |
-| Multi-Timeframe Alignment | 10 |
-| Volume Expansion | 5 |
-
-Total
-
-```
-100
-```
-
----
-
-# Recommended Grade Scale
-
-| Score | Grade | Description |
-|--------:|-------|-------------|
-| 90-100 | S | Exceptional Institutional Setup |
-| 80-89 | A | High Probability Reversal |
-| 70-79 | B | Valid Swing Candidate |
-| 60-69 | C | Watchlist |
-| Below 60 | Reject |
-
----
-
-# Future Enhancements
-
-Recommended additions include:
-
-- Relative Strength Ranking
-- Sector Rotation Analysis
-- Anchored VWAP
-- ATR-based Position Sizing
-- Dynamic Volume Profile
-- Market Regime Detection
-- Risk/Reward Scoring
-- Volatility Compression
-- Breadth Confirmation
-- Institutional Accumulation Metrics
-
----
-
-# Summary
-
-The current implementation is a **structural reversal scanner**, not a momentum scanner.
-
-It identifies stocks exhibiting:
-
-- Long-term Fibonacci support
-- Institutional volume accumulation
-- Significant markdown from trend
-- Momentum exhaustion
-- Early bullish confirmation
-
-The design emphasizes quality over quantity, returning only setups with a minimum score of **70** while reserving the highest grades for those exhibiting multiple layers of technical confluence.
+v1 scored deep markdown + MACD &lt; 0 + heavy yearly Fib (macro reversal). That
+model remains documented in git history; live code is the v2 coil scorecard above.

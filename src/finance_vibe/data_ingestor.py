@@ -2,6 +2,7 @@ import yfinance as yf
 import pandas as pd
 import os
 import sys
+from datetime import datetime
 
 # --- 1. PACKAGE IMPORT (Upgraded for Multi-Environment Paths) ---
 try:
@@ -19,12 +20,28 @@ except ImportError:
         from src.finance_vibe import config
 
 
+def _log_ingest_error(logs_dir: str, ticker: str, message: str) -> None:
+    """Append a structured ingestion failure to ``ingest_errors_<date>.csv``."""
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    err_path = os.path.join(logs_dir, f"ingest_errors_{stamp}.csv")
+    row = pd.DataFrame(
+        [{
+            "Ticker": ticker,
+            "Error": message,
+            "Timestamp": datetime.now().isoformat(timespec="seconds"),
+        }]
+    )
+    header = not os.path.exists(err_path)
+    row.to_csv(err_path, mode="a", header=header, index=False)
+
+
 def ingest_market_data(mode="weekly"):
     # --- 2. EXTRACT SETTINGS DYNAMICALLY FROM PROFILE ---
     mode_cfg = config.get_mode_config(mode)
-    
+
     csv_path = config.TICKER_LIST_PATH
     raw_dir = mode_cfg['raw_dir']
+    logs_dir = mode_cfg['logs_dir']
     PERIOD = mode_cfg['period']
     INTERVAL = mode_cfg['interval']
 
@@ -41,6 +58,9 @@ def ingest_market_data(mode="weekly"):
     print(f"\n--- STEP 2: Ingesting [{mode.upper()}] {PERIOD} {INTERVAL} data ---")
     print(f"Target Directory: {raw_dir}")
 
+    saved = 0
+    rejected = 0
+
     for ticker in tickers:
         print(f"Processing {ticker:6}...", end=" ", flush=True)
         try:
@@ -51,6 +71,8 @@ def ingest_market_data(mode="weekly"):
 
             if df.empty:
                 print("⚠️ No data found.")
+                _log_ingest_error(logs_dir, ticker, "empty_download")
+                rejected += 1
                 continue
 
             # Flatten MultiIndex columns (common in newer yfinance versions)
@@ -59,24 +81,42 @@ def ingest_market_data(mode="weekly"):
 
             # --- 4. DATA CLEANING ---
             # Remove the last row if it's an incomplete weekly candle (only for 1wk)
-            if INTERVAL == "1wk":
+            if INTERVAL == "1wk" and len(df) > 0:
                 last_date = df.index[-1]
-                if last_date.weekday() != 4:  # If last row isn't a Friday
+                if hasattr(last_date, "weekday") and last_date.weekday() != 4:
                     df = df.iloc[:-1]
 
-            # Ensure columns are standardized (Open, High, Low, Close, Volume)
-            df.columns = [c.capitalize() for c in df.columns]
+            # --- 4b. VALIDATE OHLCV CONTRACT (reject, never save partial) ---
+            clean = config.validate_and_clean_ohlcv(df, require_volume=True)
+
+            if len(clean) < config.MIN_SAVE_ROWS:
+                print(f"⚠️ Only {len(clean)} valid rows (< {config.MIN_SAVE_ROWS}). Skipped.")
+                _log_ingest_error(
+                    logs_dir, ticker,
+                    f"insufficient_rows:{len(clean)}<{config.MIN_SAVE_ROWS}"
+                )
+                rejected += 1
+                continue
 
             # --- 5. SAVE ---
-            # Construct the path directly using the mode's target folder and parameters
-            filename = f"{ticker}_{PERIOD}_{INTERVAL}.csv"
-            save_path = os.path.join(raw_dir, filename)
-            
-            df.to_csv(save_path)
+            save_path = config.get_raw_path(ticker, mode_cfg)
+            clean.to_csv(save_path, index=False)
             print(f"✅ {os.path.basename(save_path)}")
+            saved += 1
 
+        except ValueError as e:
+            # Schema/validation failure from validate_and_clean_ohlcv
+            print(f"❌ Validation: {e}")
+            _log_ingest_error(logs_dir, ticker, f"validation:{e}")
+            rejected += 1
         except Exception as e:
             print(f"❌ Error: {e}")
+            _log_ingest_error(logs_dir, ticker, f"exception:{e}")
+            rejected += 1
+
+    print(f"\n📊 Ingestion summary: {saved} saved, {rejected} rejected.")
+    if rejected:
+        print(f"   Failure log: {os.path.join(logs_dir, 'ingest_errors_<date>.csv')}")
 
 
 if __name__ == "__main__":

@@ -24,7 +24,8 @@ finance-vibe/
 ├── data/
 │   ├── active_tickers.csv     # Universe from ticker_provider
 │   ├── raw/{weekly|daily}/    # Ingested OHLCV CSVs
-│   └── logs/{weekly|daily}/   # Reports and trade plans
+│   └── logs/{weekly|daily|high_beta}/  # Reports, trade plans, backtests
+├── BacktestAndBackfill.md     # Offline validation guide
 └── tests/
 ```
 
@@ -71,7 +72,7 @@ python src/finance_vibe/trade_plan_helper.py weekly
 | Mode | Lookback | Interval | Raw path |
 | ---- | -------- | -------- | -------- |
 | `weekly` (default) | 10y | 1wk | `data/raw/weekly/` |
-| `daily` | 2y | 1d | `data/raw/daily/` |
+| `daily` | 5y | 1d | `data/raw/daily/` |
 
 Filenames: `<TICKER>_<period>_<interval>.csv` (e.g. `AAPL_10y_1wk.csv`).
 
@@ -80,9 +81,15 @@ Filenames: `<TICKER>_<period>_<interval>.csv` (e.g. `AAPL_10y_1wk.csv`).
 | File | Description |
 | ---- | ----------- |
 | `vibe_report_<date>.csv` | Macro scores for all scanned tickers |
-| `swing_setups_<date>.csv` | Tickers passing tactical setup rules |
-| `trade_plan_<date>.csv` | Stock levels and options/LEAPS metadata |
-| `trade_plan_clean_<date>.csv` | Cleaned plan with R:R columns |
+| `swing_setups_<date>.csv` | Tickers passing tactical setup rules (shared setup schema) |
+| `coiled_cobra_setups_<date>.csv` | Macro reversal setups (shared setup schema) |
+| `trade_plan_<date>.csv` | Stock levels plus persisted options/LEAPS metadata and pass-through context |
+| `trade_plan_clean_<date>.csv` | Cleaned plan with direction-aware R:R columns |
+| `ingest_errors_<date>.csv` | Per-ticker ingestion failures (empty/invalid/insufficient data) |
+
+Both scanners emit a single shared setup schema (`config.SETUP_ROW_COLUMNS`); raw
+CSVs are validated against the OHLCV contract (`config.REQUIRED_OHLCV`) at ingest
+and scan time, so malformed files are rejected instead of silently mis-scored.
 
 All outputs live under `data/logs/{mode}/`.
 
@@ -94,24 +101,21 @@ All outputs live under `data/logs/{mode}/`.
 
 ## Tactical swing scanner (summary)
 
+Quality swing profile only (see `swing_setup_readme.md`):
+
 **Long (`SETUP_LONG`):**
 
-- `EMA20 > EMA50`, rising `EMA50`
-- Price between `EMA20` and `EMA20 × 1.02`
-- RSI 45–60 (weekly) or 40–60 (daily)
-- MACD histogram rising two bars, not beyond 2× its 20-bar std dev
+- Bull regime: `Close > EMA100`; `EMA20 > EMA50` with rising `EMA50`
+- Tight pullback into EMA20 (1.5% weekly / 2% daily)
+- RSI ≤ 55; MACD hist rising while still ≤ 0; structure held above swing low
+- **Next-bar confirmation** required
 
-**Short (`SETUP_SHORT`):**
-
-- `EMA20 < EMA50`, falling `EMA50`
-- Price between `EMA20 × 0.98` and `EMA20`
-- RSI 50–65
-- MACD histogram falling two bars, not beyond −2× its 20-bar std dev
+**Short (`SETUP_SHORT`):** mirror (bear regime below EMA100, RSI 50–60, hist fade)
 
 ## Trade planning (summary)
 
-- **Entry / stop:** ATR-adjusted levels from EMA20/50 and setup direction
-- **Targets:** 1× and 2× ATR from entry
+- **Entry:** pullback toward EMA20 (`max(EMA20, Close − 0.25×ATR)` for longs)
+- **Stop / targets (swing):** mode-aware via `config.get_swing_params` — weekly T1/T2 1.25/2.25 ATR (stop cap 1.25); daily T1/T2 0.85/1.6 ATR (stop cap 1.5) plus soft Vibe ≥ 5; **high_beta** (daily data) is **long-only** with a QQQ market-regime + relative-strength gate, ATR EMA proximity, wider RSI, structural (uncapped) stop rejected outside 0.5–2.5×ATR risk, and true 1R/2R targets. Its backtest models gap/slippage fills with a 50%-at-1R / breakeven / 2R-runner scale-out and blended-R reporting.
 - **Weekly mode:** LEAPS CALL/PUT, 12–24 month expiry window, delta 0.65–0.80 (long) or −0.80 to −0.65 (short)
 - **Daily mode:** Options CALL/PUT, 1–3 month expiry window, same delta bands
 
@@ -135,24 +139,21 @@ Browse historic trade plans by date and mode (weekly/daily).
 
 ## Pipeline backtest (offline validation)
 
-Walk-forward backtest of swing setups + trade-plan stock levels on historical OHLC data, **with a macro Vibe Score gate** (not applied in the live pipeline today):
-
-- Long setups require Vibe Score ≥ 7
-- Short setups require Vibe Score ≤ −2
+Walk-forward backtest of swing setups + trade-plan stock levels on historical OHLC data. Modes: `weekly`, `daily`, `high_beta`.
 
 ```bash
-python src/finance_vibe/pipeline_backtest.py weekly
 python src/finance_vibe/pipeline_backtest.py weekly --tickers SPY,QQQ
-python src/finance_vibe/pipeline_backtest.py weekly --long-min-score 7 --short-max-score -2
+python src/finance_vibe/pipeline_backtest.py daily --tickers QQQ,SPY
+python src/finance_vibe/pipeline_backtest.py high_beta --tickers PLTR,TSLA,HOOD
 
-# Coiled Cobra backtest (separate module)
-python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
+# Coiled Cobra signal archive + trade simulation
 python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill
+python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
 ```
 
-Output: `data/logs/{mode}/backtest_trades_<date>.csv` plus a summary printed to stdout.
+Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI, execution model, data backfill steps, and promotion gates: **`BacktestAndBackfill.md`**.
 
-**Limitations:** stock-level simulation only (no options); uses current `active_tickers.csv` universe; no transaction costs or slippage. Not part of the default `run_vibe.py` workflow.
+**Limitations (summary):** stock-level only (no options P&L); not part of `run_vibe.py`. The scaled simulator includes gap/slippage and 50%-at-1R scale-out; Coiled Cobra still uses the legacy full-exit simulator.
 
 ## Notes
 
@@ -164,6 +165,7 @@ Output: `data/logs/{mode}/backtest_trades_<date>.csv` plus a summary printed to 
 
 ## Further reading
 
+- `BacktestAndBackfill.md` — **data backfill, signal backfill, and walk-forward backtests**
 - `OperationManual.md` — operations and troubleshooting
 - `src/finance_vibe/Scoring_Logic.md` — macro score specification
 - `swing_setup_readme.md` — tactical scanner reference

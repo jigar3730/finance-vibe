@@ -183,6 +183,129 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["CCI_S"] = sma(out["CCI"], 10)
     return out
 
+
+# -----------------------------
+# Benchmark: market regime + relative strength (no lookahead)
+# -----------------------------
+
+
+def _select_benchmark_path(benchmark: str, data_mode: str) -> Optional[str]:
+    """Find the longest-history raw CSV for *benchmark* in the mode's raw dir."""
+    cfg = config.get_mode_config(data_mode)
+    raw_dir = cfg["raw_dir"]
+    if not os.path.isdir(raw_dir):
+        return None
+    bench = benchmark.upper()
+
+    def _rank(name: str) -> int:
+        parts = name.replace(".csv", "").split("_")
+        if len(parts) < 2:
+            return 0
+        tok = parts[1].lower()
+        if tok.endswith("y") and tok[:-1].isdigit():
+            return int(tok[:-1]) * 365
+        if tok.endswith("mo") and tok[:-2].isdigit():
+            return int(tok[:-2]) * 30
+        if tok.endswith("d") and tok[:-1].isdigit():
+            return int(tok[:-1])
+        return 0
+
+    candidates = [
+        f for f in os.listdir(raw_dir)
+        if f.lower().endswith(".csv") and f.split("_")[0].upper() == bench
+    ]
+    if not candidates:
+        return None
+    best = max(candidates, key=_rank)
+    return os.path.join(raw_dir, best)
+
+
+def load_benchmark_frame(benchmark: str, data_mode: str) -> Optional[pd.DataFrame]:
+    """Load and enrich a benchmark OHLC frame for regime/RS checks.
+
+    Returns a Date-sorted frame with causal EMA50/EMA100 and an ``EMA50_rising``
+    flag, or None when the benchmark CSV is unavailable.
+    """
+    path = _select_benchmark_path(benchmark, data_mode)
+    if not path:
+        return None
+    try:
+        df = load_ohlc_csv(path)
+    except Exception:
+        return None
+    df = df.copy()
+    df["Date"] = pd.to_datetime(df["Date"])
+    df = df.sort_values("Date").reset_index(drop=True)
+    close = df["Close"].astype(float)
+    df["EMA50"] = ema(close, 50)
+    df["EMA100"] = ema(close, 100)
+    df["EMA50_rising"] = df["EMA50"] > df["EMA50"].shift(1)
+    return df
+
+
+def market_regime_ok(benchmark_df: pd.DataFrame, as_of) -> bool:
+    """True when the benchmark is in an uptrend as of *as_of* (causal lookup).
+
+    Requires close above EMA50 and EMA100 with a rising EMA50.
+    """
+    if benchmark_df is None or benchmark_df.empty:
+        return False
+    as_of_ts = pd.to_datetime(as_of) if as_of is not None else None
+    sub = benchmark_df if as_of_ts is None else benchmark_df[benchmark_df["Date"] <= as_of_ts]
+    if sub.empty:
+        return False
+    last = sub.iloc[-1]
+    if pd.isna(last["EMA50"]) or pd.isna(last["EMA100"]):
+        return False
+    return bool(
+        last["Close"] > last["EMA50"]
+        and last["Close"] > last["EMA100"]
+        and bool(last["EMA50_rising"])
+    )
+
+
+def relative_strength(
+    stock_df: pd.DataFrame,
+    benchmark_df: pd.DataFrame,
+    *,
+    as_of=None,
+    lookback: int = 63,
+    ratio_ma_bars: int = 20,
+) -> tuple[bool, Optional[float]]:
+    """Assess relative strength of *stock_df* vs *benchmark_df* (no lookahead).
+
+    Passing requires the stock/benchmark price ratio above its moving average
+    AND a positive lookback-period relative return. Returns (ok, rel_return).
+    """
+    if benchmark_df is None or benchmark_df.empty:
+        return False, None
+
+    s = stock_df[["Date", "Close"]].copy()
+    s["Date"] = pd.to_datetime(s["Date"])
+    b = benchmark_df[["Date", "Close"]].rename(columns={"Close": "Bench"}).copy()
+    b["Date"] = pd.to_datetime(b["Date"])
+
+    if as_of is not None:
+        as_of_ts = pd.to_datetime(as_of)
+        s = s[s["Date"] <= as_of_ts]
+        b = b[b["Date"] <= as_of_ts]
+
+    merged = s.merge(b, on="Date", how="inner").sort_values("Date").reset_index(drop=True)
+    if len(merged) < max(lookback + 1, ratio_ma_bars):
+        return False, None
+
+    ratio = merged["Close"].astype(float) / merged["Bench"].astype(float)
+    ratio_ma = ratio.rolling(ratio_ma_bars).mean()
+    rs_now = float(ratio.iloc[-1])
+    ma_now = ratio_ma.iloc[-1]
+
+    stock_ret = merged["Close"].iloc[-1] / merged["Close"].iloc[-1 - lookback] - 1.0
+    bench_ret = merged["Bench"].iloc[-1] / merged["Bench"].iloc[-1 - lookback] - 1.0
+    rel_ret = float(stock_ret - bench_ret)
+
+    ok = (not pd.isna(ma_now)) and rs_now > float(ma_now) and rel_ret > 0
+    return ok, round(rel_ret, 4)
+
 # -----------------------------
 # Scoring
 # -----------------------------

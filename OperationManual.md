@@ -28,7 +28,7 @@ Compatible with the dev container or any standard Python environment with `PYTHO
 | `src/finance_vibe/` | Pipeline source |
 | `data/active_tickers.csv` | Ticker universe |
 | `data/raw/weekly/` | Weekly OHLCV CSVs (`*_10y_1wk.csv`) |
-| `data/raw/daily/` | Daily OHLCV CSVs (`*_2y_1d.csv`) |
+| `data/raw/daily/` | Daily OHLCV CSVs (`*_5y_1d.csv`) |
 | `data/logs/weekly/` | Weekly reports and trade plans |
 | `data/logs/daily/` | Daily reports and trade plans |
 
@@ -109,17 +109,15 @@ Replace `weekly` with `daily` for the daily profile.
 
 Walk-forward validation of swing setup → trade-plan stock levels on historical OHLC CSVs.
 
-- Re-runs `detect_setup_at_bar()` and `calculate_stock_levels()` at each historical bar
-- Applies macro gate: LONG requires Vibe Score ≥ 7, SHORT requires Vibe Score ≤ −2
-- Simulates limit entry, stop, and ATR targets on forward High/Low bars
-- Writes `data/logs/{mode}/backtest_trades_<date>.csv`
+Modes: `weekly`, `daily`, `high_beta` (daily data + long-only profile; logs under `data/logs/high_beta/`).
 
 ```bash
-python src/finance_vibe/pipeline_backtest.py weekly
 python src/finance_vibe/pipeline_backtest.py weekly --tickers SPY,QQQ
+python src/finance_vibe/pipeline_backtest.py daily --tickers QQQ,SPY
+python src/finance_vibe/pipeline_backtest.py high_beta --tickers PLTR,TSLA,HOOD
 ```
 
-Not part of the default pipeline. Stock simulation only; no options P&L.
+Not part of the default pipeline. Stock simulation only. Full guide (data backfill, CLI, scale-out execution, promotion gates): **`BacktestAndBackfill.md`**.
 
 ### `src/finance_vibe/coiled_cobra_backtest.py` (Coiled Cobra historical)
 
@@ -137,7 +135,8 @@ python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
 
 Notes:
 - Uses the same `evaluate_coiled_cobra()` engine as the live scanner but evaluates every eligible historical bar.
-- `trade_planner.py` now recognizes `Source` == `coiled_cobra` so Coiled Cobra setups use Fib 78.6% entry logic.
+- `trade_planner.py` recognizes `Source` == `coiled_cobra` so Coiled Cobra setups use Fib 78.6% entry logic.
+- Details and recipes: **`BacktestAndBackfill.md`**.
 
 ## UI dashboard
 
@@ -179,7 +178,7 @@ Edit `TIMEFRAME_PROFILES` in `config.py`:
 
 ```python
 "weekly": {"period": "10y", "interval": "1wk", ...}
-"daily":  {"period": "2y",  "interval": "1d",  ...}
+"daily":  {"period": "5y",  "interval": "1d",  ...}
 ```
 
 ### Change scoring or setup rules

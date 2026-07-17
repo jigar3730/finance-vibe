@@ -10,10 +10,16 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 
+try:
+    from finance_vibe import config
+except ImportError:
+    sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
+    from finance_vibe import config
+
 # =========================
 # PROFILE CONFIGURATION
 # =========================
-if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
+if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily", "high_beta"]:
     mode = sys.argv[1].lower()
 else:
     print("⚠️ Unknown mode parsed to trade planner. Defaulting to 'weekly'.")
@@ -23,9 +29,13 @@ else:
 DELTA_LONG = (0.65, 0.80)
 DELTA_SHORT = (-0.80, -0.65)
 
-# Dynamic path resolution according to isolation architecture
+# Short-dated options profiles vs long-dated LEAPS profiles.
+_SHORT_DATED_MODES = {"daily", "high_beta"}
+
+# Dynamic path resolution according to isolation architecture.
+# high_beta gets its own log silo via config.get_log_dir.
 BASE_DIR = Path(__file__).resolve().parents[2]
-SCANNER_DIR = BASE_DIR / "data" / "logs" / mode
+SCANNER_DIR = Path(config.get_log_dir(mode))
 SCANNER_PREFIX = "swing_setups_"
 COILED_PREFIX = "coiled_cobra_setups_"
 OUTPUT_PREFIX = "trade_plan_"
@@ -33,69 +43,69 @@ OUTPUT_PREFIX = "trade_plan_"
 # --------- HELPER FUNCTIONS ----------
 
 
-def calculate_stock_levels(row):
+def _resolve_row_mode(row, mode: str | None) -> str:
+    """Resolve which swing profile governs a row.
+
+    Row ``Mode`` is authoritative when present so a high_beta setup keeps its
+    geometry even if the planner is invoked under a different CLI mode. An
+    explicit ``mode`` argument (used by the backtest) still takes precedence.
+    """
+    candidate = (
+        (mode or "").strip().lower()
+        or str(row.get("Mode", "")).strip().lower()
+        or globals().get("mode", "weekly")
+    )
+    return candidate if candidate in config.SWING_PROFILES else "weekly"
+
+
+def calculate_stock_levels(row, mode: str | None = None):
     """
     Derive entry, stop, targets, option side, and delta band from one setup row.
-    Supports:
-      - Source: 'swing' or 'coiled_cobra'
-      - Setup Type: 'SETUP_LONG' (currently), later 'SETUP_SHORT'
+
+    Quality swing geometry is mode-aware via ``config.get_swing_params``.
+    The high_beta profile uses structural-risk stops and true 1R/2R targets.
+    Row ``Mode`` is authoritative unless an explicit ``mode`` is passed.
     """
-    atr = row["ATR"]
-    close = row["Close"]
-    ema20 = row["EMA20"]
-    ema50 = row["EMA50"]
+    atr = float(row["ATR"])
+    close = float(row["Close"])
+    ema20 = float(row["EMA20"])
+    ema50 = float(row["EMA50"])
     fib786 = row.get("Fib 78.6%", None)
+    swing_low = row.get("Swing Low", None)
+    swing_high = row.get("Swing High", None)
     source = str(row.get("Source", "swing")).strip().lower()
     setup_type = row["Setup Type"]
 
-    # Default option params (long-only for now)
+    resolved_mode = _resolve_row_mode(row, mode)
+    sp = config.get_swing_params(resolved_mode)
+
     options_type = "CALL"
     delta_range = DELTA_LONG
 
-    if setup_type == "SETUP_LONG":
-        if source in {"coiled_cobra", "cobra"} and fib786 is not None:
-            # --- Coiled Cobra macro-reversal long ---
-            # Entry: near Fib 78.6 or slight pullback from close
-            entry = max(fib786, close - 0.25 * atr)
-
-            # Stop: below Fib 78.6 (structural invalidation), with ATR buffer
-            stop = fib786 - 0.5 * atr
-
-            # Targets: ATR-based
-            target1 = entry + 1.0 * atr
-            target2 = entry + 2.0 * atr
-
-        else:
-            # --- Swing long (existing logic or refined) ---
-            # Entry: pullback towards EMA20, but not above close by too much
-            entry = max(ema20, close - 0.25 * atr)
-
-            # Stop: below EMA50 with ATR buffer
-            stop = ema50 - 0.5 * atr
-
-            # Targets: ATR-based
-            target1 = entry + 1.0 * atr
-            target2 = entry + 2.0 * atr
-
-        # SAFETY: ensure stop < entry for longs
+    if setup_type == "SETUP_LONG" and source in {"coiled_cobra", "cobra"} and pd.notna(fib786):
+        # Coiled Cobra keeps its Fibonacci-anchored geometry unchanged.
+        entry = max(float(fib786), close - 0.25 * atr)
+        stop = float(fib786) - 0.5 * atr
+        target1 = entry + 1.0 * atr
+        target2 = entry + 2.0 * atr
         stop = min(stop, entry - 0.25 * atr)
+        return entry, stop, target1, target2, options_type, delta_range
 
-    elif setup_type == "SETUP_SHORT":
-        # Future short logic (placeholder)
-        entry = min(ema20, close + 0.25 * atr)
-        stop = ema50 + 0.5 * atr
-        target1 = entry - 1.0 * atr
-        target2 = entry - 2.0 * atr
+    if setup_type not in ("SETUP_LONG", "SETUP_SHORT"):
+        raise ValueError(f"Unknown Setup Type: {setup_type}")
+
+    levels = config.compute_swing_levels(
+        setup_type=setup_type, close=close, ema20=ema20, ema50=ema50, atr=atr,
+        swing_low=swing_low, swing_high=swing_high, sp=sp,
+    )
+    if setup_type == "SETUP_SHORT":
         options_type = "PUT"
         delta_range = DELTA_SHORT
 
-        # SAFETY: ensure stop > entry for shorts
-        stop = max(stop, entry + 0.25 * atr)
-
-    else:
-        raise ValueError(f"Unknown Setup Type: {setup_type}")
-
-    return entry, stop, target1, target2, options_type, delta_range
+    return (
+        levels["entry"], levels["stop"], levels["target1"], levels["target2"],
+        options_type, delta_range,
+    )
 
 
 def calculate_options_expiry():
@@ -104,7 +114,7 @@ def calculate_options_expiry():
     Weekly pulls long-term LEAPS setups; daily pulls agile swing cycles.
     """
     today = datetime.today()
-    if mode == "daily":
+    if mode in _SHORT_DATED_MODES:
         # Standard swing option cycle boundaries (1 to 3 months forward lookahead)
         expiry_min = today + pd.DateOffset(months=1)
         expiry_max = today + pd.DateOffset(months=3)
@@ -149,19 +159,26 @@ def generate_trade_plan(scanner_csv_path=None):
 
         print(f"Using swing scanner file: {swing_csv_path}")
         print(f"Using Coiled Cobra scanner file: {cobra_csv_path}")
+    else:
+        # Explicit single-source path provided (treated as a swing-style file)
+        swing_csv_path = Path(scanner_csv_path)
+        cobra_csv_path = None
+        print(f"Using provided scanner file: {swing_csv_path}")
 
     # Load swing setups
     df_swing = None
     if swing_csv_path:
         df_swing = pd.read_csv(swing_csv_path)
-        df_swing["Source"] = "swing"
+        if "Source" not in df_swing.columns:
+            df_swing["Source"] = "swing"
         print(f"Loaded {len(df_swing)} swing setups.")
 
     # Load Coiled Cobra setups
     df_cobra = None
     if cobra_csv_path:
         df_cobra = pd.read_csv(cobra_csv_path)
-        df_cobra["Source"] = "coiled_cobra"
+        if "Source" not in df_cobra.columns:
+            df_cobra["Source"] = "coiled_cobra"
         print(f"Loaded {len(df_cobra)} Coiled Cobra setups.")
 
     # Combine into one DataFrame
@@ -174,26 +191,52 @@ def generate_trade_plan(scanner_csv_path=None):
     print(f"Combined total setups: {len(df)}")
 
     plan_rows = []
-    expiry_label_min = "Options Expiry Min" if mode == "daily" else "LEAPS Expiry Min"
-    expiry_label_max = "Options Expiry Max" if mode == "daily" else "LEAPS Expiry Max"
-    contract_label = "Options Type" if mode == "daily" else "LEAPS Type"
+    short_dated = mode in _SHORT_DATED_MODES
+    expiry_label_min = "Options Expiry Min" if short_dated else "LEAPS Expiry Min"
+    expiry_label_max = "Options Expiry Max" if short_dated else "LEAPS Expiry Max"
+    contract_label = "Options Type" if short_dated else "LEAPS Type"
+
+    # Expiry window depends only on mode, so compute it once per run.
+    expiry_min, expiry_max = calculate_options_expiry()
 
     for _, row in df.iterrows():
-        entry, stop, t1, t2, opt_type, delta_range = calculate_stock_levels(row)
-        expiry_min, expiry_max = calculate_options_expiry()
+        # Row Mode is authoritative (mode=None) so high_beta setups keep their
+        # geometry even when the planner runs under a different CLI mode.
+        entry, stop, t1, t2, opt_type, delta_range = calculate_stock_levels(row, mode=None)
+        risk_per_share = round(abs(entry - stop), 2)
 
         plan_rows.append(
             {
                 "Symbol": row["Symbol"],
                 "Setup Type": row["Setup Type"],
+                "Source": row.get("Source", None),
+                "Mode": row.get("Mode", None),
+                "AsOf Date": row.get("AsOf Date", None),
                 "Stock Entry": round(entry, 2),
                 "Stock Stop": round(stop, 2),
                 "Target 1": round(t1, 2),
                 "Target 2": round(t2, 2),
+                "Risk Per Share": risk_per_share,
+                # Pass-through structural context that justified the levels
+                "Close": row.get("Close", None),
+                "EMA20": row.get("EMA20", None),
+                "EMA50": row.get("EMA50", None),
+                "ATR": row.get("ATR", None),
+                "RSI": row.get("RSI", None),
+                "Swing Low": row.get("Swing Low", None),
+                "Swing High": row.get("Swing High", None),
+                "Fib 61.8%": row.get("Fib 61.8%", None),
+                "Fib 78.6%": row.get("Fib 78.6%", None),
                 "Score": row.get("Score", None),
                 "Grade": row.get("Grade", None),
                 "Checks Met": row.get("Checks Met", None),
-                "Source": row["Source"],  # optional but useful
+                "Notes": row.get("Notes", None),
+                # Options / LEAPS metadata (now persisted, previously dropped)
+                contract_label: opt_type,
+                "Delta Min": delta_range[0],
+                "Delta Max": delta_range[1],
+                expiry_label_min: expiry_min,
+                expiry_label_max: expiry_max,
             }
         )
 

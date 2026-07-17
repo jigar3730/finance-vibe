@@ -16,22 +16,36 @@ import pandas as pd
 
 try:
     from finance_vibe import config
-    from finance_vibe.analysis_engine import load_ohlc_csv, ticker_from_filename
-    from finance_vibe.coiled_cobra import add_macro_indicators, evaluate_coiled_cobra, LOOKBACK
+    from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
+    from finance_vibe.coiled_cobra import (
+        BENCHMARK,
+        LOOKBACK,
+        add_macro_indicators,
+        evaluate_coiled_cobra,
+    )
     from finance_vibe.pipeline_backtest import simulate_trade
     from finance_vibe.trade_planner import calculate_stock_levels
 except ImportError:  # pragma: no cover
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
     from finance_vibe import config
-    from finance_vibe.analysis_engine import load_ohlc_csv, ticker_from_filename
-    from finance_vibe.coiled_cobra import add_macro_indicators, evaluate_coiled_cobra, LOOKBACK
+    from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
+    from finance_vibe.coiled_cobra import (
+        BENCHMARK,
+        LOOKBACK,
+        add_macro_indicators,
+        evaluate_coiled_cobra,
+    )
     from finance_vibe.pipeline_backtest import simulate_trade
     from finance_vibe.trade_planner import calculate_stock_levels
 
 
-def detect_cobra_setup_at_bar(df: pd.DataFrame, symbol: str) -> Optional[dict]:
-    """Evaluate the latest bar in a history window for a Coiled Cobra setup."""
-    if len(df) < LOOKBACK + 15:
+def detect_cobra_setup_at_bar(
+    df: pd.DataFrame,
+    symbol: str,
+    benchmark_df=None,
+) -> Optional[dict]:
+    """Evaluate the latest bar in a history window for a Coiled Cobra coil setup."""
+    if len(df) < LOOKBACK // 2 + 15:
         return None
 
     window = df.copy()
@@ -43,7 +57,7 @@ def detect_cobra_setup_at_bar(df: pd.DataFrame, symbol: str) -> Optional[dict]:
     if len(window) < 2:
         return None
 
-    setup = evaluate_coiled_cobra(window)
+    setup = evaluate_coiled_cobra(window, benchmark_df)
     if not setup:
         return None
 
@@ -56,12 +70,13 @@ def detect_cobra_setup_at_bar(df: pd.DataFrame, symbol: str) -> Optional[dict]:
         "EMA20": round(float(latest["EMA20"]), 2),
         "EMA50": round(float(latest["EMA50"]), 2),
         "ATR": round(float(latest["ATR"]), 2),
-        "Fib 61.8%": round(float(latest["Fib_618"]), 2),
-        "Fib 78.6%": round(float(latest["Fib_786"]), 2),
+        "Fib 61.8%": round(float(latest["Fib_618"]), 2) if pd.notna(latest.get("Fib_618")) else None,
+        "Fib 78.6%": round(float(latest["Fib_786"]), 2) if pd.notna(latest.get("Fib_786")) else None,
         "Score": setup["Score"],
         "Grade": setup["Grade"],
         "Checks Met": setup["Checks Met"],
         "Source": "coiled_cobra",
+        "RS 63d": setup.get("RS 63d"),
     }
 
 
@@ -74,6 +89,7 @@ def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd
     if tickers:
         ticker_filter = {t.strip().upper() for t in tickers.split(",") if t.strip()}
 
+    benchmark_df = load_benchmark_frame(BENCHMARK, mode)
     rows: list[dict] = []
     file_paths = sorted(
         os.path.join(raw_dir, f)
@@ -81,6 +97,7 @@ def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd
         if f.lower().endswith(".csv")
     )
 
+    min_bars = LOOKBACK // 2 + 15
     for path in file_paths:
         symbol = ticker_from_filename(path)
         if ticker_filter and symbol not in ticker_filter:
@@ -91,8 +108,10 @@ def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd
         except Exception:
             continue
 
-        for idx in range(LOOKBACK + 15, len(df)):
-            setup = detect_cobra_setup_at_bar(df.iloc[: idx + 1], symbol)
+        for idx in range(min_bars, len(df)):
+            setup = detect_cobra_setup_at_bar(
+                df.iloc[: idx + 1], symbol, benchmark_df=benchmark_df
+            )
             if setup:
                 rows.append(setup)
 
@@ -109,6 +128,7 @@ def backtest_ticker(
     path: str,
     entry_valid: int,
     max_hold: int,
+    benchmark_df=None,
 ) -> tuple[list[dict], dict]:
     """Walk-forward simulate one ticker using Coiled Cobra signals."""
     symbol = ticker_from_filename(path)
@@ -125,9 +145,10 @@ def backtest_ticker(
         "errors": 0,
     }
 
-    for idx in range(LOOKBACK + 15, len(df) - 1):
+    min_bars = LOOKBACK // 2 + 15
+    for idx in range(min_bars, len(df) - 1):
         window = df.iloc[: idx + 1]
-        setup_row = detect_cobra_setup_at_bar(window, symbol)
+        setup_row = detect_cobra_setup_at_bar(window, symbol, benchmark_df=benchmark_df)
         if not setup_row:
             continue
 
@@ -199,6 +220,7 @@ def run_backtest(
         if f.lower().endswith(".csv")
     )
 
+    benchmark_df = load_benchmark_frame(BENCHMARK, mode)
     all_trades: list[dict] = []
     all_counts: dict = {}
 
@@ -210,7 +232,9 @@ def run_backtest(
         if ticker_filter and symbol not in ticker_filter:
             continue
 
-        trades, counts = backtest_ticker(path, entry_valid, max_hold)
+        trades, counts = backtest_ticker(
+            path, entry_valid, max_hold, benchmark_df=benchmark_df
+        )
         all_trades.extend(trades)
         for key, value in counts.items():
             all_counts[key] = all_counts.get(key, 0) + value

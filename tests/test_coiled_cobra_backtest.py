@@ -45,7 +45,7 @@ def test_coiled_cobra_backtest_ticker_records_trade(tmp_path, monkeypatch):
         assert str(file_path) == str(path)
         return pd.read_csv(file_path)
 
-    def fake_detect_cobra_setup_at_bar(window, ticker):
+    def fake_detect_cobra_setup_at_bar(window, ticker, benchmark_df=None):
         if len(window) == 68:
             return {
                 "Symbol": symbol,
@@ -56,8 +56,8 @@ def test_coiled_cobra_backtest_ticker_records_trade(tmp_path, monkeypatch):
                 "ATR": 4.0,
                 "Fib 78.6%": 96.0,
                 "Score": 85,
-                "Grade": "A - Institutional Setup",
-                "Checks Met": "5/5",
+                "Grade": "A - Coil Ready",
+                "Checks Met": "5/6",
                 "Source": "coiled_cobra",
             }
         return None

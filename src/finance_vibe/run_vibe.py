@@ -32,13 +32,16 @@ def run_workflow():
     """Parse CLI args and execute each pipeline stage as a subprocess."""
     parser = argparse.ArgumentParser(description="Finance-Vibe Pipeline Orchestrator")
     parser.add_argument(
-        "--mode", 
-        choices=["weekly", "daily"], 
-        default="weekly", 
-        help="Execution timeframe profile (default: weekly)"
+        "--mode",
+        choices=["weekly", "daily", "high_beta"],
+        default="weekly",
+        help="Execution profile (weekly, daily, or high_beta long-only single names)",
     )
     args = parser.parse_args()
     mode = args.mode.lower()
+
+    # high_beta reads daily OHLCV but keeps its own swing profile + log silo.
+    data_mode = "daily" if mode == "high_beta" else mode
 
     # 2. CLIMB TO ROOT
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -50,31 +53,45 @@ def run_workflow():
     env["PYTHONPATH"] = SRC_DIR + os.pathsep + env.get("PYTHONPATH", "")
 
     # 4. SCRIPT CONFIGURATION
-    # We define which scripts accept the mode argument
+    # "scope" selects the argument each stage receives:
+    #   data    -> data timeframe (weekly/daily); shares raw data silo
+    #   profile -> swing profile (weekly/daily/high_beta); drives geometry + logs
+    # high_beta skips Coiled Cobra (LEAPS-oriented, not part of the long-only swing).
     scripts_config = [
-        {"path": "src/finance_vibe/ticker_provider.py", "pass_mode": False},
-        {"path": "src/finance_vibe/data_ingestor.py", "pass_mode": True},
-        #{"path": "src/finance_vibe/analysis_engine.py", "pass_mode": True},
-        {"path": "src/finance_vibe/swing_scanner.py", "pass_mode": True},
-        {"path": "src/finance_vibe/coiled_cobra.py", "pass_mode": True},
-        {"path": "src/finance_vibe/trade_planner.py", "pass_mode": True},
-        {"path": "src/finance_vibe/trade_plan_helper.py", "pass_mode": True},
+        {"path": "src/finance_vibe/ticker_provider.py", "pass_mode": False, "scope": "data"},
+        {"path": "src/finance_vibe/data_ingestor.py", "pass_mode": True, "scope": "data"},
+        #{"path": "src/finance_vibe/analysis_engine.py", "pass_mode": True, "scope": "data"},
+        {"path": "src/finance_vibe/swing_scanner.py", "pass_mode": True, "scope": "profile"},
+        {"path": "src/finance_vibe/coiled_cobra.py", "pass_mode": True, "scope": "data",
+         "skip_modes": ["high_beta"]},
+        {"path": "src/finance_vibe/trade_planner.py", "pass_mode": True, "scope": "profile"},
+        {"path": "src/finance_vibe/trade_plan_helper.py", "pass_mode": True, "scope": "profile"},
     ]
 
     print(f"🚀 Starting Finance-Vibe Pipeline [{mode.upper()} MODE]...")
-    print(f"📍 Project Root: {ROOT_DIR}\n")
+    print(f"📍 Project Root: {ROOT_DIR}")
+    if mode != data_mode:
+        print(f"🧬 Data timeframe: {data_mode} | Swing profile: {mode}")
+    print()
 
-    # Target only the active mode's subdirectory
-    clean_raw_folder(ROOT_DIR, mode)
+    # Clean the shared raw silo for the data timeframe.
+    clean_raw_folder(ROOT_DIR, data_mode)
 
     for script in scripts_config:
+        if mode in script.get("skip_modes", []):
+            print(f"⏭️  Skipping {script['path']} for {mode} mode.\n")
+            continue
+
         script_path = os.path.join(ROOT_DIR, script["path"])
         print(f"🔹 Running: {script['path']}...")
-        
-        # Build command array dynamically
+
+        # Data-scope stages receive the data timeframe; profile-scope stages
+        # receive the swing profile so high_beta geometry/logs stay isolated.
+        arg_mode = data_mode if script.get("scope") == "data" else mode
+
         cmd = [sys.executable, script_path]
         if script["pass_mode"]:
-            cmd.append(mode)  # Injected cleanly as a positional argument ('daily' or 'weekly')
+            cmd.append(arg_mode)
 
         try:
             subprocess.run(cmd, check=True, env=env, cwd=ROOT_DIR)
