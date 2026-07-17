@@ -6,3 +6,7 @@ yahooquery
 Flask
 tabulate
 pytest>=8.0.0
+xgboost
+lightgbm
+scikit-learn
+matplotlib
