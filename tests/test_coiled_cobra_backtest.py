@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from finance_vibe import trade_planner
 from finance_vibe.coiled_cobra_backtest import backtest_ticker
@@ -16,6 +17,7 @@ def test_trade_planner_accepts_cobra_source():
         "EMA50": 95.0,
         "ATR": 4.0,
         "Fib 78.6%": 96.0,
+        "Swing Low": 94.0,
     }
 
     entry, stop, target1, target2, option_type, delta_range = trade_planner.calculate_stock_levels(row)
@@ -24,6 +26,9 @@ def test_trade_planner_accepts_cobra_source():
     assert stop < entry
     assert target1 > entry
     assert target2 > target1
+    risk = entry - stop
+    assert target1 == pytest.approx(entry + 2.0 * risk)
+    assert target2 == pytest.approx(entry + 3.0 * risk)
 
 
 def test_coiled_cobra_backtest_ticker_records_trade(tmp_path, monkeypatch):
@@ -54,11 +59,17 @@ def test_coiled_cobra_backtest_ticker_records_trade(tmp_path, monkeypatch):
                 "EMA20": 98.0,
                 "EMA50": 95.0,
                 "ATR": 4.0,
+                "Swing Low": 94.0,
                 "Fib 78.6%": 96.0,
                 "Score": 85,
                 "Grade": "A - Coil Ready",
                 "Checks Met": "5/6",
                 "Source": "coiled_cobra",
+                "Pct_From_EMA20": 0.02,
+                "Pct_From_EMA50": 0.05,
+                "Pct_From_Fib618": 0.01,
+                "Pct_From_Fib786": 0.04,
+                "ATR_Pct": 0.04,
             }
         return None
 

@@ -23,11 +23,13 @@ try:
         LOOKBACK,
         add_macro_indicators,
         evaluate_coiled_cobra,
+        local_swing_low,
     )
     from finance_vibe.pipeline_backtest import simulate_trade
     from finance_vibe.trade_planner import calculate_stock_levels
 except ImportError:  # pragma: no cover
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+    # Package lives under src/; repo root alone is not enough for `finance_vibe`.
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from finance_vibe import config
     from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
     from finance_vibe.coiled_cobra import (
@@ -35,6 +37,7 @@ except ImportError:  # pragma: no cover
         LOOKBACK,
         add_macro_indicators,
         evaluate_coiled_cobra,
+        local_swing_low,
     )
     from finance_vibe.pipeline_backtest import simulate_trade
     from finance_vibe.trade_planner import calculate_stock_levels
@@ -78,6 +81,7 @@ def detect_cobra_setup_at_bar(
         "EMA20": round(ema20, 2),
         "EMA50": round(ema50, 2),
         "ATR": round(atr, 2),
+        "Swing Low": round(local_swing_low(window), 2),
         "Fib 61.8%": round(fib_618, 2) if fib_618 is not None else None,
         "Fib 78.6%": round(fib_786, 2) if fib_786 is not None else None,
         "Pct_From_EMA20": round((close - ema20) / ema20, 4),
@@ -212,6 +216,7 @@ def backtest_ticker(
             future_close = float(df.iloc[future_idx]["Close"])
             return round((future_close - setup_close) / setup_close, 4)
 
+        forward_return_2w = _forward_return(2)
         forward_return_5w = _forward_return(5)
         forward_return_13w = _forward_return(13)
         forward_return_26w = _forward_return(26)
@@ -250,6 +255,7 @@ def backtest_ticker(
                 "R Multiple": r_multiple,
                 "Target_Label": target_label,
                 "Target_R_Mult": r_multiple,
+                "Forward_Return_2w": forward_return_2w,
                 "Forward_Return_5w": forward_return_5w,
                 "Forward_Return_13w": forward_return_13w,
                 "Forward_Return_26w": forward_return_26w,

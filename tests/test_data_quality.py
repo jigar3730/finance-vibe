@@ -90,11 +90,30 @@ def _base_row(**overrides):
 def test_cobra_valid_fib_uses_structural_entry():
     row = _base_row(Source="coiled_cobra")
     row["Fib 78.6%"] = 95.0
+    row["Swing Low"] = 97.0
     entry, stop, t1, t2, opt_type, delta = calculate_stock_levels(row)
     # entry = max(fib786, close - 0.25*atr) = max(95, 99.5)
     assert entry == pytest.approx(99.5)
     assert stop < entry
+    risk = entry - stop
+    assert t1 == pytest.approx(entry + 2.0 * risk)
+    assert t2 == pytest.approx(entry + 3.0 * risk)
     assert opt_type == "CALL"
+
+
+def test_cobra_distant_fib_uses_local_swing_not_macro_floor():
+    """Year-scale Fib must not place stops 40–50% away; local swing + 1.5×ATR wins."""
+    row = _base_row(Source="coiled_cobra", Close=100.0, ATR=2.0)
+    row["Fib 78.6%"] = 50.0          # macro Fib far below market
+    row["Swing Low"] = 96.0          # 10-session consolidation floor
+    entry, stop, t1, t2, *_ = calculate_stock_levels(row)
+    assert entry == pytest.approx(99.5)  # close - 0.25*ATR
+    # Dual-constraint: max(swing-buf, entry-1.5ATR) = max(95.5, 96.5) = 96.5
+    assert stop == pytest.approx(entry - 1.5 * 2.0)
+    assert (entry - stop) / entry < 0.05
+    risk = entry - stop
+    assert t1 == pytest.approx(entry + 2.0 * risk)
+    assert t2 == pytest.approx(entry + 3.0 * risk)
 
 
 def test_cobra_nan_fib_falls_back_to_swing():
@@ -141,7 +160,8 @@ def test_high_beta_profile_uses_atr_proximity():
     d = config.get_swing_params("daily")
     assert hb["prox_atr"] is not None
     assert hb["prox_atr"] > 0
-    assert hb["stop_atr_cap"] > d["stop_atr_cap"]
+    assert hb["stop_atr_cap"] == pytest.approx(1.5)
+    assert hb["structure_bars"] == 10
     assert hb["t1_atr"] > d["t1_atr"]
     assert hb["rsi_min_long"] < d["rsi_min_long"]
     assert hb["require_ema_stack"] is True
@@ -164,19 +184,19 @@ def test_high_beta_stock_levels_use_profile():
     assert t2 == pytest.approx(entry + hb["t2_r"] * risk)
 
 
-def test_high_beta_structural_stop_uncapped():
-    """Structural-risk mode leaves the stop at structure (no ATR cap squeeze)."""
+def test_high_beta_dual_constraint_floors_wide_structure():
+    """Distant swing lows are floored at entry − stop_atr_cap × ATR."""
     from finance_vibe import config
-    # Swing low far below entry -> risk would exceed the legacy stop cap.
     row = _base_row(EMA50=110.0)
     row["Swing Low"] = 90.0
     row["Mode"] = "high_beta"
-    entry, stop, *_ = calculate_stock_levels(row, mode="high_beta")
+    entry, stop, t1, t2, *_ = calculate_stock_levels(row, mode="high_beta")
     hb = config.get_swing_params("high_beta")
     atr = 2.0
-    # Stop sits below the swing low buffer, not capped at stop_atr_cap * ATR.
-    assert stop == pytest.approx(90.0 - hb["stop_buffer_atr"] * atr)
-    assert (entry - stop) > hb["stop_atr_cap"] * atr
+    assert stop == pytest.approx(entry - hb["stop_atr_cap"] * atr)
+    risk = entry - stop
+    assert t1 == pytest.approx(entry + hb["t1_r"] * risk)
+    assert t2 == pytest.approx(entry + hb["t2_r"] * risk)
 
 
 def test_short_stop_above_entry():
@@ -192,15 +212,16 @@ def test_short_stop_above_entry():
 # structural-risk rejection + compute_swing_levels
 # ---------------------------------------------------------------------------
 
-def test_compute_swing_levels_rejects_too_wide_risk():
+def test_compute_swing_levels_floors_too_wide_structure():
+    """Wide swing lows are normalized by the volatility floor, not rejected."""
     sp = config.get_swing_params("high_beta")
-    # Swing low far below entry -> risk beyond max_risk_atr.
     lv = config.compute_swing_levels(
         setup_type="SETUP_LONG", close=100.0, ema20=100.0, ema50=99.0, atr=1.0,
         swing_low=90.0, swing_high=None, sp=sp,
     )
-    assert lv["reject_reason"] is not None
-    assert "too_wide" in lv["reject_reason"]
+    assert lv["reject_reason"] is None
+    assert lv["stop"] == pytest.approx(lv["entry"] - sp["stop_atr_cap"] * 1.0)
+    assert lv["risk"] == pytest.approx(sp["stop_atr_cap"] * 1.0)
 
 
 def test_compute_swing_levels_rejects_too_tight_risk():
@@ -360,13 +381,15 @@ def test_helper_rr_positive_for_long_and_short(tmp_path, monkeypatch):
     _write_plan(mode_dir, date_str, [
         {
             "Symbol": "LONGY", "Setup Type": "SETUP_LONG",
+            "Close": 100.0, "Score": 80, "Checks Met": "6/6",
             "Stock Entry": 100.0, "Stock Stop": 96.0,
-            "Target 1": 104.0, "Target 2": 108.0,
+            "Target 1": 108.0, "Target 2": 112.0,
         },
         {
             "Symbol": "SHORTY", "Setup Type": "SETUP_SHORT",
+            "Close": 100.0, "Score": 75, "Checks Met": "6/6",
             "Stock Entry": 100.0, "Stock Stop": 104.0,
-            "Target 1": 96.0, "Target 2": 92.0,
+            "Target 1": 92.0, "Target 2": 88.0,
         },
     ])
 
@@ -375,9 +398,50 @@ def test_helper_rr_positive_for_long_and_short(tmp_path, monkeypatch):
     clean = pd.read_csv(out_path)
 
     assert "Setup Type" in clean.columns
+    assert len(clean) == 2
     assert (clean["Risk Per Share"] > 0).all()
-    assert (clean["R:R T1"] > 0).all()
+    assert (clean["R:R T1"] >= 2.0).all()
     assert (clean["R:R T2"] > 0).all()
+    assert "Expected Value" in clean.columns
+    assert "Priority" in clean.columns
+
+
+def test_helper_ingestion_guardrails_drop_bad_rows(tmp_path, monkeypatch):
+    date_str = "2099-02-03"
+    mode_dir = tmp_path / "data" / "logs" / "weekly"
+    _write_plan(mode_dir, date_str, [
+        {  # wide risk > 5% of close
+            "Symbol": "WIDE", "Setup Type": "SETUP_LONG", "Source": "swing",
+            "Close": 100.0, "Score": 90, "Checks Met": "6/6",
+            "Stock Entry": 100.0, "Stock Stop": 90.0,
+            "Target 1": 120.0, "Target 2": 130.0,
+        },
+        {  # incomplete checklist
+            "Symbol": "FAILCHK", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
+            "Close": 100.0, "Score": 90, "Checks Met": "4/6",
+            "Stock Entry": 100.0, "Stock Stop": 97.0,
+            "Target 1": 106.0, "Target 2": 109.0,
+        },
+        {  # R:R T1 < 2
+            "Symbol": "LOWRR", "Setup Type": "SETUP_LONG", "Source": "swing",
+            "Close": 100.0, "Score": 90, "Checks Met": "6/6",
+            "Stock Entry": 100.0, "Stock Stop": 96.0,
+            "Target 1": 104.0, "Target 2": 108.0,
+        },
+        {  # survivor
+            "Symbol": "KEEP", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
+            "Close": 100.0, "Score": 85, "Checks Met": "6/6",
+            "Stock Entry": 100.0, "Stock Stop": 97.0,
+            "Target 1": 106.0, "Target 2": 109.0,
+        },
+    ])
+
+    monkeypatch.chdir(tmp_path)
+    out_path = process_trade_plan("weekly", today=date_str)
+    clean = pd.read_csv(out_path)
+    assert list(clean["Symbol"]) == ["KEEP"]
+    assert clean.iloc[0]["R:R T1"] >= 2.0
+    assert clean.iloc[0]["Expected Value"] == pytest.approx(85 * 3.0)
 
 
 # ---------------------------------------------------------------------------

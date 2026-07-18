@@ -1,4 +1,5 @@
 # src/finance_vibe/trade_plan_helper.py
+import re
 import sys
 import traceback
 from datetime import datetime
@@ -6,6 +7,13 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+# Ingestion guardrails (Part 3): drop broken / unprofitable rows before ranking.
+MAX_RISK_PCT_OF_CLOSE = 0.05
+MIN_RR_T1 = 2.0
+# Static propensity boost for tight coils until adaptive CDH weighting exists.
+TIGHT_COIL_PROPENSITY = 1.25
+TIGHT_RISK_PCT = 0.03
 
 
 def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -> tuple[Path, Path]:
@@ -52,8 +60,88 @@ def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -
     )
 
 
+def _checklist_fully_passed(value) -> bool:
+    """True when Checks Met is missing (N/A) or reports every check passed (e.g. 6/6)."""
+    if value is None or (isinstance(value, float) and np.isnan(value)):
+        return True
+    text = str(value).strip()
+    if not text or text.lower() in {"nan", "none", ""}:
+        return True
+    match = re.fullmatch(r"(\d+)\s*/\s*(\d+)", text)
+    if not match:
+        return True
+    passed, total = int(match.group(1)), int(match.group(2))
+    if total <= 0:
+        return True
+    return passed >= total
+
+
+def apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Drop rows that fail risk, checklist, or T1 R:R guardrails.
+
+    Returns the filtered frame and a small rejection summary.
+    """
+    n0 = len(df)
+    stats = {"input": n0, "risk_pct": 0, "checklist": 0, "rr_t1": 0}
+
+    out = df.copy()
+    price = pd.to_numeric(
+        out["Close"] if "Close" in out.columns else out.get("Stock Entry"),
+        errors="coerce",
+    )
+    if "Stock Entry" in out.columns and price is not None:
+        # Prefer Close; fall back to entry when Close is absent/NaN.
+        entry = pd.to_numeric(out["Stock Entry"], errors="coerce")
+        price = price.fillna(entry) if hasattr(price, "fillna") else entry
+
+    risk = pd.to_numeric(out.get("Risk Per Share"), errors="coerce")
+    if price is not None and risk is not None:
+        risk_pct = risk / price.replace(0, np.nan)
+        mask_risk = risk_pct > MAX_RISK_PCT_OF_CLOSE
+        stats["risk_pct"] = int(mask_risk.fillna(False).sum())
+        out = out.loc[~mask_risk.fillna(False)].copy()
+
+    if "Checks Met" in out.columns:
+        passed = out["Checks Met"].map(_checklist_fully_passed)
+        stats["checklist"] = int((~passed).sum())
+        out = out.loc[passed].copy()
+
+    if "R:R T1" in out.columns:
+        rr1 = pd.to_numeric(out["R:R T1"], errors="coerce")
+        mask_rr = rr1 < MIN_RR_T1
+        stats["rr_t1"] = int(mask_rr.fillna(True).sum())
+        out = out.loc[~mask_rr.fillna(True)].copy()
+
+    stats["kept"] = len(out)
+    return out, stats
+
+
+def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
+    """Order survivors by EV = R:R T2 × Score, with a tight-coil propensity boost."""
+    out = df.copy()
+    rr2 = pd.to_numeric(out.get("R:R T2"), errors="coerce").fillna(0.0)
+    score = pd.to_numeric(out.get("Score"), errors="coerce").fillna(0.0)
+    out["Expected Value"] = (rr2 * score).round(2)
+
+    source = out["Source"].astype(str).str.strip().str.lower() if "Source" in out.columns else ""
+    price = pd.to_numeric(
+        out["Close"] if "Close" in out.columns else out.get("Stock Entry"),
+        errors="coerce",
+    )
+    risk = pd.to_numeric(out.get("Risk Per Share"), errors="coerce")
+    tight_risk = (risk / price.replace(0, np.nan)) <= TIGHT_RISK_PCT if price is not None else False
+    is_coil = source.isin(["coiled_cobra", "cobra"]) if hasattr(source, "isin") else False
+    propensity = np.where(
+        np.asarray(is_coil) | np.asarray(tight_risk.fillna(False) if hasattr(tight_risk, "fillna") else tight_risk),
+        TIGHT_COIL_PROPENSITY,
+        1.0,
+    )
+    out["Priority"] = (out["Expected Value"] * propensity).round(2)
+    return out.sort_values("Priority", ascending=False, kind="mergesort").reset_index(drop=True)
+
+
 def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Path:
-    """Load trade plan, compute R:R columns, write cleaned CSV. Returns output path."""
+    """Load trade plan, compute R:R, apply guardrails, rank by EV. Returns output path."""
     today_str = today or datetime.now().strftime("%Y-%m-%d")
     trade_plan_dir, scanner_csv = resolve_trade_plan_path(mode, today=today_str)
     print(f"🎯 Target trade plan file located: {scanner_csv}")
@@ -72,7 +160,7 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
     print("✅ Loaded CSV columns:", df.columns.tolist())
 
     # Ensure numeric columns are clean
-    numeric_cols = ["Stock Entry", "Stock Stop", "Target 1", "Target 2"]
+    numeric_cols = ["Stock Entry", "Stock Stop", "Target 1", "Target 2", "Close", "Score"]
     for col in [c for c in numeric_cols if c in df.columns]:
         if df[col].dtype == object:
             df[col] = df[col].astype(str).str.replace(r"[$,]", "", regex=True)
@@ -103,6 +191,18 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         traceback.print_exc()
         raise SystemExit(1) from None
 
+    print("🛡️ Applying ingestion guardrails (risk ≤5%, full checklist, R:R T1 ≥ 2)...")
+    df, filter_stats = apply_ingestion_filters(df)
+    print(
+        f"   kept {filter_stats['kept']}/{filter_stats['input']} "
+        f"(dropped risk={filter_stats['risk_pct']}, "
+        f"checklist={filter_stats['checklist']}, rr_t1={filter_stats['rr_t1']})"
+    )
+
+    if not df.empty:
+        df = rank_by_expected_value(df)
+        print("📊 Ranked survivors by Expected Value (R:R T2 × Score) with coil propensity.")
+
     # Select essential columns for the cleaned file (only those that exist).
     # Both LEAPS/Options label variants are listed so mode-specific columns
     # survive the filter.
@@ -115,6 +215,7 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         "Score",          # raw scanner score
         "Grade",          # e.g. "A - Institutional Setup"
         "Checks Met",     # e.g. "4/5"
+        "Close",
         "Stock Entry",
         "Stock Stop",
         "Target 1",
@@ -122,6 +223,8 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         "Risk Per Share",
         "R:R T1",
         "R:R T2",
+        "Expected Value",
+        "Priority",
         "ATR",
         "RSI",
         "Fib 78.6%",
@@ -140,7 +243,10 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
     df_clean = df[keep_cols].copy()
 
     print("\n📄 Cleaned Trade Plan Preview:")
-    print(df_clean.head(10).to_markdown(index=False))
+    if df_clean.empty:
+        print("(no setups survived ingestion guardrails)")
+    else:
+        print(df_clean.head(10).to_markdown(index=False))
 
     clean_csv = trade_plan_dir / f"trade_plan_clean_{resolved_date}.csv"
     try:

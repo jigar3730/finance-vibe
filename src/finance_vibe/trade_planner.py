@@ -63,7 +63,7 @@ def calculate_stock_levels(row, mode: str | None = None):
     Derive entry, stop, targets, option side, and delta band from one setup row.
 
     Quality swing geometry is mode-aware via ``config.get_swing_params``.
-    The high_beta profile uses structural-risk stops and true 1R/2R targets.
+    The high_beta profile uses dual-constraint stops and true 1R/2R targets.
     Row ``Mode`` is authoritative unless an explicit ``mode`` is passed.
     """
     atr = float(row["ATR"])
@@ -83,12 +83,20 @@ def calculate_stock_levels(row, mode: str | None = None):
     delta_range = DELTA_LONG
 
     if setup_type == "SETUP_LONG" and source in {"coiled_cobra", "cobra"} and pd.notna(fib786):
-        # Coiled Cobra keeps its Fibonacci-anchored geometry unchanged.
+        # Fib-anchored entry; stop uses dual-constraint volatility rule:
+        # local 10-session structural floor vs 1.5×ATR buffer (higher wins).
+        # Year-long Fib levels must NOT widen the stop — only entry context.
         entry = max(float(fib786), close - 0.25 * atr)
-        stop = float(fib786) - 0.5 * atr
-        target1 = entry + 1.0 * atr
-        target2 = entry + 2.0 * atr
-        stop = min(stop, entry - 0.25 * atr)
+        buf = 0.25 * atr
+        if swing_low is not None and pd.notna(swing_low):
+            structural = float(swing_low) - buf
+        else:
+            structural = entry - 1.5 * atr
+        vol_floor = entry - 1.5 * atr
+        stop = min(max(structural, vol_floor), entry - buf)
+        risk = abs(entry - stop)
+        target1 = entry + 2.0 * risk
+        target2 = entry + 3.0 * risk
         return entry, stop, target1, target2, options_type, delta_range
 
     if setup_type not in ("SETUP_LONG", "SETUP_SHORT"):

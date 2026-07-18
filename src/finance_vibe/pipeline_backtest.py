@@ -27,7 +27,7 @@ try:
     from finance_vibe.swing_scanner import detect_setup_at_bar
     from finance_vibe.trade_planner import calculate_stock_levels
 except ImportError:
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from finance_vibe import config
     from finance_vibe.analysis_engine import (
         build_features, load_benchmark_frame, load_ohlc_csv, score_last_row, ticker_from_filename,

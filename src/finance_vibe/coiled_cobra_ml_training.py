@@ -1,7 +1,7 @@
-"""Coiled Cobra ML baseline: LightGBM + XGBoost regressors for Forward_Return_13w.
+"""Coiled Cobra ML baseline: LightGBM + XGBoost regressors with Dynamic Rolling Windows.
 
 Standalone training script. Looks for coiled_cobra_backtest_trades_*.csv,
-isolates 6 pre-signal features (Grade dropped), applies a rigid temporal split,
+isolates pre-signal features, applies a dynamic relative temporal split,
 and trains MAE-objective XGBRegressor / LGBMRegressor baselines with ATR_Pct
 sample weights to dampen heavy-tailed financial outliers.
 """
@@ -20,7 +20,6 @@ from xgboost import XGBRegressor
 
 # ---------------------------------------------------------------------------
 # Column zones (strict isolation — no leakage from post-trade metrics)
-# Grade dropped: redundant binned form of Score (multi-collinearity noise).
 # ---------------------------------------------------------------------------
 FEATURE_COLS = [
     "Score",
@@ -30,7 +29,8 @@ FEATURE_COLS = [
     "Pct_From_Fib786",
     "ATR_Pct",
 ]
-TARGET_COL = "Forward_Return_13w"
+# Short tactical horizon (~2 weekly bars) — avoids multi-month target lag.
+TARGET_COL = "Forward_Return_2w"
 DATE_COL = "Signal Date"
 WEIGHT_COL = "ATR_Pct"
 
@@ -49,16 +49,13 @@ LEAKAGE_COLS = [
 
 SOURCE_FILENAME = "coiled_cobra_backtest_trades_2026-07-17.csv"
 
-TRAIN_END = pd.Timestamp("2023-12-31")
-VAL_START = pd.Timestamp("2024-01-01")
-VAL_END = pd.Timestamp("2024-12-31")
-TEST_START = pd.Timestamp("2025-01-01")
-TEST_END = pd.Timestamp("2026-07-31")
-
+# Regularization: shallow trees, slow learning, row/feature bagging.
 MODEL_PARAMS = {
-    "max_depth": 6,
-    "learning_rate": 0.03,
-    "n_estimators": 300,
+    "max_depth": 4,
+    "learning_rate": 0.01,
+    "n_estimators": 400,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
 }
 
 
@@ -71,7 +68,7 @@ def _candidate_csv_paths(explicit: str | None = None) -> list[Path]:
     project_root = here.parents[1]  # src/finance_vibe -> repo root
     cwd = Path.cwd()
     names = [SOURCE_FILENAME]
-    # Prefer the dated source file; fall back to newest matching export.
+    
     search_roots = [
         cwd,
         cwd / "data" / "logs" / "weekly",
@@ -92,7 +89,6 @@ def resolve_source_csv(explicit: str | None = None) -> Path:
         if path.is_file():
             return path
 
-    # Fallback: newest coiled_cobra_backtest_trades_*.csv under common roots
     project_root = Path(__file__).resolve().parent.parents[1]
     globs: list[Path] = []
     for root in {
@@ -126,7 +122,6 @@ def load_and_prepare(csv_path: Path) -> pd.DataFrame:
     if DATE_COL not in df.columns:
         raise ValueError(f"Missing date column: {DATE_COL}")
 
-    # Drop catastrophic leakage columns when present (do not filter no_fill).
     drop_present = [c for c in LEAKAGE_COLS if c in df.columns]
     df = df.drop(columns=drop_present)
     print(f"Dropped leakage columns ({len(drop_present)}): {drop_present}")
@@ -146,12 +141,24 @@ def load_and_prepare(csv_path: Path) -> pd.DataFrame:
     return df.sort_values(DATE_COL).reset_index(drop=True)
 
 
-def temporal_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Rigid non-random date-boundary split on Signal Date."""
-    train = df[df[DATE_COL] <= TRAIN_END].copy()
-    val = df[(df[DATE_COL] >= VAL_START) & (df[DATE_COL] <= VAL_END)].copy()
-    test = df[(df[DATE_COL] >= TEST_START) & (df[DATE_COL] <= TEST_END)].copy()
-    return train, val, test
+def temporal_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    """Applies a dynamic rolling temporal split backward from the max available date."""
+    max_date = df[DATE_COL].max()
+    
+    # Define relative sliding windows (6 Months Test, 6 Months Val, Rest is Train)
+    test_start = max_date - pd.Timedelta(weeks=26)
+    val_start = test_start - pd.Timedelta(weeks=26)
+    
+    train = df[df[DATE_COL] < val_start].copy()
+    val = df[(df[DATE_COL] >= val_start) & (df[DATE_COL] < test_start)].copy()
+    test = df[df[DATE_COL] >= test_start].copy()
+    
+    bounds = {
+        "max_date": max_date,
+        "val_start": val_start,
+        "test_start": test_start
+    }
+    return train, val, test, bounds
 
 
 def build_matrices(
@@ -164,13 +171,10 @@ def build_matrices(
     for name, frame in (("train", train), ("val", val), ("test", test)):
         X = frame[FEATURE_COLS].copy()
         y = frame[TARGET_COL].astype(float).to_numpy()
-        # Spec: pass ATR_Pct as sample_weight. Clip tiny values for stability.
         w = frame[WEIGHT_COL].astype(float).to_numpy()
         w = np.where(np.isfinite(w) & (w > 0), w, np.nan)
-        # Fill any non-positive / NaN weights with train median later for train;
-        # for val/test weights are unused at fit time but kept for completeness.
         parts[name] = {"X": X, "y": y, "w": w, "n": len(frame)}
-    # Stabilize train weights
+        
     med = np.nanmedian(parts["train"]["w"])
     if not np.isfinite(med) or med <= 0:
         med = 1.0
@@ -220,7 +224,7 @@ def save_importance_plot(
 
     y_pos = np.arange(len(names))
     fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
-    fig.suptitle("Coiled Cobra ML — Feature Importances (Forward_Return_13w)")
+    fig.suptitle(f"Coiled Cobra ML — Feature Importances ({TARGET_COL})")
 
     axes[0].barh(y_pos, xgb_sorted, color="#2c5f7c")
     axes[0].set_yticks(y_pos)
@@ -239,8 +243,7 @@ def save_importance_plot(
     plt.close(fig)
     print(f"\nSaved feature importance plot: {out_path}")
 
-
-def train_and_report(parts: dict, art_dir: Path) -> None:
+def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
     X_train, y_train, w_train = parts["train"]["X"], parts["train"]["y"], parts["train"]["w"]
     X_val, y_val = parts["val"]["X"], parts["val"]["y"]
     X_test, y_test = parts["test"]["X"], parts["test"]["y"]
@@ -256,6 +259,8 @@ def train_and_report(parts: dict, art_dir: Path) -> None:
         max_depth=MODEL_PARAMS["max_depth"],
         learning_rate=MODEL_PARAMS["learning_rate"],
         n_estimators=MODEL_PARAMS["n_estimators"],
+        subsample=MODEL_PARAMS["subsample"],
+        colsample_bytree=MODEL_PARAMS["colsample_bytree"],
         objective="reg:absoluteerror",
         tree_method="hist",
         n_jobs=-1,
@@ -264,14 +269,16 @@ def train_and_report(parts: dict, art_dir: Path) -> None:
     xgb.fit(X_train, y_train, sample_weight=w_train)
 
     print("XGBoost validation / OOS scores:")
-    evaluate(xgb, X_val, y_val, "Val 2024")
-    evaluate(xgb, X_test, y_test, "Test 2025-2026")
+    evaluate(xgb, X_val, y_val, f"Val ({labels['val']})")
+    evaluate(xgb, X_test, y_test, f"Test OOS ({labels['test']})")
 
     print("\n=== Training LGBMRegressor (regression_l1 / MAE) ===")
     lgb = LGBMRegressor(
         max_depth=MODEL_PARAMS["max_depth"],
         learning_rate=MODEL_PARAMS["learning_rate"],
         n_estimators=MODEL_PARAMS["n_estimators"],
+        subsample=MODEL_PARAMS["subsample"],
+        colsample_bytree=MODEL_PARAMS["colsample_bytree"],
         objective="regression_l1",
         n_jobs=-1,
         random_state=42,
@@ -280,8 +287,22 @@ def train_and_report(parts: dict, art_dir: Path) -> None:
     lgb.fit(X_train, y_train, sample_weight=w_train)
 
     print("LightGBM validation / OOS scores:")
-    evaluate(lgb, X_val, y_val, "Val 2024")
-    evaluate(lgb, X_test, y_test, "Test 2025-2026")
+    evaluate(lgb, X_val, y_val, f"Val ({labels['val']})")
+    evaluate(lgb, X_test, y_test, f"Test OOS ({labels['test']})")
+
+    # --- NEW: Serialize Model Weights for Review and Pega Ingestion ---
+    art_dir.mkdir(parents=True, exist_ok=True)
+    
+    # 1. Save XGBoost Weights (Standard JSON format, highly readable/parseable)
+    xgb_model_path = art_dir / "coiled_cobra_xgb_model.json"
+    xgb.get_booster().save_model(str(xgb_model_path))
+    print(f"\n[SAVED] XGBoost model weights exported to: {xgb_model_path}")
+
+    # 2. Save LightGBM Weights (Standard text model structure)
+    lgb_model_path = art_dir / "coiled_cobra_lgb_model.txt"
+    lgb.booster_.save_model(str(lgb_model_path))
+    print(f"[SAVED] LightGBM model weights exported to: {lgb_model_path}")
+    # ------------------------------------------------------------------
 
     feature_names = list(X_train.columns)
     xgb_imp = np.asarray(xgb.feature_importances_, dtype=float)
@@ -292,11 +313,10 @@ def train_and_report(parts: dict, art_dir: Path) -> None:
 
     plot_path = art_dir / "coiled_cobra_ml_feature_importance.png"
     save_importance_plot(feature_names, xgb_imp, lgb_imp, plot_path)
-
-
+    
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Coiled Cobra ML baseline (XGBoost + LightGBM) for Forward_Return_13w"
+        description="Coiled Cobra ML baseline (XGBoost + LightGBM) with Dynamic Windows"
     )
     parser.add_argument(
         "--csv",
@@ -317,16 +337,15 @@ def main(argv: list[str] | None = None) -> int:
         art_dir = csv_path.parent if csv_path.parent.is_dir() else Path.cwd()
 
     df = load_and_prepare(csv_path)
-    train, val, test = temporal_split(df)
+    train, val, test, bounds = temporal_split(df)
 
-    print("\n=== Temporal Split Bounds ===")
-    print(f"  Train:  Signal Date <= {TRAIN_END.date()}  -> {len(train)} rows")
-    print(
-        f"  Val:    {VAL_START.date()} .. {VAL_END.date()}  -> {len(val)} rows"
-    )
-    print(
-        f"  Test:   {TEST_START.date()} .. {TEST_END.date()}  -> {len(test)} rows"
-    )
+    v_str = f"{bounds['val_start'].strftime('%Y-%m-%d')} .. {bounds['test_start'].strftime('%Y-%m-%d')}"
+    t_str = f"{bounds['test_start'].strftime('%Y-%m-%d')} .. {bounds['max_date'].strftime('%Y-%m-%d')}"
+
+    print("\n=== Temporal Split Bounds (Dynamic Rolling Windows) ===")
+    print(f"  Train:  Signal Date < {bounds['val_start'].strftime('%Y-%m-%d')} -> {len(train)} rows")
+    print(f"  Val:    {v_str} -> {len(val)} rows")
+    print(f"  Test:   {t_str} -> {len(test)} rows")
 
     if len(train) == 0 or len(val) == 0 or len(test) == 0:
         raise RuntimeError(
@@ -334,7 +353,9 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     parts = build_matrices(train, val, test)
-    train_and_report(parts, art_dir)
+    labels = {"val": v_str, "test": t_str}
+    
+    train_and_report(parts, art_dir, labels)
     print("\nDone.")
     return 0
 

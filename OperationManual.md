@@ -73,7 +73,7 @@ Replace `weekly` with `daily` for the daily profile.
 ### `ticker_provider.py`
 
 - Merges `STATIC_TICKERS` (`config.py`), `ticker_manifest.csv`, and Yahoo Finance screeners
-- Writes `data/active_tickers.csv` (capped at 150 symbols)
+- Writes `data/active_tickers.csv` (capped at `ACTIVE_TICKER_CAP` = **1000** in `config.py`)
 
 ### `data_ingestor.py`
 

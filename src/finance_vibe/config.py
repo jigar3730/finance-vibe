@@ -47,6 +47,23 @@ def get_mode_config(mode: str = None) -> dict:
 # Always-included symbols merged with manifest and screener output
 STATIC_TICKERS = ["SPY", "QQQ", "IWM", "SCHD","IBIT","SCHG"]
 
+# Universe size for ticker_provider → data/active_tickers.csv
+ACTIVE_TICKER_CAP = 1000
+# yahooquery Screener IDs merged after the manifest (deduped, then capped)
+SCREENER_IDS = [
+    "most_actives",
+    "day_gainers",
+    "day_losers",
+    "undervalued_growth_stocks",
+    "growth_technology_stocks",
+    "most_shorted_stocks",
+    "aggressive_small_caps",
+    "small_cap_gainers",
+    "undervalued_large_caps",
+]
+# Per-screener quote count (Yahoo typically caps near 250)
+SCREENER_COUNT = 250
+
 BASE_DIR = os.path.join(PROJECT_ROOT, "data")
 TICKER_LIST_PATH = os.path.join(BASE_DIR, "active_tickers.csv")
 
@@ -83,7 +100,7 @@ BENCHMARK_TICKER = "QQQ"
 _SWING_WEEKLY = {
     "entry_atr": 0.25,
     "stop_buffer_atr": 0.25,
-    "stop_atr_cap": 1.25,
+    "stop_atr_cap": 1.5,       # dual-constraint vol floor: entry − 1.5×ATR
     "t1_atr": 1.25,
     "t2_atr": 2.25,
     "prox_pct": 0.015,
@@ -92,7 +109,7 @@ _SWING_WEEKLY = {
     "rsi_max_long": 55,
     "rsi_min_short": 50,
     "rsi_max_short": 60,
-    "structure_bars": 5,
+    "structure_bars": 10,       # local consolidation lookback (sessions)
     "vibe_min": None,           # no soft vibe gate on weekly
     "cooldown_bars": 4,
     "entry_valid_bars": 4,
@@ -114,7 +131,7 @@ _SWING_DAILY = {
     "rsi_max_long": 55,
     "rsi_min_short": 50,
     "rsi_max_short": 60,
-    "structure_bars": 5,
+    "structure_bars": 10,       # local consolidation lookback (sessions)
     "vibe_min": 5,              # soft macro gate inside scanner
     "cooldown_bars": 8,
     "entry_valid_bars": 6,
@@ -124,12 +141,13 @@ _SWING_DAILY = {
 }
 
 # High-beta single names (PLTR/TSLA/HOOD-class): long-only, ATR proximity,
-# wider RSI, QQQ regime + relative-strength gating, structural-risk rejection
-# (no stop cap), and true 1R/2R targets. Uses daily OHLCV via resolve_pipeline_mode().
+# wider RSI, QQQ regime + relative-strength gating, dual-constraint stops
+# (local structure vs 1.5×ATR floor), and true 1R/2R targets.
+# Uses daily OHLCV via resolve_pipeline_mode().
 _SWING_HIGH_BETA = {
     "entry_atr": 0.25,
     "stop_buffer_atr": 0.25,
-    "stop_atr_cap": 1.75,       # retained for reference; structural-risk mode ignores it
+    "stop_atr_cap": 1.5,        # volatility floor: stop >= entry - 1.5×ATR
     "t1_atr": 1.0,              # unused when use_r_targets is True
     "t2_atr": 1.8,             # unused when use_r_targets is True
     "prox_pct": 0.03,           # fallback only if prox_atr unset
@@ -138,7 +156,7 @@ _SWING_HIGH_BETA = {
     "rsi_max_long": 58,
     "rsi_min_short": 42,
     "rsi_max_short": 65,
-    "structure_bars": 5,
+    "structure_bars": 10,       # local consolidation lookback (sessions)
     "vibe_min": 5,
     "cooldown_bars": 10,
     "entry_valid_bars": 6,
@@ -149,13 +167,12 @@ _SWING_HIGH_BETA = {
     "long_only": True,
     "structure_slack_atr": 0.25,   # ATR-normalized structure tolerance
     "min_risk_atr": 0.5,           # reject setups with risk below this
-    # Structural (uncapped) risk bound. High-beta pullbacks to EMA20 routinely
-    # sit ~2 ATR above their invalidating swing low, so 2.5 admits genuine
-    # setups while still rejecting the most extended (>2.5 ATR) entries.
-    "max_risk_atr": 2.5,
+    # Dual-constraint binds risk at stop_atr_cap; max_risk_atr is a safety net
+    # for anything that still lands outside the band after flooring.
+    "max_risk_atr": 1.5,
     "use_r_targets": True,         # T1/T2 measured in R (stop distance)
-    "t1_r": 1.0,
-    "t2_r": 2.0,
+    "t1_r": 2.0,                   # hard floor: T1 R:R >= 2:1
+    "t2_r": 3.0,
     "benchmark": BENCHMARK_TICKER,
     "require_market_regime": True,
     "require_relative_strength": True,
@@ -253,10 +270,12 @@ def structural_stop_long(
     entry: float, atr: float, ema50: float, swing_low,
     *, stop_buffer_atr: float, stop_atr_cap: float | None = None,
 ) -> float:
-    """Stop below swing low / EMA50 with ATR buffer.
+    """Stop below local structure with a dual-constraint volatility floor.
 
-    When ``stop_atr_cap`` is None the stop is left at its structural level
-    (structural-risk mode); otherwise risk is capped at ``stop_atr_cap`` ATR.
+    Local structure is the tighter of swing low / EMA50 (minus ATR buffer).
+    When ``stop_atr_cap`` is set, the stop is also floored at
+    ``entry - stop_atr_cap × ATR`` so distant macro lows cannot widen risk.
+    The final stop is the higher (tighter) of structure and that floor.
     """
     buf = stop_buffer_atr * atr
     candidates = [ema50 - buf]
@@ -272,7 +291,7 @@ def structural_stop_short(
     entry: float, atr: float, ema50: float, swing_high,
     *, stop_buffer_atr: float, stop_atr_cap: float | None = None,
 ) -> float:
-    """Stop above swing high / EMA50 with ATR buffer (mirror of long)."""
+    """Stop above local structure with a dual-constraint volatility ceiling."""
     buf = stop_buffer_atr * atr
     candidates = [ema50 + buf]
     if swing_high is not None and pd.notna(swing_high):
@@ -293,36 +312,42 @@ def compute_swing_levels(
     ``risk``, and ``reject_reason`` (None when the setup passes risk bounds).
 
     Behavior is profile-driven:
-      * ``max_risk_atr`` set  → structural-risk mode: uncapped stop, reject
-        when risk is outside ``[min_risk_atr, max_risk_atr]`` ATR.
-      * otherwise             → legacy capped stop via ``stop_atr_cap``.
+      * All profiles use a dual-constraint stop: local structure vs
+        ``entry ± stop_atr_cap × ATR``, picking the tighter bound.
+      * ``max_risk_atr`` set  → also reject when risk is outside
+        ``[min_risk_atr, max_risk_atr]`` ATR after the floor is applied.
       * ``use_r_targets``     → targets at ``t1_r``/``t2_r`` × risk; else ATR.
     """
     is_long = setup_type == "SETUP_LONG"
     structural_mode = sp.get("max_risk_atr") is not None
     buf = sp["stop_buffer_atr"] * atr
+    cap = sp["stop_atr_cap"]
 
     if is_long:
         entry = max(ema20, close - sp["entry_atr"] * atr)
         if structural_mode:
-            # Anchor risk on the pullback structure (swing low) that actually
-            # invalidates the setup; fall back to EMA50 only if no swing level.
+            # Anchor on the local swing low (consolidation), fall back to EMA50.
+            # Dual-constraint: max(structure, entry - cap×ATR) keeps risk tight.
             anchor = float(swing_low) if (swing_low is not None and pd.notna(swing_low)) else ema50
-            stop = min(anchor - buf, entry - buf)
+            structural = anchor - buf
+            vol_floor = entry - cap * atr
+            stop = min(max(structural, vol_floor), entry - buf)
         else:
             stop = structural_stop_long(
                 entry, atr, ema50, swing_low,
-                stop_buffer_atr=sp["stop_buffer_atr"], stop_atr_cap=sp["stop_atr_cap"],
+                stop_buffer_atr=sp["stop_buffer_atr"], stop_atr_cap=cap,
             )
     else:
         entry = min(ema20, close + sp["entry_atr"] * atr)
         if structural_mode:
             anchor = float(swing_high) if (swing_high is not None and pd.notna(swing_high)) else ema50
-            stop = max(anchor + buf, entry + buf)
+            structural = anchor + buf
+            vol_ceil = entry + cap * atr
+            stop = max(min(structural, vol_ceil), entry + buf)
         else:
             stop = structural_stop_short(
                 entry, atr, ema50, swing_high,
-                stop_buffer_atr=sp["stop_buffer_atr"], stop_atr_cap=sp["stop_atr_cap"],
+                stop_buffer_atr=sp["stop_buffer_atr"], stop_atr_cap=cap,
             )
 
     risk = abs(entry - stop)

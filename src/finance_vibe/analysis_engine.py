@@ -23,7 +23,7 @@ try:
     from finance_vibe import config
 except ImportError:
     sys.path.append(os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "../../")))
+        os.path.join(os.path.dirname(__file__), "..")))
     from finance_vibe import config
 
 # -----------------------------

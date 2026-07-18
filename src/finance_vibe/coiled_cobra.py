@@ -14,7 +14,7 @@ try:
     from finance_vibe.analysis_engine import load_benchmark_frame, relative_strength
 except ImportError:
     sys.path.append(os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "../../")))
+        os.path.join(os.path.dirname(__file__), "..")))
     from finance_vibe import config
     from finance_vibe.analysis_engine import load_benchmark_frame, relative_strength
 
@@ -31,10 +31,18 @@ else:
 LOOKBACK = 252 if mode == "daily" else 52
 # Coil window: how many bars define "the base" (weekly ≈ 2 months, daily ≈ 6 weeks)
 COIL_BARS = 30 if mode == "daily" else 8
+# Local structural floor for dual-constraint stops (not the macro Fib lookback)
+STRUCTURE_STOP_BARS = 10
 # RS lookback in bars (weekly ≈ 1 quarter, daily ≈ 63 sessions)
 RS_LOOKBACK = 63 if mode == "daily" else 13
 RS_RATIO_MA = 20 if mode == "daily" else 5
 BENCHMARK = "QQQ"
+
+
+def local_swing_low(df: pd.DataFrame, bars: int = STRUCTURE_STOP_BARS) -> float:
+    """Minimum Low over the last ``bars`` sessions (local consolidation floor)."""
+    window = df.iloc[-bars:] if len(df) >= bars else df
+    return float(window["Low"].min())
 
 # Soft pass floors (scorecard still sums to 100)
 MIN_PASS_SCORE = 70
@@ -463,6 +471,8 @@ def run_scanner():
                 "EMA50": round(float(latest["EMA50"]), 2),
                 "ATR": round(float(latest["ATR"]), 2),
                 "RSI": round(float(latest["RSI"]), 2) if pd.notna(latest["RSI"]) else None,
+                # Local 10-session floor for dual-constraint stops (not year Fib).
+                "Swing Low": round(local_swing_low(df), 2),
                 "Notes": setup["Grade"],
                 "Score": setup["Score"],
                 "Grade": setup["Grade"],
