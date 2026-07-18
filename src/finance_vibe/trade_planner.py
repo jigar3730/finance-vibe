@@ -83,8 +83,8 @@ def calculate_stock_levels(row, mode: str | None = None):
     delta_range = DELTA_LONG
 
     if setup_type == "SETUP_LONG" and source in {"coiled_cobra", "cobra"} and pd.notna(fib786):
-        # Fib-anchored entry; stop uses dual-constraint volatility rule:
-        # local 10-session structural floor vs 1.5×ATR buffer (higher wins).
+        # Fib-anchored entry; stop uses triple-constraint rule:
+        # local 10-session floor vs 1.5×ATR vs 5% of close (highest / tightest wins).
         # Year-long Fib levels must NOT widen the stop — only entry context.
         entry = max(float(fib786), close - 0.25 * atr)
         buf = 0.25 * atr
@@ -93,7 +93,8 @@ def calculate_stock_levels(row, mode: str | None = None):
         else:
             structural = entry - 1.5 * atr
         vol_floor = entry - 1.5 * atr
-        stop = min(max(structural, vol_floor), entry - buf)
+        price_floor = entry - config.MAX_RISK_PCT_OF_CLOSE * close
+        stop = min(max(structural, vol_floor, price_floor), entry - buf)
         risk = abs(entry - stop)
         target1 = entry + 2.0 * risk
         target2 = entry + 3.0 * risk
@@ -114,6 +115,41 @@ def calculate_stock_levels(row, mode: str | None = None):
         levels["entry"], levels["stop"], levels["target1"], levels["target2"],
         options_type, delta_range,
     )
+
+
+def _export_levels(entry: float, stop: float, t1: float, t2: float, close: float, setup_type: str):
+    """Round levels for CSV export while keeping risk ≤ MAX_RISK_PCT_OF_CLOSE × close."""
+    entry_r = round(entry, 2)
+    close_v = float(close) if pd.notna(close) else entry_r
+    max_risk = config.MAX_RISK_PCT_OF_CLOSE * close_v if close_v > 0 else None
+    is_long = str(setup_type).upper() != "SETUP_SHORT"
+
+    if max_risk is not None and max_risk > 0:
+        if is_long:
+            stop_floor = entry_r - max_risk
+            stop_r = round(max(stop, stop_floor), 2)
+            if entry_r - stop_r > max_risk + 1e-9:
+                stop_r = round(entry_r - max_risk, 2)
+            if entry_r - stop_r > max_risk + 1e-9:
+                stop_r = round(stop_r + 0.01, 2)
+            # Preserve R-multiple targets when geometry was risk-based (T1 ≈ entry+2R).
+            risk = entry_r - stop_r
+            if risk > 0 and abs((t1 - entry) - 2.0 * (entry - stop)) < 1e-6:
+                t1, t2 = entry_r + 2.0 * risk, entry_r + 3.0 * risk
+        else:
+            stop_ceil = entry_r + max_risk
+            stop_r = round(min(stop, stop_ceil), 2)
+            if stop_r - entry_r > max_risk + 1e-9:
+                stop_r = round(entry_r + max_risk, 2)
+            if stop_r - entry_r > max_risk + 1e-9:
+                stop_r = round(stop_r - 0.01, 2)
+            risk = stop_r - entry_r
+            if risk > 0 and abs((entry - t1) - 2.0 * (stop - entry)) < 1e-6:
+                t1, t2 = entry_r - 2.0 * risk, entry_r - 3.0 * risk
+    else:
+        stop_r = round(stop, 2)
+
+    return entry_r, stop_r, round(t1, 2), round(t2, 2), round(abs(entry_r - stop_r), 2)
 
 
 def calculate_options_expiry():
@@ -211,7 +247,9 @@ def generate_trade_plan(scanner_csv_path=None):
         # Row Mode is authoritative (mode=None) so high_beta setups keep their
         # geometry even when the planner runs under a different CLI mode.
         entry, stop, t1, t2, opt_type, delta_range = calculate_stock_levels(row, mode=None)
-        risk_per_share = round(abs(entry - stop), 2)
+        entry_r, stop_r, t1_r, t2_r, risk_per_share = _export_levels(
+            entry, stop, t1, t2, row.get("Close", entry), row["Setup Type"],
+        )
 
         plan_rows.append(
             {
@@ -220,10 +258,10 @@ def generate_trade_plan(scanner_csv_path=None):
                 "Source": row.get("Source", None),
                 "Mode": row.get("Mode", None),
                 "AsOf Date": row.get("AsOf Date", None),
-                "Stock Entry": round(entry, 2),
-                "Stock Stop": round(stop, 2),
-                "Target 1": round(t1, 2),
-                "Target 2": round(t2, 2),
+                "Stock Entry": entry_r,
+                "Stock Stop": stop_r,
+                "Target 1": t1_r,
+                "Target 2": t2_r,
                 "Risk Per Share": risk_per_share,
                 # Pass-through structural context that justified the levels
                 "Close": row.get("Close", None),
@@ -238,6 +276,9 @@ def generate_trade_plan(scanner_csv_path=None):
                 "Score": row.get("Score", None),
                 "Grade": row.get("Grade", None),
                 "Checks Met": row.get("Checks Met", None),
+                # Offline-model ranking signal (soft; null when no model ran)
+                "ML_Pred_Return": row.get("ML_Pred_Return", None),
+                "ML_Rank": row.get("ML_Rank", None),
                 "Notes": row.get("Notes", None),
                 # Options / LEAPS metadata (now persisted, previously dropped)
                 contract_label: opt_type,

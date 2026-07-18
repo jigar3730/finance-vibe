@@ -70,6 +70,15 @@ def test_blank_setup_row_matches_schema():
     assert all(v is None for v in row.values())
 
 
+def test_setup_schema_includes_ml_feature_and_rank_columns():
+    from finance_vibe.coiled_cobra_ml_training import FEATURE_COLS
+    # Every ML feature (except Score, already present) must be an emitted column.
+    for col in FEATURE_COLS:
+        assert col in config.SETUP_ROW_COLUMNS, f"missing feature col {col}"
+    assert "ML_Pred_Return" in config.SETUP_ROW_COLUMNS
+    assert "ML_Rank" in config.SETUP_ROW_COLUMNS
+
+
 # ---------------------------------------------------------------------------
 # calculate_stock_levels
 # ---------------------------------------------------------------------------
@@ -114,6 +123,19 @@ def test_cobra_distant_fib_uses_local_swing_not_macro_floor():
     risk = entry - stop
     assert t1 == pytest.approx(entry + 2.0 * risk)
     assert t2 == pytest.approx(entry + 3.0 * risk)
+
+
+def test_cobra_price_risk_cap_binds_when_atr_wide():
+    """Weekly-scale ATR×1.5 can exceed 5% of close; price cap must tighten the stop."""
+    row = _base_row(Source="coiled_cobra", Close=100.0, ATR=10.0)
+    row["Fib 78.6%"] = 50.0
+    row["Swing Low"] = 80.0
+    entry, stop, t1, t2, *_ = calculate_stock_levels(row)
+    # 1.5×ATR = 15% of close; cap forces risk ≤ 5% of close.
+    assert (entry - stop) <= config.MAX_RISK_PCT_OF_CLOSE * 100.0 + 1e-9
+    assert stop == pytest.approx(entry - config.MAX_RISK_PCT_OF_CLOSE * 100.0)
+    risk = entry - stop
+    assert t1 == pytest.approx(entry + 2.0 * risk)
 
 
 def test_cobra_nan_fib_falls_back_to_swing():
@@ -406,6 +428,24 @@ def test_helper_rr_positive_for_long_and_short(tmp_path, monkeypatch):
     assert "Priority" in clean.columns
 
 
+def test_helper_ingestion_survives_when_all_rows_fail_risk(tmp_path, monkeypatch):
+    """Empty survivors must not crash (pandas empty-string .sum() → '')."""
+    date_str = "2099-02-04"
+    mode_dir = tmp_path / "data" / "logs" / "weekly"
+    _write_plan(mode_dir, date_str, [
+        {
+            "Symbol": "WIDE", "Setup Type": "SETUP_LONG",
+            "Close": 100.0, "Score": 90, "Checks Met": "6/6",
+            "Stock Entry": 100.0, "Stock Stop": 90.0,
+            "Target 1": 120.0, "Target 2": 130.0,
+        },
+    ])
+    monkeypatch.chdir(tmp_path)
+    out_path = process_trade_plan("weekly", today=date_str)
+    clean = pd.read_csv(out_path)
+    assert len(clean) == 0
+
+
 def test_helper_ingestion_guardrails_drop_bad_rows(tmp_path, monkeypatch):
     date_str = "2099-02-03"
     mode_dir = tmp_path / "data" / "logs" / "weekly"
@@ -416,7 +456,7 @@ def test_helper_ingestion_guardrails_drop_bad_rows(tmp_path, monkeypatch):
             "Stock Entry": 100.0, "Stock Stop": 90.0,
             "Target 1": 120.0, "Target 2": 130.0,
         },
-        {  # incomplete checklist
+        {  # incomplete checklist (< 5/6)
             "Symbol": "FAILCHK", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
             "Close": 100.0, "Score": 90, "Checks Met": "4/6",
             "Stock Entry": 100.0, "Stock Stop": 97.0,
@@ -428,9 +468,9 @@ def test_helper_ingestion_guardrails_drop_bad_rows(tmp_path, monkeypatch):
             "Stock Entry": 100.0, "Stock Stop": 96.0,
             "Target 1": 104.0, "Target 2": 108.0,
         },
-        {  # survivor
+        {  # survivor — soft baseline 5/6 is enough
             "Symbol": "KEEP", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
-            "Close": 100.0, "Score": 85, "Checks Met": "6/6",
+            "Close": 100.0, "Score": 85, "Checks Met": "5/6",
             "Stock Entry": 100.0, "Stock Stop": 97.0,
             "Target 1": 106.0, "Target 2": 109.0,
         },

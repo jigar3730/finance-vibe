@@ -266,16 +266,22 @@ def get_log_dir(mode: str = "weekly") -> str:
 # SHARED SWING GEOMETRY (used by scanner, planner, and backtest)
 # =====================================================================
 
+# Hard ceiling on risk as a fraction of close (ingestion guardrail mirror).
+MAX_RISK_PCT_OF_CLOSE = 0.05
+
+
 def structural_stop_long(
     entry: float, atr: float, ema50: float, swing_low,
     *, stop_buffer_atr: float, stop_atr_cap: float | None = None,
+    close: float | None = None, max_risk_pct: float | None = MAX_RISK_PCT_OF_CLOSE,
 ) -> float:
-    """Stop below local structure with a dual-constraint volatility floor.
+    """Stop below local structure with dual-constraint + price risk cap.
 
     Local structure is the tighter of swing low / EMA50 (minus ATR buffer).
     When ``stop_atr_cap`` is set, the stop is also floored at
     ``entry - stop_atr_cap × ATR`` so distant macro lows cannot widen risk.
-    The final stop is the higher (tighter) of structure and that floor.
+    When ``max_risk_pct`` is set, risk is also capped at ``max_risk_pct × close``.
+    The final stop is the higher (tighter) of those floors.
     """
     buf = stop_buffer_atr * atr
     candidates = [ema50 - buf]
@@ -284,14 +290,17 @@ def structural_stop_long(
     structural = min(candidates)
     if stop_atr_cap is not None:
         structural = max(structural, entry - stop_atr_cap * atr)
+    if max_risk_pct is not None and close is not None and close > 0:
+        structural = max(structural, entry - max_risk_pct * float(close))
     return min(structural, entry - buf)
 
 
 def structural_stop_short(
     entry: float, atr: float, ema50: float, swing_high,
     *, stop_buffer_atr: float, stop_atr_cap: float | None = None,
+    close: float | None = None, max_risk_pct: float | None = MAX_RISK_PCT_OF_CLOSE,
 ) -> float:
-    """Stop above local structure with a dual-constraint volatility ceiling."""
+    """Stop above local structure with dual-constraint + price risk cap."""
     buf = stop_buffer_atr * atr
     candidates = [ema50 + buf]
     if swing_high is not None and pd.notna(swing_high):
@@ -299,6 +308,8 @@ def structural_stop_short(
     structural = max(candidates)
     if stop_atr_cap is not None:
         structural = min(structural, entry + stop_atr_cap * atr)
+    if max_risk_pct is not None and close is not None and close > 0:
+        structural = min(structural, entry + max_risk_pct * float(close))
     return max(structural, entry + buf)
 
 
@@ -323,19 +334,25 @@ def compute_swing_levels(
     buf = sp["stop_buffer_atr"] * atr
     cap = sp["stop_atr_cap"]
 
+    max_risk_pct = sp.get("max_risk_pct", MAX_RISK_PCT_OF_CLOSE)
+
     if is_long:
         entry = max(ema20, close - sp["entry_atr"] * atr)
         if structural_mode:
             # Anchor on the local swing low (consolidation), fall back to EMA50.
-            # Dual-constraint: max(structure, entry - cap×ATR) keeps risk tight.
+            # Triple constraint: structure vs ATR floor vs % of close (tightest wins).
             anchor = float(swing_low) if (swing_low is not None and pd.notna(swing_low)) else ema50
             structural = anchor - buf
             vol_floor = entry - cap * atr
-            stop = min(max(structural, vol_floor), entry - buf)
+            stop = max(structural, vol_floor)
+            if max_risk_pct is not None and close > 0:
+                stop = max(stop, entry - max_risk_pct * close)
+            stop = min(stop, entry - buf)
         else:
             stop = structural_stop_long(
                 entry, atr, ema50, swing_low,
                 stop_buffer_atr=sp["stop_buffer_atr"], stop_atr_cap=cap,
+                close=close, max_risk_pct=max_risk_pct,
             )
     else:
         entry = min(ema20, close + sp["entry_atr"] * atr)
@@ -343,11 +360,15 @@ def compute_swing_levels(
             anchor = float(swing_high) if (swing_high is not None and pd.notna(swing_high)) else ema50
             structural = anchor + buf
             vol_ceil = entry + cap * atr
-            stop = max(min(structural, vol_ceil), entry + buf)
+            stop = min(structural, vol_ceil)
+            if max_risk_pct is not None and close > 0:
+                stop = min(stop, entry + max_risk_pct * close)
+            stop = max(stop, entry + buf)
         else:
             stop = structural_stop_short(
                 entry, atr, ema50, swing_high,
                 stop_buffer_atr=sp["stop_buffer_atr"], stop_atr_cap=cap,
+                close=close, max_risk_pct=max_risk_pct,
             )
 
     risk = abs(entry - stop)
@@ -426,6 +447,15 @@ SETUP_ROW_COLUMNS = [
     "Fib Score",
     "MACD",
     "MACD Signal",
+    # Pre-signal ML features (parity with coiled_cobra_ml_training FEATURE_COLS)
+    "Pct_From_EMA20",
+    "Pct_From_EMA50",
+    "Pct_From_Fib618",
+    "Pct_From_Fib786",
+    "ATR_Pct",
+    # Offline-model ranking outputs (soft signal; null when no model available)
+    "ML_Pred_Return",
+    "ML_Rank",
 ]
 
 

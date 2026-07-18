@@ -459,6 +459,13 @@ def run_scanner():
                 raw_date = latest["Date"]
                 asof = str(raw_date)[:10] if pd.notna(raw_date) else None
 
+            close_v = float(latest["Close"])
+            ema20_v = float(latest["EMA20"])
+            ema50_v = float(latest["EMA50"])
+            atr_v = float(latest["ATR"])
+            fib618_v = float(latest["Fib_618"]) if pd.notna(latest.get("Fib_618")) else None
+            fib786_v = float(latest["Fib_786"]) if pd.notna(latest.get("Fib_786")) else None
+
             row = config.blank_setup_row()
             row.update({
                 "Symbol": symbol,
@@ -466,10 +473,10 @@ def run_scanner():
                 "Source": "coiled_cobra",
                 "Mode": mode,
                 "AsOf Date": asof,
-                "Close": round(float(latest["Close"]), 2),
-                "EMA20": round(float(latest["EMA20"]), 2),
-                "EMA50": round(float(latest["EMA50"]), 2),
-                "ATR": round(float(latest["ATR"]), 2),
+                "Close": round(close_v, 2),
+                "EMA20": round(ema20_v, 2),
+                "EMA50": round(ema50_v, 2),
+                "ATR": round(atr_v, 2),
                 "RSI": round(float(latest["RSI"]), 2) if pd.notna(latest["RSI"]) else None,
                 # Local 10-session floor for dual-constraint stops (not year Fib).
                 "Swing Low": round(local_swing_low(df), 2),
@@ -477,12 +484,18 @@ def run_scanner():
                 "Score": setup["Score"],
                 "Grade": setup["Grade"],
                 "Checks Met": setup["Checks Met"],
-                "Fib 61.8%": round(float(latest["Fib_618"]), 2) if pd.notna(latest.get("Fib_618")) else None,
-                "Fib 78.6%": round(float(latest["Fib_786"]), 2) if pd.notna(latest.get("Fib_786")) else None,
+                "Fib 61.8%": round(fib618_v, 2) if fib618_v is not None else None,
+                "Fib 78.6%": round(fib786_v, 2) if fib786_v is not None else None,
                 "Fib Score": setup["Fib Score"],
                 "MACD": round(float(latest["MACD"]), 2),
                 "MACD Signal": round(float(latest["MACD_Signal"]), 2),
                 "RS 63d": setup.get("RS 63d"),
+                # Pre-signal ML features (parity with backtest / training).
+                "Pct_From_EMA20": round((close_v - ema20_v) / ema20_v, 4) if ema20_v else None,
+                "Pct_From_EMA50": round((close_v - ema50_v) / ema50_v, 4) if ema50_v else None,
+                "Pct_From_Fib618": round((close_v - fib618_v) / fib618_v, 4) if fib618_v else None,
+                "Pct_From_Fib786": round((close_v - fib786_v) / fib786_v, 4) if fib786_v else None,
+                "ATR_Pct": round(atr_v / close_v, 4) if close_v else None,
             })
             results.append(row)
 
@@ -493,8 +506,23 @@ def run_scanner():
             )
 
     if results:
-        df_out = pd.DataFrame(results).reindex(
-            columns=config.SETUP_ROW_COLUMNS).sort_values(by="Score", ascending=False)
+        df_out = pd.DataFrame(results).reindex(columns=config.SETUP_ROW_COLUMNS)
+
+        # Attach offline-model ranks (soft signal). Falls back to Score sort
+        # when no model artifact is available or features are unusable.
+        try:
+            from finance_vibe.ml_ranker import attach_ml_ranks, ML_PRED_COL
+            df_out = attach_ml_ranks(df_out, mode)
+            if df_out[ML_PRED_COL].notna().any():
+                logger.info("ML ranks attached to scan results.")
+            else:
+                logger.info("No ML model available; ranking by Score.")
+                df_out = df_out.sort_values(by="Score", ascending=False)
+        except Exception as e:
+            logger.warning(f"ML ranking skipped ({e}); ranking by Score.")
+            df_out = df_out.sort_values(by="Score", ascending=False)
+
+        df_out = df_out.reindex(columns=config.SETUP_ROW_COLUMNS)
         print("\n" + df_out.to_markdown(index=False) + "\n")
 
         today = datetime.now().strftime("%Y-%m-%d")

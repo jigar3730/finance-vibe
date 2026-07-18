@@ -8,9 +8,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+try:
+    from finance_vibe import config
+except ImportError:
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from finance_vibe import config
+
 # Ingestion guardrails (Part 3): drop broken / unprofitable rows before ranking.
-MAX_RISK_PCT_OF_CLOSE = 0.05
+MAX_RISK_PCT_OF_CLOSE = config.MAX_RISK_PCT_OF_CLOSE
 MIN_RR_T1 = 2.0
+# Allow one missed soft pillar (5/6); hard gates already ran in the scanner.
+MIN_CHECKLIST_RATIO = 5 / 6
 # Static propensity boost for tight coils until adaptive CDH weighting exists.
 TIGHT_COIL_PROPENSITY = 1.25
 TIGHT_RISK_PCT = 0.03
@@ -61,11 +71,11 @@ def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -
 
 
 def _checklist_fully_passed(value) -> bool:
-    """True when Checks Met is missing (N/A) or reports every check passed (e.g. 6/6)."""
+    """True when Checks Met is missing (swing) or meets the soft baseline (≥5/6)."""
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return True
     text = str(value).strip()
-    if not text or text.lower() in {"nan", "none", ""}:
+    if not text or text.lower() in {"nan", "none", "<na>", ""}:
         return True
     match = re.fullmatch(r"(\d+)\s*/\s*(\d+)", text)
     if not match:
@@ -73,7 +83,14 @@ def _checklist_fully_passed(value) -> bool:
     passed, total = int(match.group(1)), int(match.group(2))
     if total <= 0:
         return True
-    return passed >= total
+    return (passed / total) >= MIN_CHECKLIST_RATIO - 1e-12
+
+
+def _count_true(mask: pd.Series) -> int:
+    """Count True values; safe on empty frames (pandas empty-string sum → '')."""
+    if mask is None or len(mask) == 0:
+        return 0
+    return int(np.asarray(mask.fillna(False), dtype=bool).sum())
 
 
 def apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
@@ -85,6 +102,10 @@ def apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     stats = {"input": n0, "risk_pct": 0, "checklist": 0, "rr_t1": 0}
 
     out = df.copy()
+    if out.empty:
+        stats["kept"] = 0
+        return out, stats
+
     price = pd.to_numeric(
         out["Close"] if "Close" in out.columns else out.get("Stock Entry"),
         errors="coerce",
@@ -97,27 +118,34 @@ def apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     risk = pd.to_numeric(out.get("Risk Per Share"), errors="coerce")
     if price is not None and risk is not None:
         risk_pct = risk / price.replace(0, np.nan)
-        mask_risk = risk_pct > MAX_RISK_PCT_OF_CLOSE
-        stats["risk_pct"] = int(mask_risk.fillna(False).sum())
-        out = out.loc[~mask_risk.fillna(False)].copy()
+        mask_risk = (risk_pct > MAX_RISK_PCT_OF_CLOSE).fillna(False)
+        stats["risk_pct"] = _count_true(mask_risk)
+        out = out.loc[~mask_risk].copy()
 
-    if "Checks Met" in out.columns:
-        passed = out["Checks Met"].map(_checklist_fully_passed)
-        stats["checklist"] = int((~passed).sum())
+    if not out.empty and "Checks Met" in out.columns:
+        passed = out["Checks Met"].map(_checklist_fully_passed).astype(bool)
+        stats["checklist"] = _count_true(~passed)
         out = out.loc[passed].copy()
 
-    if "R:R T1" in out.columns:
+    if not out.empty and "R:R T1" in out.columns:
         rr1 = pd.to_numeric(out["R:R T1"], errors="coerce")
-        mask_rr = rr1 < MIN_RR_T1
-        stats["rr_t1"] = int(mask_rr.fillna(True).sum())
-        out = out.loc[~mask_rr.fillna(True)].copy()
+        mask_rr = (rr1 < MIN_RR_T1).fillna(True)
+        stats["rr_t1"] = _count_true(mask_rr)
+        out = out.loc[~mask_rr].copy()
 
     stats["kept"] = len(out)
     return out, stats
 
 
 def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
-    """Order survivors by EV = R:R T2 × Score, with a tight-coil propensity boost."""
+    """Rank survivors by expected value with a tight-coil propensity boost.
+
+    ``Expected Value = R:R T2 × Score`` is always computed for transparency.
+    When ``ML_Pred_Return`` is present (offline model ran), ``Priority`` is
+    driven by ``R:R T2 × max(ML_Pred_Return, 0) × propensity`` so setups with
+    stronger predicted forward alpha rank first. When the ML column is absent or
+    all-null, ``Priority`` falls back to ``Expected Value × propensity``.
+    """
     out = df.copy()
     rr2 = pd.to_numeric(out.get("R:R T2"), errors="coerce").fillna(0.0)
     score = pd.to_numeric(out.get("Score"), errors="coerce").fillna(0.0)
@@ -136,7 +164,19 @@ def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
         TIGHT_COIL_PROPENSITY,
         1.0,
     )
-    out["Priority"] = (out["Expected Value"] * propensity).round(2)
+
+    if "ML_Pred_Return" in out.columns:
+        ml_pred = pd.to_numeric(out["ML_Pred_Return"], errors="coerce")
+    else:
+        ml_pred = pd.Series(np.nan, index=out.index, dtype="float64")
+
+    if ml_pred.notna().any():
+        # ML-driven expected value: reward per unit risk scaled by predicted alpha.
+        ml_ev = rr2 * ml_pred.clip(lower=0).fillna(0.0)
+        out["Priority"] = (ml_ev * propensity).round(4)
+    else:
+        out["Priority"] = (out["Expected Value"] * propensity).round(2)
+
     return out.sort_values("Priority", ascending=False, kind="mergesort").reset_index(drop=True)
 
 
@@ -191,7 +231,7 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         traceback.print_exc()
         raise SystemExit(1) from None
 
-    print("🛡️ Applying ingestion guardrails (risk ≤5%, full checklist, R:R T1 ≥ 2)...")
+    print("🛡️ Applying ingestion guardrails (risk ≤5%, checklist ≥5/6, R:R T1 ≥ 2)...")
     df, filter_stats = apply_ingestion_filters(df)
     print(
         f"   kept {filter_stats['kept']}/{filter_stats['input']} "
@@ -201,7 +241,13 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
 
     if not df.empty:
         df = rank_by_expected_value(df)
-        print("📊 Ranked survivors by Expected Value (R:R T2 × Score) with coil propensity.")
+        ml_active = "ML_Pred_Return" in df.columns and pd.to_numeric(
+            df["ML_Pred_Return"], errors="coerce"
+        ).notna().any()
+        if ml_active:
+            print("📊 Ranked survivors by ML predicted return × R:R T2 with coil propensity.")
+        else:
+            print("📊 Ranked survivors by Expected Value (R:R T2 × Score) with coil propensity.")
 
     # Select essential columns for the cleaned file (only those that exist).
     # Both LEAPS/Options label variants are listed so mode-specific columns
@@ -223,6 +269,8 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         "Risk Per Share",
         "R:R T1",
         "R:R T2",
+        "ML_Pred_Return",
+        "ML_Rank",
         "Expected Value",
         "Priority",
         "ATR",
