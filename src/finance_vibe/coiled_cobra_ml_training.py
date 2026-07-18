@@ -1,13 +1,15 @@
-"""Coiled Cobra ML baseline: LightGBM + XGBoost regressors with Dynamic Rolling Windows.
+"""Coiled Cobra ML baseline: LightGBM + XGBoost regressors for short-horizon returns.
 
 Standalone training script. Looks for coiled_cobra_backtest_trades_*.csv,
 isolates pre-signal features, applies a dynamic relative temporal split,
-and trains MAE-objective XGBRegressor / LGBMRegressor baselines with ATR_Pct
-sample weights to dampen heavy-tailed financial outliers.
+and trains MAE-objective XGBRegressor / LGBMRegressor baselines for the
+short-horizon target ``Forward_Return_2w`` with ATR_Pct sample weights to
+reduce the impact of heavy-tailed financial outliers.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -29,10 +31,13 @@ FEATURE_COLS = [
     "Pct_From_Fib786",
     "ATR_Pct",
 ]
-# Short tactical horizon (~2 weekly bars) — avoids multi-month target lag.
+# Short tactical horizon (~2 weekly bars) — useful for ranking setups without
+# relying on long-horizon return assumptions.
 TARGET_COL = "Forward_Return_2w"
+TARGET_HORIZON_WEEKS = 2
 DATE_COL = "Signal Date"
 WEIGHT_COL = "ATR_Pct"
+MODEL_METADATA_FILENAME = "coiled_cobra_ml_model_metadata.json"
 
 LEAKAGE_COLS = [
     "Stock Entry",
@@ -243,6 +248,61 @@ def save_importance_plot(
     plt.close(fig)
     print(f"\nSaved feature importance plot: {out_path}")
 
+def save_model_metadata(
+    art_dir: Path,
+    feature_names: list[str],
+    xgb_val_metrics: dict,
+    xgb_test_metrics: dict,
+    lgb_val_metrics: dict,
+    lgb_test_metrics: dict,
+    xgb_model_path: Path,
+    lgb_model_path: Path,
+    plot_path: Path,
+) -> None:
+    """Persist a JSON summary that downstream tooling can consume."""
+    metadata = {
+        "target_column": TARGET_COL,
+        "target_horizon_weeks": TARGET_HORIZON_WEEKS,
+        "feature_columns": feature_names,
+        "decision_guidance": {
+            "use_as": "soft ranking signal for setup selection",
+            "combine_with": [
+                "macro regime score",
+                "risk management rules",
+                "market context",
+                "liquidity and options constraints",
+            ],
+            "do_not_use_as": [
+                "hard entry/exit gate",
+                "position sizing rule",
+                "standalone trading system",
+            ],
+        },
+        "artifacts": {
+            "xgb_model": xgb_model_path.name,
+            "lgb_model": lgb_model_path.name,
+            "importance_plot": plot_path.name,
+        },
+        "metrics": {
+            "xgb": {
+                "val_mae": xgb_val_metrics["mae"],
+                "val_rmse": xgb_val_metrics["rmse"],
+                "test_mae": xgb_test_metrics["mae"],
+                "test_rmse": xgb_test_metrics["rmse"],
+            },
+            "lgb": {
+                "val_mae": lgb_val_metrics["mae"],
+                "val_rmse": lgb_val_metrics["rmse"],
+                "test_mae": lgb_test_metrics["mae"],
+                "test_rmse": lgb_test_metrics["rmse"],
+            },
+        },
+    }
+    metadata_path = art_dir / MODEL_METADATA_FILENAME
+    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+    print(f"\n[SAVED] ML metadata summary: {metadata_path}")
+
+
 def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
     X_train, y_train, w_train = parts["train"]["X"], parts["train"]["y"], parts["train"]["w"]
     X_val, y_val = parts["val"]["X"], parts["val"]["y"]
@@ -269,8 +329,8 @@ def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
     xgb.fit(X_train, y_train, sample_weight=w_train)
 
     print("XGBoost validation / OOS scores:")
-    evaluate(xgb, X_val, y_val, f"Val ({labels['val']})")
-    evaluate(xgb, X_test, y_test, f"Test OOS ({labels['test']})")
+    xgb_val_metrics = evaluate(xgb, X_val, y_val, f"Val ({labels['val']})")
+    xgb_test_metrics = evaluate(xgb, X_test, y_test, f"Test OOS ({labels['test']})")
 
     print("\n=== Training LGBMRegressor (regression_l1 / MAE) ===")
     lgb = LGBMRegressor(
@@ -287,8 +347,8 @@ def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
     lgb.fit(X_train, y_train, sample_weight=w_train)
 
     print("LightGBM validation / OOS scores:")
-    evaluate(lgb, X_val, y_val, f"Val ({labels['val']})")
-    evaluate(lgb, X_test, y_test, f"Test OOS ({labels['test']})")
+    lgb_val_metrics = evaluate(lgb, X_val, y_val, f"Val ({labels['val']})")
+    lgb_test_metrics = evaluate(lgb, X_test, y_test, f"Test OOS ({labels['test']})")
 
     # --- NEW: Serialize Model Weights for Review and Pega Ingestion ---
     art_dir.mkdir(parents=True, exist_ok=True)
@@ -313,6 +373,17 @@ def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
 
     plot_path = art_dir / "coiled_cobra_ml_feature_importance.png"
     save_importance_plot(feature_names, xgb_imp, lgb_imp, plot_path)
+    save_model_metadata(
+        art_dir,
+        feature_names,
+        xgb_val_metrics,
+        xgb_test_metrics,
+        lgb_val_metrics,
+        lgb_test_metrics,
+        xgb_model_path,
+        lgb_model_path,
+        plot_path,
+    )
     
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(

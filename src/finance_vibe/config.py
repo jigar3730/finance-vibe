@@ -52,14 +52,14 @@ ACTIVE_TICKER_CAP = 1000
 # yahooquery Screener IDs merged after the manifest (deduped, then capped)
 SCREENER_IDS = [
     "most_actives",
- #   "day_gainers",
- # "day_losers",
-   "undervalued_growth_stocks",
- #   "growth_technology_stocks",
-  #  "most_shorted_stocks",
- #   "aggressive_small_caps",
- #   "small_cap_gainers",
-#  "undervalued_large_caps",
+    #"day_gainers",
+    #"day_losers",
+    #"undervalued_growth_stocks",
+    #"growth_technology_stocks",
+    #"most_shorted_stocks",
+    #"aggressive_small_caps",
+    #"small_cap_gainers",
+    #"undervalued_large_caps",
 ]
 # Per-screener quote count (Yahoo typically caps near 250)
 SCREENER_COUNT = 250

@@ -2,7 +2,7 @@
 
 **Module:** `src/finance_vibe/coiled_cobra_ml_training.py`
 
-Standalone training script that learns a continuous multi-horizon alpha gradient from Coiled Cobra backtest exports. It predicts **`Forward_Return_13w`** (13-bar / ~13-week forward close-to-close return) using only pre-signal technical attributes — never post-trade execution fields.
+Standalone training script that learns a short-horizon alpha gradient from Coiled Cobra backtest exports. It predicts **`Forward_Return_2w`** (2-bar / ~2-week forward close-to-close return) using only pre-signal technical attributes — never post-trade execution fields.
 
 This is an **offline research baseline**, not part of `run_vibe.py` or the live scanner.
 
@@ -12,7 +12,7 @@ This is an **offline research baseline**, not part of `run_vibe.py` or the live 
 
 | Goal | Detail |
 | ---- | ------ |
-| Task | Regression: predict continuous `Forward_Return_13w` |
+| Task | Regression: predict continuous `Forward_Return_2w` |
 | Models | Vanilla `XGBRegressor` + `LGBMRegressor` side-by-side |
 | Why | Rank which coil geometries historically realized stronger forward alpha; inform score/geometry research |
 | Not for | Live order routing, options P&L, or replacing the rubric score |
@@ -121,7 +121,7 @@ coiled_cobra_backtest_trades_*.csv
 
 | Column | Definition |
 | ------ | ---------- |
-| `Forward_Return_13w` | `(Close[t+13] − Close[t]) / Close[t]` on the weekly series |
+| `Forward_Return_2w` | `(Close[t+2] − Close[t]) / Close[t]` on the weekly series |
 
 Also present in the CSV but **not** used as the baseline target: `Forward_Return_5w`, `Forward_Return_26w`.
 
@@ -207,13 +207,16 @@ Stdout always prints:
 2. **Validation scores** — MAE and RMSE on 2024 val and 2025–2026 test for each model
 3. **ASCII feature-importance charts** — rank-ordered by split/gain importance
 
-Artifact file:
+Artifact files:
 
 ```
 {artifacts-dir}/coiled_cobra_ml_feature_importance.png
+{artifacts-dir}/coiled_cobra_xgb_model.json
+{artifacts-dir}/coiled_cobra_lgb_model.txt
+{artifacts-dir}/coiled_cobra_ml_model_metadata.json
 ```
 
-Side-by-side horizontal bar chart (XGBoost vs LightGBM).
+Side-by-side horizontal bar chart (XGBoost vs LightGBM), plus serialized model weights and a JSON metadata summary for downstream use.
 
 ### How to read metrics
 
@@ -260,6 +263,35 @@ Approximate prior (7 features including Grade, squared error):
 Importance ranks can shift run-to-run with library versions; treat charts as diagnostic, not a frozen production ranking.
 
 ---
+
+## How to use the trained models for decisions
+
+The exported models are intended to be a soft decision aid, not a stand-alone trading system.
+
+1. **Train the baseline**
+   - Run the training script to produce model artifacts under the relevant log directory.
+   - Keep the artifacts next to the weekly or daily backtest exports so the same folder is easy to discover.
+
+2. **Attach model scores to new setups**
+   - Use the existing ranking helper in `src/finance_vibe/ml_ranker.py` to load the saved boosters and attach `ML_Pred_Return` plus `ML_Rank` to Coiled Cobra setups.
+   - The helper will derive the same feature frame used in training when the raw scanner columns are present.
+
+3. **Use the model as a secondary signal**
+   - Favor setups with a high `ML_Rank` only after they already pass the core rubric checks: macro regime alignment, structure, risk management, and liquidity.
+   - Treat the model as a tie-breaker or confirmation layer, not a hard entry gate.
+
+4. **Make more informed decisions**
+   - Compare the model rank against `Score` and the scanner geometry. A setup that is strong on the rubric and also ranks highly in the ML model is a better candidate for review.
+   - If the model disagrees with the rubric, investigate the reason: it may be highlighting a regime where the current rules are too conservative or too aggressive.
+   - Keep a simple review checklist: market regime, risk/reward, position size, options liquidity, and model rank.
+
+A practical workflow is:
+
+- scan for Coiled Cobra setups,
+- filter for quality by rubric / structure / risk,
+- attach model predictions,
+- rank the survivors by `ML_Pred_Return` or `ML_Rank`,
+- then commit to the final decision using the combined evidence.
 
 ## Design review notes
 
