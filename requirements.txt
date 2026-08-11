@@ -10,3 +10,5 @@ xgboost
 lightgbm
 scikit-learn
 matplotlib
+google-genai
+python-dotenv

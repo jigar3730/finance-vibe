@@ -66,6 +66,7 @@ def run_workflow():
          "skip_modes": ["high_beta"]},
         {"path": "src/finance_vibe/trade_planner.py", "pass_mode": True, "scope": "profile"},
         {"path": "src/finance_vibe/trade_plan_helper.py", "pass_mode": True, "scope": "profile"},
+        {"path": "src/finance_vibe/ai_notifier.py", "pass_mode": True, "scope": "profile"},
     ]
 
     print(f"🚀 Starting Finance-Vibe Pipeline [{mode.upper()} MODE]...")
