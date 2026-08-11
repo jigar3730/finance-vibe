@@ -45,7 +45,7 @@ def analyze_with_gemini(combined_data: str) -> str:
     client = genai.Client(api_key=api_key)
 
     prompt = f"""
-    You are an elite quantitative portfolio manager reviewing automated pipeline results.
+    You are an elite quantitative portfolio manager and Senior Market Analyst reviewing automated pipeline results.
     Below is raw setup data (Vibe Scores, CCI, RSI, Trend) and Trade Plans.
 
     YOUR TASK:
@@ -55,6 +55,11 @@ def analyze_with_gemini(combined_data: str) -> str:
     CRITICAL RULE:
     DO NOT drop, truncate, or summarize the ticker list. You MUST include EVERY single ticker/setup present in the input data across both Coiled Cobra and Swing scanners in the master table.
 
+    LINKING REQUIREMENT:
+    - Every ticker symbol MUST be formatted as a clickable hyperlink to Finviz opening in a new tab:
+      <a href="[https://finviz.com/quote.ashx?t=TICKER](https://finviz.com/quote.ashx?t=TICKER)" target="_blank" style="color: #0066cc; text-decoration: none; font-weight: bold;">TICKER</a>
+    - Apply this link formatting everywhere ticker symbols appear (Master Table, Headers, and Detailed Breakdown bullet points).
+
     HTML STYLING REQUIREMENTS:
     - Main container: max-width 900px, font-family Arial/sans-serif.
     - Tables: Clean border-collapse, light padding (6px-8px), alternating row backgrounds (#f9f9f9).
@@ -62,14 +67,25 @@ def analyze_with_gemini(combined_data: str) -> str:
 
     REQUIRED SECTIONS:
     1. Executive Summary & Market Vibe: Concise summary of market breadth and dominant trends.
-    2. Master Setup Table (ALL TICKERS): MUST contain ALL rows from the CSV inputs with columns: Ticker, Strategy, Direction, Vibe Score/Grade, RSI, Entry, Stop Loss, Target 1 (R:R), ML Rank, and AI Note.
+    2. Master Setup Table (ALL TICKERS): MUST contain ALL rows from the CSV inputs with columns: Ticker (Linked to Finviz), Strategy, Direction, Vibe Score/Grade, RSI, Entry, Stop Loss, Target 1 (R:R), ML Rank, and AI Note.
     3. Quantitative Anomaly & Risk Alerts: Key warnings regarding high ATR, overbought RSI, or ML divergences.
+    4. Senior Market Analyst Validation & Qualitative Insights (Top 5 ML Ranked Tickers ONLY):
+           Act as a Senior Market Analyst providing expert qualitative validation for ONLY the top 5 ML-ranked tickers. 
+           DO NOT simply repeat or list the raw CSV metrics (CCI, RSI, Vibe, Entry levels) already presented in the table above. 
+           Instead, synthesize market context, sector tailwinds/headwinds, earnings/catalyst risk, volume quality, structural market structure, and overall trade viability.
+           Keep each ticker breakdown under 60 words.
+           
+           Format each of the Top 5 tickers as:
+           • <a href="[https://finviz.com/quote.ashx?t=](https://finviz.com/quote.ashx?t=)[TICKER]" target="_blank">[TICKER]</a> | Strategy: [Strategy/Direction] | Senior Analyst Rating: [High Confidence / Moderate / Caution]
+             - Thesis & Validation: Senior-level perspective on why this quantitative setup holds valid structural market edge (e.g., sector momentum, volume absorption, relative strength).
+             - Risk & Catalyst Check: Fundamental/macro/catalyst risks or invalidation dynamics not captured in raw scanner numbers.
+             - Senior Execution Verdict: Strategic instruction on price action confirmation needed before committing capital.
+    
 
     INPUT DATA:
     {combined_data}
     """
-
-    response = client.models.generate_content(model="gemini-3.5-flash", contents=prompt)
+    response = client.models.generate_content(model="gemini-3.6-flash", contents=prompt)
     return response.text
 
 
