@@ -3,10 +3,11 @@ import os
 import smtplib
 from email.message import EmailMessage
 from pathlib import Path
-from dotenv import load_dotenv
-from google import genai
-
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 
 def get_pipeline_outputs(mode: str, root_dir: Path) -> str:
@@ -45,15 +46,22 @@ def analyze_with_gemini(combined_data: str) -> str:
     client = genai.Client(api_key=api_key)
 
     prompt = f"""
-    You are an elite quantitative portfolio manager and Senior Market Analyst reviewing automated pipeline results.
-    Below is raw setup data (Vibe Scores, CCI, RSI, Trend) and Trade Plans.
+    You are an elite quantitative portfolio manager reviewing Coiled Cobra v2.1 results.
+    The live pipeline finds compressed leaders vs QQQ that are ready to expand
+    (coil → breakout). It is not a swing-pullback scanner and not a Fib-dip mean-reversion model.
+
+    Rubric hard gates: MACD compression ≥ 5, structure ≥ 8, relative strength ≥ 12.
+    Grades: A ≥ 85 (Coil Ready), B ≥ 70 (Valid Coil).
+    Trade geometry: enter at Close, protect Coil_Low, targets at 2R and 3R.
+
+    Below is raw coil-scan and trade-plan CSV output.
 
     YOUR TASK:
     Provide an executive analysis and present a COMPLETE table of ALL tickers.
     Output your response directly as clean, responsive HTML (no markdown code blocks, no ```html wrappers).
 
     CRITICAL RULE:
-    DO NOT drop, truncate, or summarize the ticker list. You MUST include EVERY single ticker/setup present in the input data across both Coiled Cobra and Swing scanners in the master table.
+    DO NOT drop, truncate, or summarize the ticker list. You MUST include EVERY Coiled Cobra setup in the master table.
 
     LINKING REQUIREMENT:
     - Every ticker symbol MUST be formatted as a clickable hyperlink to Finviz opening in a new tab:
@@ -63,24 +71,24 @@ def analyze_with_gemini(combined_data: str) -> str:
     HTML STYLING REQUIREMENTS:
     - Main container: max-width 900px, font-family Arial/sans-serif.
     - Tables: Clean border-collapse, light padding (6px-8px), alternating row backgrounds (#f9f9f9).
-    - Status Badges: Highlight Longs in light green, Shorts in light red, Risk Warnings in yellow.
+    - Status Badges: Highlight Longs in light green, Risk Warnings in yellow.
 
     REQUIRED SECTIONS:
-    1. Executive Summary & Market Vibe: Concise summary of market breadth and dominant trends.
-    2. Master Setup Table (ALL TICKERS): MUST contain ALL rows from the CSV inputs with columns: Ticker (Linked to Finviz), Strategy, Direction, Vibe Score/Grade, RSI, Entry, Stop Loss, Target 1 (R:R), ML Rank, and AI Note.
-    3. Quantitative Anomaly & Risk Alerts: Key warnings regarding high ATR, overbought RSI, or ML divergences.
-    4. Senior Market Analyst Validation & Qualitative Insights (Top 5 ML Ranked Tickers ONLY):
-           Act as a Senior Market Analyst providing expert qualitative validation for ONLY the top 5 ML-ranked tickers. 
-           DO NOT simply repeat or list the raw CSV metrics (CCI, RSI, Vibe, Entry levels) already presented in the table above. 
-           Instead, synthesize market context, sector tailwinds/headwinds, earnings/catalyst risk, volume quality, structural market structure, and overall trade viability.
+    1. Executive Summary: Coil quality vs QQQ, breadth of A vs B grades, notable tight coils (Coil_Width_ATR ≤ 4).
+    2. Master Setup Table (ALL TICKERS): MUST contain ALL rows with columns: Ticker (Linked to Finviz), Grade, Score, RSI, Entry (Close), Stop (Coil_Low constraint), Target 1 (2R), ML Rank, and AI Note.
+    3. Quantitative Anomaly & Risk Alerts: High ATR vs 5% risk cap, wide coils, RS just at the gate, ML vs Score divergences.
+    4. Senior Market Analyst Validation (Top 5 ML Ranked Tickers ONLY):
+           Act as a Senior Market Analyst providing expert qualitative validation for ONLY the top 5 ML-ranked tickers.
+           DO NOT simply repeat raw CSV metrics already in the table.
+           Synthesize sector tailwinds, earnings/catalyst risk, volume/accumulation quality, and expansion viability.
            Keep each ticker breakdown under 60 words.
-           
+
            Format each of the Top 5 tickers as:
-           • <a href="[https://finviz.com/quote.ashx?t=](https://finviz.com/quote.ashx?t=)[TICKER]" target="_blank">[TICKER]</a> | Strategy: [Strategy/Direction] | Senior Analyst Rating: [High Confidence / Moderate / Caution]
-             - Thesis & Validation: Senior-level perspective on why this quantitative setup holds valid structural market edge (e.g., sector momentum, volume absorption, relative strength).
-             - Risk & Catalyst Check: Fundamental/macro/catalyst risks or invalidation dynamics not captured in raw scanner numbers.
-             - Senior Execution Verdict: Strategic instruction on price action confirmation needed before committing capital.
-    
+           • <a href="[https://finviz.com/quote.ashx?t=](https://finviz.com/quote.ashx?t=)[TICKER]" target="_blank">[TICKER]</a> | Grade: [Grade] | Senior Analyst Rating: [High Confidence / Moderate / Caution]
+             - Thesis & Validation: Why this coil can expand (relative strength, shelf, compression).
+             - Risk & Catalyst Check: What invalidates the coil (lost EMA50, RS failure, break of Coil_Low).
+             - Senior Execution Verdict: Confirmation needed before committing capital.
+
 
     INPUT DATA:
     {combined_data}

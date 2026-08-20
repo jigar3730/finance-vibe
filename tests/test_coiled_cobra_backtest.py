@@ -1,11 +1,13 @@
-import os
-from pathlib import Path
-
 import pandas as pd
 import pytest
 
 from finance_vibe import trade_planner
-from finance_vibe.coiled_cobra_backtest import backtest_ticker
+from finance_vibe.coiled_cobra_backtest import (
+    backtest_ticker,
+    forward_horizon_bars,
+    rel_forward_at,
+    stamp_episode,
+)
 
 
 def test_trade_planner_accepts_cobra_source():
@@ -31,58 +33,116 @@ def test_trade_planner_accepts_cobra_source():
     assert target2 == pytest.approx(entry + 3.0 * risk)
 
 
-def test_coiled_cobra_backtest_ticker_records_trade(tmp_path, monkeypatch):
-    symbol = "TEST"
-    path = tmp_path / f"{symbol}_10y_1wk.csv"
+def test_stamp_episode_starts_and_ages():
+    row = {"Score": 80}
+    first, valid, age = stamp_episode(row, False, 0)
+    assert first["Is_New_Coil"] is True
+    assert first["Coil_Age_Bars"] == 1
+    assert valid is True and age == 1
 
-    dates = pd.date_range("2024-01-01", periods=70, freq="W")
-    df = pd.DataFrame({
-        "Date": dates,
-        "Open": [100.0] * 70,
-        "High": [110.0] * 70,
-        "Low": [90.0] * 70,
-        "Close": [100.0] * 70,
-        "Volume": [100000] * 70,
-    })
-    df.to_csv(path, index=False)
+    second, valid, age = stamp_episode(row, valid, age)
+    assert second["Is_New_Coil"] is False
+    assert second["Coil_Age_Bars"] == 2
 
-    def fake_load_ohlc_csv(file_path):
-        assert str(file_path) == str(path)
-        return pd.read_csv(file_path)
+    none, valid, age = stamp_episode(None, valid, age)
+    assert none is None
+    assert valid is False and age == 0
 
-    def fake_detect_cobra_setup_at_bar(window, ticker, benchmark_df=None):
-        if len(window) == 68:
-            return {
-                "Symbol": symbol,
-                "Setup Type": "SETUP_LONG",
-                "Close": 100.0,
-                "EMA20": 98.0,
-                "EMA50": 95.0,
-                "ATR": 4.0,
-                "Swing Low": 94.0,
-                "Fib 78.6%": 96.0,
-                "Score": 85,
-                "Grade": "A - Coil Ready",
-                "Checks Met": "5/6",
-                "Source": "coiled_cobra",
-                "Pct_From_EMA20": 0.02,
-                "Pct_From_EMA50": 0.05,
-                "Pct_From_Fib618": 0.01,
-                "Pct_From_Fib786": 0.04,
-                "ATR_Pct": 0.04,
-            }
-        return None
 
-    import finance_vibe.coiled_cobra_backtest as module
+def test_rel_forward_subtracts_qqq_on_or_before_date():
+    dates = pd.date_range("2024-01-01", periods=10, freq="W")
+    stock = pd.DataFrame({"Date": dates, "Close": [100.0] * 8 + [110.0, 110.0]})
+    flat_qqq = pd.DataFrame({"Date": dates, "Close": [50.0] * 10})
+    up_qqq = pd.DataFrame({"Date": dates, "Close": [50.0] * 8 + [55.0, 55.0]})
 
-    monkeypatch.setattr(module, "load_ohlc_csv", fake_load_ohlc_csv)
-    monkeypatch.setattr(module, "detect_cobra_setup_at_bar", fake_detect_cobra_setup_at_bar)
+    assert rel_forward_at(stock, flat_qqq, 7, 2, 100.0) == 0.10
+    assert rel_forward_at(stock, up_qqq, 7, 2, 100.0) == 0.0
+    assert rel_forward_at(stock, None, 7, 2, 100.0) is None
 
-    trades, counts = backtest_ticker(str(path), entry_valid=2, max_hold=4)
 
-    assert counts["signals"] == 1
-    assert counts["filled"] >= 0
-    assert isinstance(trades, list)
-    assert trades[0]["Symbol"] == symbol
-    assert trades[0]["Setup Type"] == "SETUP_LONG"
-    assert trades[0]["Score"] == 85
+def test_forward_horizon_bars_are_calendar_equivalent():
+    assert forward_horizon_bars("weekly") == (2, 5, 13, 26)
+    assert forward_horizon_bars("daily") == (10, 25, 63, 126)
+
+
+def _fake_setup(symbol: str) -> dict:
+    return {
+        "Symbol": symbol,
+        "Setup Type": "SETUP_LONG",
+        "Close": 100.0,
+        "EMA20": 98.0,
+        "EMA50": 95.0,
+        "ATR": 4.0,
+        "Swing Low": 94.0,
+        "Fib 78.6%": 96.0,
+        "Score": 85,
+        "Grade": "A - Coil Ready",
+        "Checks Met": "5/6",
+        "Source": "coiled_cobra",
+        "Pct_From_EMA20": 0.02,
+        "Pct_From_EMA50": 0.05,
+        "Pct_From_Fib618": 0.01,
+        "Pct_From_Fib786": 0.04,
+        "ATR_Pct": 0.04,
+        "Volume_Shelf": 16.0,
+        "MACD_Compression": 18.5,
+        "Structure": 17.0,
+        "RS_Score": 13.5,
+        "Coil_Width": 12.0,
+        "MACD_Cross": 0.0,
+        "Fib_Bonus": 1.2,
+    }
+
+
+def test_coiled_cobra_backtest_ticker_records_expansion(tmp_path, monkeypatch):
+    from finance_vibe import coiled_cobra as cobra
+    from finance_vibe import config
+
+    cobra.configure_mode("daily")
+    try:
+        symbol = "TEST"
+        path = tmp_path / f"{symbol}_5y_1d.csv"
+
+        dates = pd.date_range("2024-01-01", periods=180, freq="B")
+        df = pd.DataFrame({
+            "Date": dates,
+            "Open": [100.0] * 180,
+            "High": [110.0] * 180,
+            "Low": [90.0] * 180,
+            "Close": [100.0] * 180,
+            "Volume": [100000] * 180,
+        })
+        df.to_csv(path, index=False)
+
+        def fake_load_ohlc_csv(file_path):
+            assert str(file_path) == str(path)
+            return pd.read_csv(file_path)
+
+        # Daily LOOKBACK=252 → min_bars = 141; window length at idx is idx+1.
+        def fake_detect_cobra_setup_at_bar(window, ticker, benchmark_df=None):
+            if len(window) in (142, 143):
+                return _fake_setup(symbol)
+            return None
+
+        import finance_vibe.coiled_cobra_backtest as module
+
+        monkeypatch.setattr(module, "load_ohlc_csv", fake_load_ohlc_csv)
+        monkeypatch.setattr(module, "detect_cobra_setup_at_bar", fake_detect_cobra_setup_at_bar)
+
+        trades, counts = backtest_ticker(str(path), entry_valid=2, max_hold=4)
+
+        assert counts["signals"] == 2
+        assert counts["new_coils"] == 1
+        assert "filled" not in counts
+        assert "Outcome" not in trades[0]
+        assert trades[0]["Score"] == 85
+        assert trades[0]["Is_New_Coil"] is True
+        assert trades[0]["Coil_Age_Bars"] == 1
+        assert trades[0]["Forward_Return_2w"] == 0.0
+        assert "Rel_Forward_2w" in trades[0]
+        assert trades[0]["MACD_Compression"] == 18.5
+
+        assert trades[1]["Is_New_Coil"] is False
+        assert trades[1]["Coil_Age_Bars"] == 2
+    finally:
+        cobra.configure_mode(config.DEFAULT_MODE)

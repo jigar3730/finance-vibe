@@ -1,8 +1,7 @@
-"""Coiled Cobra historical backfill and walk-forward backtest.
+"""Coiled Cobra historical backfill and expansion backtest.
 
-This module evaluates the Coiled Cobra strategy across historical raw OHLC data,
-exports signal archives, and simulates stock trade outcomes using the existing
-trade-planner stock level calculator.
+Backfill archives every valid coil bar (v2.1 scorecard). Backtest measures
+forward expansion vs QQQ — not Fib-bounce fills. ``--playbook fib`` is deferred.
 """
 from __future__ import annotations
 
@@ -18,29 +17,136 @@ import pandas as pd
 try:
     from finance_vibe import config
     from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
+    from finance_vibe import coiled_cobra as cobra
     from finance_vibe.coiled_cobra import (
         BENCHMARK,
-        LOOKBACK,
         add_macro_indicators,
+        coil_geometry_fields,
+        configure_mode,
         evaluate_coiled_cobra,
         local_swing_low,
+        pillar_row_fields,
     )
-    from finance_vibe.pipeline_backtest import simulate_trade
-    from finance_vibe.trade_planner import calculate_stock_levels
 except ImportError:  # pragma: no cover
     # Package lives under src/; repo root alone is not enough for `finance_vibe`.
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from finance_vibe import config
     from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
+    from finance_vibe import coiled_cobra as cobra
     from finance_vibe.coiled_cobra import (
         BENCHMARK,
-        LOOKBACK,
         add_macro_indicators,
+        coil_geometry_fields,
+        configure_mode,
         evaluate_coiled_cobra,
         local_swing_low,
+        pillar_row_fields,
     )
-    from finance_vibe.pipeline_backtest import simulate_trade
-    from finance_vibe.trade_planner import calculate_stock_levels
+
+FORWARD_LABELS = (2, 5, 13, 26)  # column suffixes: Forward_Return_{N}w
+# Bar counts that correspond to those labels. Daily uses ~5 sessions per week.
+FORWARD_HORIZONS = FORWARD_LABELS  # calendar-week labels; bar counts from forward_horizon_bars()
+
+
+def forward_horizon_bars(scan_mode: str | None = None) -> tuple[int, ...]:
+    """Bar counts for Rel/Forward_Return_{2,5,13,26}w so labels stay calendar-true."""
+    m = scan_mode or cobra.mode
+    if m == "daily":
+        return (10, 25, 63, 126)
+    return (2, 5, 13, 26)
+
+
+_FIB_PLAYBOOK_NOTE = (
+    "Fib-dip playbook is not active; --entry-valid / --max-hold are ignored. "
+    "Backtest records forward expansion vs QQQ."
+)
+
+
+def _close_on_or_before(df: Optional[pd.DataFrame], as_of) -> Optional[float]:
+    """Last Close on or before *as_of*, or None if unavailable."""
+    if df is None or df.empty or as_of is None or "Date" not in df.columns:
+        return None
+    as_of_ts = pd.to_datetime(as_of)
+    dates = pd.to_datetime(df["Date"])
+    mask = dates <= as_of_ts
+    if not mask.any():
+        return None
+    return float(df.loc[mask, "Close"].iloc[-1])
+
+
+def _pct_change(start: Optional[float], end: Optional[float]) -> Optional[float]:
+    if start is None or end is None or start == 0:
+        return None
+    return round((end - start) / start, 4)
+
+
+def stamp_episode(
+    row: Optional[dict],
+    prev_valid: bool,
+    prev_age: int,
+) -> tuple[Optional[dict], bool, int]:
+    """Attach Is_New_Coil / Coil_Age_Bars; reset age when the bar is not a coil."""
+    if row is None:
+        return None, False, 0
+    if prev_valid:
+        is_new, age = False, prev_age + 1
+    else:
+        is_new, age = True, 1
+    stamped = dict(row)
+    stamped["Is_New_Coil"] = is_new
+    stamped["Coil_Age_Bars"] = age
+    return stamped, True, age
+
+
+def forward_return_at(
+    df: pd.DataFrame,
+    idx: int,
+    horizon: int,
+    setup_close: float,
+) -> Optional[float]:
+    future_idx = idx + horizon
+    if future_idx >= len(df) or setup_close == 0:
+        return None
+    future_close = float(df.iloc[future_idx]["Close"])
+    return round((future_close - setup_close) / setup_close, 4)
+
+
+def rel_forward_at(
+    df: pd.DataFrame,
+    benchmark_df: Optional[pd.DataFrame],
+    idx: int,
+    horizon: int,
+    setup_close: float,
+) -> Optional[float]:
+    stock_fwd = forward_return_at(df, idx, horizon, setup_close)
+    if stock_fwd is None or benchmark_df is None:
+        return None
+    sig_date = df.iloc[idx]["Date"]
+    fut_date = df.iloc[idx + horizon]["Date"]
+    bench_fwd = _pct_change(
+        _close_on_or_before(benchmark_df, sig_date),
+        _close_on_or_before(benchmark_df, fut_date),
+    )
+    if bench_fwd is None:
+        return None
+    return round(stock_fwd - bench_fwd, 4)
+
+
+def _horizon_fields(
+    df: pd.DataFrame,
+    idx: int,
+    setup_close: float,
+    benchmark_df: Optional[pd.DataFrame],
+) -> dict:
+    fields: dict = {}
+    for bars, weeks in zip(forward_horizon_bars(), FORWARD_LABELS):
+        fields[f"Forward_Return_{weeks}w"] = forward_return_at(
+            df, idx, bars, setup_close
+        )
+        fields[f"Rel_Forward_{weeks}w"] = rel_forward_at(
+            df, benchmark_df, idx, bars, setup_close
+        )
+    return fields
 
 
 def detect_cobra_setup_at_bar(
@@ -49,7 +155,7 @@ def detect_cobra_setup_at_bar(
     benchmark_df=None,
 ) -> Optional[dict]:
     """Evaluate the latest bar in a history window for a Coiled Cobra coil setup."""
-    if len(df) < LOOKBACK // 2 + 15:
+    if len(df) < cobra.LOOKBACK // 2 + 15:
         return None
 
     window = df.copy()
@@ -73,6 +179,8 @@ def detect_cobra_setup_at_bar(
     fib_618 = float(latest["Fib_618"]) if pd.notna(latest.get("Fib_618")) else None
     fib_786 = float(latest["Fib_786"]) if pd.notna(latest.get("Fib_786")) else None
 
+    geom = coil_geometry_fields(window, atr)
+
     return {
         "Symbol": symbol.upper(),
         "Date": latest["Date"],
@@ -88,17 +196,21 @@ def detect_cobra_setup_at_bar(
         "Pct_From_EMA50": round((close - ema50) / ema50, 4),
         "Pct_From_Fib618": round((close - fib_618) / fib_618, 4) if fib_618 is not None else None,
         "Pct_From_Fib786": round((close - fib_786) / fib_786, 4) if fib_786 is not None else None,
-        "ATR_Pct": round(atr / close, 4),
+        "ATR_Pct": round(atr / close, 4) if close else None,
+        **geom,
         "Score": setup["Score"],
         "Grade": setup["Grade"],
         "Checks Met": setup["Checks Met"],
         "Source": "coiled_cobra",
         "RS 63d": setup.get("RS 63d"),
+        **pillar_row_fields(setup.get("Parts") or {}),
     }
 
 
-def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd.DataFrame:
+def generate_backfill(mode: str | None = None, tickers: Optional[str] = None) -> pd.DataFrame:
     """Scan historical raw CSVs to produce a Coiled Cobra signal archive."""
+    mode = mode or config.DEFAULT_MODE
+    configure_mode(mode)
     mode_cfg = config.get_mode_config(mode)
     raw_dir = mode_cfg["raw_dir"]
     logs_dir = mode_cfg["logs_dir"]
@@ -139,7 +251,8 @@ def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd
                 rows = []
             results_by_path[path] = rows
             if rows:
-                print(f"{symbol}: {len(rows)} setup(s)")
+                new_n = sum(1 for r in rows if r.get("Is_New_Coil"))
+                print(f"{symbol}: {len(rows)} setup(s), {new_n} new coil(s)")
 
     # Reassemble in sorted path order so CSV row sequence matches single-threaded runs.
     all_rows: list[dict] = []
@@ -157,110 +270,53 @@ def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd
 
 def backtest_ticker(
     path: str,
-    entry_valid: int,
-    max_hold: int,
+    entry_valid: int = 0,
+    max_hold: int = 0,
     benchmark_df=None,
 ) -> tuple[list[dict], dict]:
-    """Walk-forward simulate one ticker using Coiled Cobra signals."""
+    """Walk-forward expansion study for one ticker (no Fib fills)."""
+    del entry_valid, max_hold  # reserved for a future --playbook fib
     symbol = ticker_from_filename(path)
     df = load_ohlc_csv(path)
     trades: list[dict] = []
     counts = {
         "signals": 0,
-        "filled": 0,
-        "no_fill": 0,
-        "stopped": 0,
-        "target1": 0,
-        "target2": 0,
-        "expired": 0,
+        "new_coils": 0,
         "errors": 0,
     }
 
-    min_bars = LOOKBACK // 2 + 15
-    for idx in range(min_bars, len(df) - 1):
+    min_bars = cobra.LOOKBACK // 2 + 15
+    prev_valid = False
+    prev_age = 0
+    for idx in range(min_bars, len(df)):
         window = df.iloc[: idx + 1]
-        setup_row = detect_cobra_setup_at_bar(window, symbol, benchmark_df=benchmark_df)
-        if not setup_row:
-            continue
-
-        counts["signals"] += 1
         try:
-            entry, stop, t1, t2, _, _ = calculate_stock_levels(setup_row)
-            outcome, exit_date, exit_price, r_mult = simulate_trade(
-                df,
-                idx + 1,
-                is_long=True,
-                entry=entry,
-                stop=stop,
-                target1=t1,
-                target2=t2,
-                entry_valid_bars=entry_valid,
-                max_hold_bars=max_hold,
+            setup_row = detect_cobra_setup_at_bar(
+                window, symbol, benchmark_df=benchmark_df
             )
         except Exception:
             counts["errors"] += 1
+            prev_valid, prev_age = False, 0
             continue
 
-        counts[outcome] = counts.get(outcome, 0) + 1
-        if outcome != "no_fill":
-            counts["filled"] += 1
+        stamped, prev_valid, prev_age = stamp_episode(setup_row, prev_valid, prev_age)
+        if not stamped:
+            continue
+
+        counts["signals"] += 1
+        if stamped["Is_New_Coil"]:
+            counts["new_coils"] += 1
 
         signal_date = df.iloc[idx]["Date"]
-        setup_close = float(setup_row["Close"])
-        n_bars = len(df)
-
-        def _forward_return(horizon: int) -> float | None:
-            future_idx = idx + horizon
-            if future_idx >= n_bars:
-                return None
-            future_close = float(df.iloc[future_idx]["Close"])
-            return round((future_close - setup_close) / setup_close, 4)
-
-        forward_return_2w = _forward_return(2)
-        forward_return_5w = _forward_return(5)
-        forward_return_13w = _forward_return(13)
-        forward_return_26w = _forward_return(26)
-
-        r_multiple = round(r_mult, 2) if r_mult is not None else None
-        if outcome == "no_fill":
-            target_label = None
-        elif outcome in ("target1", "target2"):
-            target_label = 1
-        else:
-            target_label = 0
-
-        trades.append(
-            {
-                "Symbol": symbol,
-                "Signal Date": signal_date.strftime("%Y-%m-%d")
-                if hasattr(signal_date, "strftime")
-                else signal_date,
-                "Setup Type": setup_row["Setup Type"],
-                "Score": setup_row["Score"],
-                "Grade": setup_row["Grade"],
-                "Pct_From_EMA20": setup_row["Pct_From_EMA20"],
-                "Pct_From_EMA50": setup_row["Pct_From_EMA50"],
-                "Pct_From_Fib618": setup_row["Pct_From_Fib618"],
-                "Pct_From_Fib786": setup_row["Pct_From_Fib786"],
-                "ATR_Pct": setup_row["ATR_Pct"],
-                "Stock Entry": round(entry, 2),
-                "Stock Stop": round(stop, 2),
-                "Target 1": round(t1, 2),
-                "Target 2": round(t2, 2),
-                "Outcome": outcome,
-                "Exit Date": exit_date.strftime("%Y-%m-%d")
-                if exit_date is not None and hasattr(exit_date, "strftime")
-                else exit_date,
-                "Exit Price": round(exit_price, 2) if exit_price is not None else None,
-                "R Multiple": r_multiple,
-                "Target_Label": target_label,
-                "Target_R_Mult": r_multiple,
-                "Forward_Return_2w": forward_return_2w,
-                "Forward_Return_5w": forward_return_5w,
-                "Forward_Return_13w": forward_return_13w,
-                "Forward_Return_26w": forward_return_26w,
-            }
-        )
+        setup_close = float(stamped["Close"])
+        row = {
+            **stamped,
+            "Signal Date": signal_date.strftime("%Y-%m-%d")
+            if hasattr(signal_date, "strftime")
+            else signal_date,
+            **_horizon_fields(df, idx, setup_close, benchmark_df),
+        }
+        trades.append(row)
 
     return trades, counts
 
@@ -270,8 +326,9 @@ _WORKER_BENCHMARK_DF = None
 
 
 def _init_cobra_worker(mode: str) -> None:
-    """Load benchmark OHLC once per worker process."""
+    """Configure weekly/daily globals and load benchmark OHLC once per worker."""
     global _WORKER_BENCHMARK_DF
+    configure_mode(mode)
     _WORKER_BENCHMARK_DF = load_benchmark_frame(BENCHMARK, mode)
 
 
@@ -285,14 +342,17 @@ def _backfill_ticker_worker(path: str) -> tuple[str, list[dict]]:
         return symbol, []
 
     rows: list[dict] = []
-    min_bars = LOOKBACK // 2 + 15
+    min_bars = cobra.LOOKBACK // 2 + 15
+    prev_valid = False
+    prev_age = 0
     try:
         for idx in range(min_bars, len(df)):
             setup = detect_cobra_setup_at_bar(
                 df.iloc[: idx + 1], symbol, benchmark_df=_WORKER_BENCHMARK_DF
             )
-            if setup:
-                rows.append(setup)
+            stamped, prev_valid, prev_age = stamp_episode(setup, prev_valid, prev_age)
+            if stamped:
+                rows.append(stamped)
     except Exception as exc:
         print(f"{symbol}: error — {exc}", file=sys.stderr)
         return symbol, []
@@ -305,7 +365,7 @@ def _backtest_ticker_worker(
     entry_valid: int,
     max_hold: int,
 ) -> tuple[str, list[dict], dict]:
-    """Process-pool worker: load ticker OHLC locally and run walk-forward backtest."""
+    """Process-pool worker: load ticker OHLC locally and run expansion backtest."""
     symbol = ticker_from_filename(path)
     empty_counts: dict = {}
     try:
@@ -321,13 +381,31 @@ def _backtest_ticker_worker(
         return symbol, [], empty_counts
 
 
+def _print_expansion_summary(trades_df: pd.DataFrame) -> None:
+    if trades_df.empty or "Is_New_Coil" not in trades_df.columns:
+        return
+    new = trades_df[trades_df["Is_New_Coil"] == True]  # noqa: E712
+    print(f"New coils: {len(new)} / {len(trades_df)} signal bars")
+    if new.empty:
+        return
+    for grade in ("A - Coil Ready", "B - Valid Coil"):
+        g = new[new["Grade"] == grade]
+        if g.empty:
+            continue
+        m2 = pd.to_numeric(g.get("Forward_Return_2w"), errors="coerce").median()
+        r13 = pd.to_numeric(g.get("Rel_Forward_13w"), errors="coerce").median()
+        print(f"  {grade}: n={len(g)} median Fwd_2w={m2} median Rel_13w={r13}")
+
+
 def run_backtest(
-    mode: str = "weekly",
+    mode: str | None = None,
     tickers: Optional[str] = None,
     entry_valid: int = config.BACKTEST_ENTRY_VALID_BARS,
     max_hold: int = config.BACKTEST_MAX_HOLD_BARS,
 ) -> pd.DataFrame:
-    """Run Coiled Cobra backtest across raw CSV files using all CPU cores."""
+    """Run Coiled Cobra expansion backtest across raw CSV files using all CPU cores."""
+    mode = mode or config.DEFAULT_MODE
+    configure_mode(mode)
     mode_cfg = config.get_mode_config(mode)
     raw_dir = mode_cfg["raw_dir"]
     logs_dir = mode_cfg["logs_dir"]
@@ -350,9 +428,10 @@ def run_backtest(
     all_trades: list[dict] = []
     all_counts: dict = {}
 
-    print(f"--- Coiled Cobra Backtest [{mode.upper()}] ---")
+    print(f"--- Coiled Cobra Expansion Backtest [{mode.upper()}] ---")
     print(f"Raw dir: {raw_dir}")
-    print(f"Workers: {max_workers}  Tickers: {len(work_paths)}\n")
+    print(f"Workers: {max_workers}  Tickers: {len(work_paths)}")
+    print(_FIB_PLAYBOOK_NOTE + "\n")
 
     results_by_path: dict[str, tuple[list[dict], dict]] = {}
     with ProcessPoolExecutor(
@@ -374,8 +453,8 @@ def run_backtest(
                 trades, counts = [], {}
             results_by_path[path] = (trades, counts)
             if trades:
-                filled = sum(1 for t in trades if t["Outcome"] != "no_fill")
-                print(f"{symbol}: {len(trades)} signal(s), {filled} filled")
+                new_n = counts.get("new_coils", 0)
+                print(f"{symbol}: {len(trades)} signal(s), {new_n} new coil(s)")
 
     # Reassemble in sorted path order so CSV row sequence matches single-threaded runs.
     for path in work_paths:
@@ -390,18 +469,41 @@ def run_backtest(
     os.makedirs(logs_dir, exist_ok=True)
     trades_df.to_csv(out_path, index=False)
     print(f"Saved backtest output: {out_path}")
+    if all_counts:
+        print(
+            f"Totals: signals={all_counts.get('signals', 0)} "
+            f"new_coils={all_counts.get('new_coils', 0)} "
+            f"errors={all_counts.get('errors', 0)}"
+        )
+    _print_expansion_summary(trades_df)
 
     return trades_df
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Coiled Cobra historical backfill and backtest")
+    parser = argparse.ArgumentParser(
+        description="Coiled Cobra historical backfill and expansion backtest"
+    )
     parser.add_argument("mode", nargs="?", default=config.DEFAULT_MODE, choices=list(config.TIMEFRAME_PROFILES))
     parser.add_argument("--tickers", help="Comma-separated tickers to include")
     parser.add_argument("--backfill", action="store_true", help="Export historical Coiled Cobra signal archive")
-    parser.add_argument("--backtest", action="store_true", help="Run walk-forward Coiled Cobra backtest")
-    parser.add_argument("--entry-valid", type=int, default=config.BACKTEST_ENTRY_VALID_BARS)
-    parser.add_argument("--max-hold", type=int, default=config.BACKTEST_MAX_HOLD_BARS)
+    parser.add_argument(
+        "--backtest",
+        action="store_true",
+        help="Run walk-forward expansion study (forward returns vs QQQ)",
+    )
+    parser.add_argument(
+        "--entry-valid",
+        type=int,
+        default=config.BACKTEST_ENTRY_VALID_BARS,
+        help="Unused (reserved for a future Fib playbook)",
+    )
+    parser.add_argument(
+        "--max-hold",
+        type=int,
+        default=config.BACKTEST_MAX_HOLD_BARS,
+        help="Unused (reserved for a future Fib playbook)",
+    )
     args = parser.parse_args(argv)
 
     if not args.backfill and not args.backtest:

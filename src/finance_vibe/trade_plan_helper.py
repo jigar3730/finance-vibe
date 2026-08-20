@@ -1,5 +1,4 @@
 # src/finance_vibe/trade_plan_helper.py
-import re
 import sys
 import traceback
 from datetime import datetime
@@ -16,23 +15,23 @@ except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from finance_vibe import config
 
-# Ingestion guardrails (Part 3): drop broken / unprofitable rows before ranking.
+# Ingestion guardrails: drop broken risk rows before ranking.
+# Checklist / T1 R:R filters are not used — the scanner already applied hard gates.
 MAX_RISK_PCT_OF_CLOSE = config.MAX_RISK_PCT_OF_CLOSE
-MIN_RR_T1 = 2.0
-# Allow one missed soft pillar (5/6); hard gates already ran in the scanner.
-MIN_CHECKLIST_RATIO = 5 / 6
-# Static propensity boost for tight coils until adaptive CDH weighting exists.
+# Boost only genuinely tight coils (width ≤ 4 ATR or risk ≤ 3%), not every Cobra row.
 TIGHT_COIL_PROPENSITY = 1.25
+TIGHT_COIL_WIDTH_ATR = 4.0
 TIGHT_RISK_PCT = 0.03
 
 
-def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -> tuple[Path, Path]:
+def resolve_trade_plan_path(mode: str | None = None, *, today: str | None = None) -> tuple[Path, Path]:
     """Locate a trade plan CSV under data/logs/{mode}/ or legacy flat dirs.
 
     Prefers ``trade_plan_{today}.csv``; if that is missing, falls back to the
     latest dated ``trade_plan_<date>.csv`` (excluding the ``_clean`` variant) so
     the helper stays coupled to whatever date the planner actually produced.
     """
+    mode = mode or config.DEFAULT_MODE
     today_str = today or datetime.now().strftime("%Y-%m-%d")
     filename = f"trade_plan_{today_str}.csv"
     base_dir = Path(__file__).resolve().parents[2]
@@ -70,22 +69,6 @@ def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -
     )
 
 
-def _checklist_fully_passed(value) -> bool:
-    """True when Checks Met is missing (swing) or meets the soft baseline (≥5/6)."""
-    if value is None or (isinstance(value, float) and np.isnan(value)):
-        return True
-    text = str(value).strip()
-    if not text or text.lower() in {"nan", "none", "<na>", ""}:
-        return True
-    match = re.fullmatch(r"(\d+)\s*/\s*(\d+)", text)
-    if not match:
-        return True
-    passed, total = int(match.group(1)), int(match.group(2))
-    if total <= 0:
-        return True
-    return (passed / total) >= MIN_CHECKLIST_RATIO - 1e-12
-
-
 def _count_true(mask: pd.Series) -> int:
     """Count True values; safe on empty frames (pandas empty-string sum → '')."""
     if mask is None or len(mask) == 0:
@@ -94,16 +77,15 @@ def _count_true(mask: pd.Series) -> int:
 
 
 def apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
-    """Drop rows that fail risk, checklist, or T1 R:R guardrails.
+    """Drop rows whose risk exceeds 5% of close.
 
     Returns the filtered frame and a small rejection summary.
     """
     n0 = len(df)
-    stats = {"input": n0, "risk_pct": 0, "checklist": 0, "rr_t1": 0}
+    stats = {"input": n0, "risk_pct": 0, "kept": 0}
 
     out = df.copy()
     if out.empty:
-        stats["kept"] = 0
         return out, stats
 
     price = pd.to_numeric(
@@ -111,7 +93,6 @@ def apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         errors="coerce",
     )
     if "Stock Entry" in out.columns and price is not None:
-        # Prefer Close; fall back to entry when Close is absent/NaN.
         entry = pd.to_numeric(out["Stock Entry"], errors="coerce")
         price = price.fillna(entry) if hasattr(price, "fillna") else entry
 
@@ -122,45 +103,39 @@ def apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         stats["risk_pct"] = _count_true(mask_risk)
         out = out.loc[~mask_risk].copy()
 
-    if not out.empty and "Checks Met" in out.columns:
-        passed = out["Checks Met"].map(_checklist_fully_passed).astype(bool)
-        stats["checklist"] = _count_true(~passed)
-        out = out.loc[passed].copy()
-
-    if not out.empty and "R:R T1" in out.columns:
-        rr1 = pd.to_numeric(out["R:R T1"], errors="coerce")
-        mask_rr = (rr1 < MIN_RR_T1).fillna(True)
-        stats["rr_t1"] = _count_true(mask_rr)
-        out = out.loc[~mask_rr].copy()
-
     stats["kept"] = len(out)
     return out, stats
 
 
 def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
-    """Rank survivors by expected value with a tight-coil propensity boost.
+    """Rank survivors by ML predicted return, else Score, with a tight-coil boost.
 
     ``Expected Value = R:R T2 × Score`` is always computed for transparency.
-    When ``ML_Pred_Return`` is present (offline model ran), ``Priority`` is
-    driven by ``R:R T2 × max(ML_Pred_Return, 0) × propensity`` so setups with
-    stronger predicted forward alpha rank first. When the ML column is absent or
-    all-null, ``Priority`` falls back to ``Expected Value × propensity``.
+    ``Priority`` is ``ML_Pred_Return × propensity`` when the ML column has any
+    values (negatives sort below zero; missing predictions sort last). Otherwise
+    ``Score × propensity``. Propensity is 1.25 only when ``Coil_Width_ATR`` ≤ 4
+    or risk ≤ 3% of close.
     """
     out = df.copy()
     rr2 = pd.to_numeric(out.get("R:R T2"), errors="coerce").fillna(0.0)
     score = pd.to_numeric(out.get("Score"), errors="coerce").fillna(0.0)
     out["Expected Value"] = (rr2 * score).round(2)
 
-    source = out["Source"].astype(str).str.strip().str.lower() if "Source" in out.columns else ""
     price = pd.to_numeric(
         out["Close"] if "Close" in out.columns else out.get("Stock Entry"),
         errors="coerce",
     )
     risk = pd.to_numeric(out.get("Risk Per Share"), errors="coerce")
     tight_risk = (risk / price.replace(0, np.nan)) <= TIGHT_RISK_PCT if price is not None else False
-    is_coil = source.isin(["coiled_cobra", "cobra"]) if hasattr(source, "isin") else False
+    if "Coil_Width_ATR" in out.columns:
+        width = pd.to_numeric(out["Coil_Width_ATR"], errors="coerce")
+        tight_width = width <= TIGHT_COIL_WIDTH_ATR
+    else:
+        tight_width = pd.Series(False, index=out.index)
     propensity = np.where(
-        np.asarray(is_coil) | np.asarray(tight_risk.fillna(False) if hasattr(tight_risk, "fillna") else tight_risk),
+        np.asarray(tight_width.fillna(False)) | np.asarray(
+            tight_risk.fillna(False) if hasattr(tight_risk, "fillna") else tight_risk
+        ),
         TIGHT_COIL_PROPENSITY,
         1.0,
     )
@@ -171,17 +146,18 @@ def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
         ml_pred = pd.Series(np.nan, index=out.index, dtype="float64")
 
     if ml_pred.notna().any():
-        # ML-driven expected value: reward per unit risk scaled by predicted alpha.
-        ml_ev = rr2 * ml_pred.clip(lower=0).fillna(0.0)
-        out["Priority"] = (ml_ev * propensity).round(4)
+        out["Priority"] = (ml_pred * propensity).round(4)
     else:
-        out["Priority"] = (out["Expected Value"] * propensity).round(2)
+        out["Priority"] = (score * propensity).round(2)
 
-    return out.sort_values("Priority", ascending=False, kind="mergesort").reset_index(drop=True)
+    return out.sort_values(
+        "Priority", ascending=False, na_position="last", kind="mergesort"
+    ).reset_index(drop=True)
 
 
-def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Path:
+def process_trade_plan(mode: str | None = None, *, today: str | None = None) -> Path:
     """Load trade plan, compute R:R, apply guardrails, rank by EV. Returns output path."""
+    mode = mode or config.DEFAULT_MODE
     today_str = today or datetime.now().strftime("%Y-%m-%d")
     trade_plan_dir, scanner_csv = resolve_trade_plan_path(mode, today=today_str)
     print(f"🎯 Target trade plan file located: {scanner_csv}")
@@ -231,12 +207,11 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         traceback.print_exc()
         raise SystemExit(1) from None
 
-    print("🛡️ Applying ingestion guardrails (risk ≤5%, checklist ≥5/6, R:R T1 ≥ 2)...")
+    print("🛡️ Applying ingestion guardrails (risk ≤5% of close)...")
     df, filter_stats = apply_ingestion_filters(df)
     print(
         f"   kept {filter_stats['kept']}/{filter_stats['input']} "
-        f"(dropped risk={filter_stats['risk_pct']}, "
-        f"checklist={filter_stats['checklist']}, rr_t1={filter_stats['rr_t1']})"
+        f"(dropped risk={filter_stats['risk_pct']})"
     )
 
     if not df.empty:
@@ -245,9 +220,9 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
             df["ML_Pred_Return"], errors="coerce"
         ).notna().any()
         if ml_active:
-            print("📊 Ranked survivors by ML predicted return × R:R T2 with coil propensity.")
+            print("📊 Ranked survivors by ML predicted return (tight-coil boost when width ≤ 4 ATR or risk ≤ 3%).")
         else:
-            print("📊 Ranked survivors by Expected Value (R:R T2 × Score) with coil propensity.")
+            print("📊 Ranked survivors by Score (tight-coil boost when width ≤ 4 ATR or risk ≤ 3%).")
 
     # Select essential columns for the cleaned file (only those that exist).
     # Both LEAPS/Options label variants are listed so mode-specific columns
@@ -276,6 +251,17 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         "ATR",
         "RSI",
         "Fib 78.6%",
+        "Coil_High",
+        "Coil_Low",
+        "Coil_Width_ATR",
+        "MACD_Spread_ATR",
+        "Volume_Shelf",
+        "MACD_Compression",
+        "Structure",
+        "RS_Score",
+        "Coil_Width",
+        "MACD_Cross",
+        "Fib_Bonus",
         "LEAPS Type",
         "Options Type",
         "Delta Min",
@@ -294,7 +280,10 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
     if df_clean.empty:
         print("(no setups survived ingestion guardrails)")
     else:
-        print(df_clean.head(10).to_markdown(index=False))
+        try:
+            print(df_clean.head(10).to_markdown(index=False))
+        except (ImportError, AttributeError):
+            print(df_clean.head(10).to_string(index=False))
 
     clean_csv = trade_plan_dir / f"trade_plan_clean_{resolved_date}.csv"
     try:
@@ -309,7 +298,7 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
 
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
-    mode = "weekly"
+    mode = config.DEFAULT_MODE
     if argv and argv[0].lower() in ("weekly", "daily", "high_beta"):
         mode = argv[0].lower()
     try:

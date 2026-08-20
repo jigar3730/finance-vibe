@@ -479,8 +479,9 @@ def calculate_vibe_score(ticker: str, df: pd.DataFrame, return_components: bool 
         return {"Score": 0, "Error": str(e)}
 
 
-def run_scan(mode: str = "weekly", max_workers: Optional[int] = None) -> pd.DataFrame:
+def run_scan(mode: str | None = None, max_workers: Optional[int] = None) -> pd.DataFrame:
     """Scan all raw CSVs for a mode and write the ranked vibe report."""
+    mode = mode or config.DEFAULT_MODE
     mode_cfg = config.get_mode_config(mode)
     raw_dir = mode_cfg["raw_dir"]
     logs_dir = mode_cfg["logs_dir"]

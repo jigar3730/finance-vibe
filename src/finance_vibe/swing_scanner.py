@@ -42,8 +42,8 @@ except ImportError:
 if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily", "high_beta"]:
     mode = sys.argv[1].lower()
 else:
-    print("⚠️ Unknown mode parsed to scanner. Defaulting to 'weekly'.")
-    mode = "weekly"
+    print(f"⚠️ Unknown mode parsed to scanner. Defaulting to '{config.DEFAULT_MODE}'.")
+    mode = config.DEFAULT_MODE
 
 # Data timeframe may differ from swing profile (high_beta → daily OHLCV)
 _data_mode, _swing_profile = config.resolve_pipeline_mode(mode)

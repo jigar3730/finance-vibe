@@ -1,7 +1,7 @@
 """Central paths and timeframe profiles for Finance Vibe.
 
 Use ``get_mode_config(mode)`` to resolve raw/log directories and yfinance
-download parameters for ``weekly`` or ``daily`` pipeline runs.
+download parameters. Daily is the project primary; weekly is an explicit opt-in.
 """
 import os
 
@@ -11,21 +11,21 @@ _CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(_CONFIG_DIR, "../.."))
 
 TIMEFRAME_PROFILES = {
-    "weekly": {
-        "period": "10y",
-        "interval": "1wk",
-        "raw_dir": os.path.join(PROJECT_ROOT, "data", "raw", "weekly"),
-        "logs_dir": os.path.join(PROJECT_ROOT, "data", "logs", "weekly"),
-    },
     "daily": {
         "period": "5y",
         "interval": "1d",
         "raw_dir": os.path.join(PROJECT_ROOT, "data", "raw", "daily"),
         "logs_dir": os.path.join(PROJECT_ROOT, "data", "logs", "daily"),
     },
+    "weekly": {
+        "period": "10y",
+        "interval": "1wk",
+        "raw_dir": os.path.join(PROJECT_ROOT, "data", "raw", "weekly"),
+        "logs_dir": os.path.join(PROJECT_ROOT, "data", "logs", "weekly"),
+    },
 }
 
-DEFAULT_MODE = "weekly"
+DEFAULT_MODE = "daily"
 
 
 def get_mode_config(mode: str = None) -> dict:
@@ -237,7 +237,7 @@ def get_swing_params(mode: str = "weekly") -> dict:
     return merged
 
 
-def resolve_pipeline_mode(mode: str = "weekly") -> tuple[str, str]:
+def resolve_pipeline_mode(mode: str | None = None) -> tuple[str, str]:
     """Map CLI/pipeline mode → (data_timeframe, swing_profile).
 
     ``high_beta`` reads daily OHLCV but uses the high-beta swing profile.
@@ -250,7 +250,7 @@ def resolve_pipeline_mode(mode: str = "weekly") -> tuple[str, str]:
     return DEFAULT_MODE, DEFAULT_MODE
 
 
-def get_log_dir(mode: str = "weekly") -> str:
+def get_log_dir(mode: str | None = None) -> str:
     """Absolute log directory for a pipeline mode, isolated per swing profile.
 
     ``high_beta`` gets its own ``data/logs/high_beta`` silo so its outputs do
@@ -412,16 +412,8 @@ REQUIRED_OHLCV = ["Date", "Open", "High", "Low", "Close", "Volume"]
 # Minimum usable rows before a raw CSV is worth saving/scanning.
 MIN_SAVE_ROWS = 60
 
-# Shared setup-row schema emitted by BOTH scanners so trade_planner can rely
-# on a single stable contract. Column order is significant for CSV output.
-#
-# Fill rules:
-#   - ``swing_scanner``: sets Source="swing"; fills Symbol, Setup Type, AsOf
-#     Date, Close, EMA20, EMA50, ATR, RSI, Swing Low, Swing High, Notes.
-#     Leaves macro-only fields empty.
-#   - ``coiled_cobra``: sets Source="coiled_cobra"; fills the macro-only
-#     fields plus RSI/Notes. Setup Type is currently always SETUP_LONG.
-#   - ``AsOf Date``: confirmation bar date (quality swing) or signal bar.
+# Live Coiled Cobra setup-row schema (trade_planner + ML ranker).
+# Swing scanner still fills a subset for offline pipeline_backtest.
 SETUP_ROW_COLUMNS = [
     "Symbol",
     "Setup Type",
@@ -442,18 +434,27 @@ SETUP_ROW_COLUMNS = [
     "Score",
     "Grade",
     "Checks Met",
+    "Volume_Shelf",
+    "MACD_Compression",
+    "Structure",
+    "RS_Score",
+    "Coil_Width",
+    "MACD_Cross",
+    "Fib_Bonus",
+    "MACD_Spread_ATR",
+    "Coil_Width_ATR",
+    "Coil_High",
+    "Coil_Low",
     "Fib 61.8%",
     "Fib 78.6%",
     "Fib Score",
     "MACD",
     "MACD Signal",
-    # Pre-signal ML features (parity with coiled_cobra_ml_training FEATURE_COLS)
     "Pct_From_EMA20",
     "Pct_From_EMA50",
     "Pct_From_Fib618",
     "Pct_From_Fib786",
     "ATR_Pct",
-    # Offline-model ranking outputs (soft signal; null when no model available)
     "ML_Pred_Return",
     "ML_Rank",
 ]

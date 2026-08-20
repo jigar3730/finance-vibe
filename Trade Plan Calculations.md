@@ -10,34 +10,32 @@ The execution architecture operates as a strict multi-step data processing lifec
 
 ```mermaid
 graph TD
-    A([🌌 Market Universe]) 
-    A -->|swing_scanner.py| B[🎯 Curated Setup Matches]
-    B -->|trade_planner.py| C[📐 Architectural Leveling]
-    C -->|trade_plan_helper.py| D[⚙️ Options & Metrics Engine]
+    A([Market Universe])
+    A -->|coiled_cobra.py| B[Passing coils]
+    B -->|trade_planner.py| C[Close / Coil_Low / 2R-3R]
+    C -->|trade_plan_helper.py| D[Ranked plan]
 
     style A fill:#f9f,stroke:#333,stroke-width:1px
     style B fill:#bbf,stroke:#333,stroke-width:1px
     style C fill:#bfb,stroke:#333,stroke-width:1px
     style D fill:#fbb,stroke:#333,stroke-width:1px
-
 ```
 
-## 📐 Mathematical Formulas & Logic
+## Coiled Cobra expansion (live)
 
-The trade planner uses the **Average True Range (ATR)** to dynamically scale risk based on an asset's unique underlying volatility, while anchoring protection to the **50 Exponential Moving Average (EMA50)**.
+Spec: **`Coiled Cobra Rubric .MD`**. Quality-swing EMA pullback math is offline-only (`config.compute_swing_levels`).
 
-### 1. Execution Entry Architecture
-Instead of chasing the current price, the engine bids slightly below the current close to maximize edge during active pullbacks:
-$$\text{Stock Entry} = \text{Close} - (0.25 \times \text{ATR})$$
+### 1. Entry
+$$\text{Stock Entry} = \text{Close}$$
 
-### 2. Risk Mitigation & Protection (Stop Loss)
-The stop loss utilizes structural moving average support cushioned further by a volatility premium padding factor:
-$$\text{Stock Stop} = \text{EMA50} - (0.50 \times \text{ATR})$$
+### 2. Stop
+Protect the coil floor, then take the tightest of three constraints, remaining below entry:
+$$\text{floor} = \text{Coil\_Low (else Swing Low)}$$
+$$\text{Stock Stop} = \min(\max(\text{floor} - 0.25\times\text{ATR},\ \text{entry} - 1.5\times\text{ATR},\ \text{entry} - 5\%\times\text{Close}),\ \text{entry} - 0.25\times\text{ATR})$$
 
-### 3. Target Distribution Vectors
-Take-profit levels are scaled linearly outwards based on standardized daily volatility expansions:
-$$\text{Target 1} = \text{Stock Entry} + (1.00 \times \text{ATR})$$
-$$\text{Target 2} = \text{Stock Entry} + (2.00 \times \text{ATR})$$
+### 3. Targets
+$$\text{Target 1} = \text{Entry} + 2R,\quad \text{Target 2} = \text{Entry} + 3R$$
+where \(R = \text{Entry} - \text{Stop}\).
 
 ### 4. Capital Efficiency Metrics
 Risk per share and Risk-to-Reward ($R:R$) ratios are computed linearly to evaluate trade viability before capital allocation:
@@ -46,9 +44,9 @@ $$\text{Risk-to-Reward (R:R)} = \frac{\text{Target Level} - \text{Stock Entry}}{
 
 ---
 
-## 🔍 Case Study Workbook: HLT (Hilton) Blueprint
+## 🔍 Case Study Workbook: Legacy Swing Mode Reference
 
-To verify or audit internal calculation routines, reference this step-by-step mathematical translation using real scanner outputs.
+*Historical reference for offline swing-pullback scanner (`swing_scanner.py`). For live Coiled Cobra expansion, refer to Section "Coiled Cobra expansion (live)" above.*
 
 ### Raw Scanner Inputs
 * **Close:** `342.89`

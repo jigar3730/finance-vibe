@@ -11,15 +11,15 @@ app = Flask(__name__)
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 LOGS_BASE_DIR = os.path.join(BASE_DIR, "data", "logs")
 
-# The dual-timeframe folder structure paths
+# Daily is the project primary; weekly is the slower confirmation silo.
 MODES = {
+    "daily": os.path.join(LOGS_BASE_DIR, "daily"),
     "weekly": os.path.join(LOGS_BASE_DIR, "weekly"),
-    "daily": os.path.join(LOGS_BASE_DIR, "daily")
 }
 
 def get_available_runs():
     """Scans both weekly and daily logs folders to find all execution dates and files."""
-    runs = {"weekly": [], "daily": []}
+    runs = {"daily": [], "weekly": []}
     
     for mode, folder_path in MODES.items():
         if not os.path.exists(folder_path):
@@ -97,6 +97,24 @@ INDEX_TEMPLATE = """
     
     <div class="container">
         <div class="column">
+            <h2>⚡ Daily Framework (5Y Lookback) — primary</h2>
+            {% if runs['daily'] %}
+                <ul>
+                {% for run in runs['daily'] %}
+                    <li>
+                        <a href="/view/daily/{{ run['date'] }}?file={{ run['file_name'] }}">Trade Plan ({{ run['date'] }})</a>
+                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
+                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
+                        </span>
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p style="color:#777;">No daily log files discovered yet.</p>
+            {% endif %}
+        </div>
+        
+        <div class="column">
             <h2>📅 Weekly Framework (10Y Lookback)</h2>
             {% if runs['weekly'] %}
                 <ul>
@@ -111,24 +129,6 @@ INDEX_TEMPLATE = """
                 </ul>
             {% else %}
                 <p style="color:#777;">No weekly log files discovered yet.</p>
-            {% endif %}
-        </div>
-        
-        <div class="column">
-            <h2>⚡ Daily Framework (2Y Lookback)</h2>
-            {% if runs['daily'] %}
-                <ul>
-                {% for run in runs['daily'] %}
-                    <li>
-                        <a href="/view/daily/{{ run['date'] }}?file={{ run['file_name'] }}">Trade Plan ({{ run['date'] }})</a>
-                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
-                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
-                        </span>
-                    </li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p style="color:#777;">No daily log files discovered yet.</p>
             {% endif %}
         </div>
     </div>

@@ -1,10 +1,13 @@
-"""Coiled Cobra ML baseline: LightGBM + XGBoost regressors for short-horizon returns.
+"""Coiled Cobra ML baseline: LightGBM + XGBoost on new-coil expansion vs QQQ.
 
 Standalone training script. Looks for coiled_cobra_backtest_trades_*.csv,
-isolates pre-signal features, applies a dynamic relative temporal split,
-and trains MAE-objective XGBRegressor / LGBMRegressor baselines for the
-short-horizon target ``Forward_Return_2w`` with ATR_Pct sample weights to
-reduce the impact of heavy-tailed financial outliers.
+keeps ``Is_New_Coil`` rows, isolates pre-signal pillar + geometry features,
+applies a dynamic relative temporal split, and trains MAE-objective
+XGBRegressor / LGBMRegressor baselines for ``Rel_Forward_2w`` (fallback
+``Forward_Return_2w``) with ATR_Pct sample weights.
+
+Old 6-feature models (Score + Fib %) will not score the new 10-feature frame —
+retrain after this change.
 """
 from __future__ import annotations
 
@@ -13,31 +16,36 @@ import json
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from lightgbm import LGBMRegressor
-from sklearn.metrics import mean_absolute_error, mean_squared_error
-from xgboost import XGBRegressor
 
 # ---------------------------------------------------------------------------
 # Column zones (strict isolation — no leakage from post-trade metrics)
 # ---------------------------------------------------------------------------
+# Seven rubric pillars + two EMA distances + ATR scale. Score/Grade excluded
+# (Score is a linear mix of the pillars; Grade is a bin of Score).
 FEATURE_COLS = [
-    "Score",
+    "Volume_Shelf",
+    "MACD_Compression",
+    "Structure",
+    "RS_Score",
+    "Coil_Width",
+    "MACD_Cross",
+    "Fib_Bonus",
     "Pct_From_EMA20",
     "Pct_From_EMA50",
-    "Pct_From_Fib618",
-    "Pct_From_Fib786",
     "ATR_Pct",
 ]
-# Short tactical horizon (~2 weekly bars) — useful for ranking setups without
-# relying on long-horizon return assumptions.
-TARGET_COL = "Forward_Return_2w"
+PREFERRED_TARGET_COL = "Rel_Forward_2w"
+FALLBACK_TARGET_COL = "Forward_Return_2w"
+TARGET_COL = PREFERRED_TARGET_COL
 TARGET_HORIZON_WEEKS = 2
 DATE_COL = "Signal Date"
 WEIGHT_COL = "ATR_Pct"
+NEW_COIL_COL = "Is_New_Coil"
 MODEL_METADATA_FILENAME = "coiled_cobra_ml_model_metadata.json"
+EMBARGO_WEEKS = TARGET_HORIZON_WEEKS
+EARLY_STOPPING_ROUNDS = 40
 
 LEAKAGE_COLS = [
     "Stock Entry",
@@ -55,13 +63,36 @@ LEAKAGE_COLS = [
 SOURCE_FILENAME = "coiled_cobra_backtest_trades_2026-07-17.csv"
 
 # Regularization: shallow trees, slow learning, row/feature bagging.
+# LightGBM only applies subsample when bagging_freq > 0.
 MODEL_PARAMS = {
     "max_depth": 4,
     "learning_rate": 0.01,
     "n_estimators": 400,
     "subsample": 0.8,
     "colsample_bytree": 0.8,
+    "bagging_freq": 1,
 }
+
+
+_LOG_SILOS = ("daily", "weekly")  # project primary first; weekly is opt-in confirmation
+
+
+def _mode_log_dirs() -> list[Path]:
+    """Candidate log silos: daily first, then weekly, across cwd / repo / container mounts."""
+    here = Path(__file__).resolve().parent
+    project_root = here.parents[1]  # src/finance_vibe -> repo root
+    cwd = Path.cwd()
+    dirs: list[Path] = []
+    for silo in _LOG_SILOS:
+        dirs.extend(
+            [
+                cwd / "data" / "logs" / silo,
+                project_root / "data" / "logs" / silo,
+                Path("/app/data/logs") / silo,
+                Path("/mnt/fast/finance-vibe-data/logs") / silo,
+            ]
+        )
+    return dirs
 
 
 def _candidate_csv_paths(explicit: str | None = None) -> list[Path]:
@@ -69,18 +100,8 @@ def _candidate_csv_paths(explicit: str | None = None) -> list[Path]:
     if explicit:
         return [Path(explicit).expanduser().resolve()]
 
-    here = Path(__file__).resolve().parent
-    project_root = here.parents[1]  # src/finance_vibe -> repo root
-    cwd = Path.cwd()
     names = [SOURCE_FILENAME]
-    
-    search_roots = [
-        cwd,
-        cwd / "data" / "logs" / "weekly",
-        project_root / "data" / "logs" / "weekly",
-        Path("/app/data/logs/weekly"),
-        Path("/mnt/fast/finance-vibe-data/logs/weekly"),
-    ]
+    search_roots = [Path.cwd(), *_mode_log_dirs()]
     paths: list[Path] = []
     for root in search_roots:
         for name in names:
@@ -94,18 +115,17 @@ def resolve_source_csv(explicit: str | None = None) -> Path:
         if path.is_file():
             return path
 
-    project_root = Path(__file__).resolve().parent.parents[1]
-    globs: list[Path] = []
-    for root in {
-        Path.cwd() / "data" / "logs" / "weekly",
-        project_root / "data" / "logs" / "weekly",
-        Path("/app/data/logs/weekly"),
-        Path("/mnt/fast/finance-vibe-data/logs/weekly"),
-    }:
+    # Prefer the newest file in the first silo that has any trades CSV (daily, then weekly).
+    seen: set[Path] = set()
+    for root in _mode_log_dirs():
+        resolved = root.resolve() if root.exists() else root
+        if resolved in seen:
+            continue
+        seen.add(resolved)
         if root.is_dir():
-            globs.extend(sorted(root.glob("coiled_cobra_backtest_trades_*.csv")))
-    if globs:
-        return max(globs, key=lambda p: p.stat().st_mtime)
+            matches = list(root.glob("coiled_cobra_backtest_trades_*.csv"))
+            if matches:
+                return max(matches, key=lambda p: p.stat().st_mtime)
 
     tried = "\n  ".join(str(p) for p in _candidate_csv_paths(explicit))
     raise FileNotFoundError(
@@ -113,19 +133,54 @@ def resolve_source_csv(explicit: str | None = None) -> Path:
     )
 
 
+def select_target_col(df: pd.DataFrame) -> str:
+    """Prefer QQQ-relative 2-week return; fall back to absolute forward return."""
+    if PREFERRED_TARGET_COL in df.columns and df[PREFERRED_TARGET_COL].notna().any():
+        return PREFERRED_TARGET_COL
+    if FALLBACK_TARGET_COL in df.columns:
+        return FALLBACK_TARGET_COL
+    raise ValueError(
+        f"Missing target column: need {PREFERRED_TARGET_COL} or {FALLBACK_TARGET_COL}"
+    )
+
+
+def _is_new_coil_mask(series: pd.Series) -> pd.Series:
+    """True for boolean True, 1, or the strings 'true' / '1'."""
+    if series.dtype == bool:
+        return series
+    numeric = pd.to_numeric(series, errors="coerce")
+    text = series.astype(str).str.strip().str.lower()
+    return (numeric == 1) | text.isin({"true", "1", "yes"})
+
+
 def load_and_prepare(csv_path: Path) -> pd.DataFrame:
-    """Load CSV, drop leakage cols, keep no_fill rows, drop NaN targets."""
+    """Load CSV, keep new coils, drop leakage cols, drop NaN targets."""
+    global TARGET_COL
     df = pd.read_csv(csv_path)
     print(f"Loaded source: {csv_path}")
     print(f"Raw shape: {df.shape[0]} rows x {df.shape[1]} cols")
 
     missing_features = [c for c in FEATURE_COLS if c not in df.columns]
     if missing_features:
-        raise ValueError(f"Missing required feature columns: {missing_features}")
-    if TARGET_COL not in df.columns:
-        raise ValueError(f"Missing target column: {TARGET_COL}")
+        raise ValueError(
+            f"Missing required feature columns: {missing_features}. "
+            "Retrain needs a post-v2.1 backtest CSV with rubric pillars."
+        )
     if DATE_COL not in df.columns:
         raise ValueError(f"Missing date column: {DATE_COL}")
+
+    TARGET_COL = select_target_col(df)
+    print(f"Target column: {TARGET_COL}")
+
+    if NEW_COIL_COL in df.columns:
+        before_coil = len(df)
+        df = df[_is_new_coil_mask(df[NEW_COIL_COL])].copy()
+        print(
+            f"Kept {len(df)}/{before_coil} row(s) where {NEW_COIL_COL} is True "
+            "(aged continuation bars excluded)"
+        )
+    else:
+        print(f"Warning: {NEW_COIL_COL} missing — training on every signal bar.")
 
     drop_present = [c for c in LEAKAGE_COLS if c in df.columns]
     df = df.drop(columns=drop_present)
@@ -139,29 +194,34 @@ def load_and_prepare(csv_path: Path) -> pd.DataFrame:
     before = len(df)
     df = df[df[TARGET_COL].notna()].copy()
     print(
-        f"Dropped {before - len(df)} row(s) with NaN/None {TARGET_COL} "
-        f"(kept no_fill and all other outcomes)"
+        f"Dropped {before - len(df)} row(s) with NaN/None {TARGET_COL}"
     )
     print(f"Training pool shape: {df.shape[0]} rows")
     return df.sort_values(DATE_COL).reset_index(drop=True)
 
 
 def temporal_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
-    """Applies a dynamic rolling temporal split backward from the max available date."""
+    """Date split with an embargo so train labels do not overlap val/test.
+
+    ``Rel_Forward_2w`` uses the next two bars. Without an embargo, a train
+    signal in the last two weeks of the train window has a target that lands
+    in validation.
+    """
     max_date = df[DATE_COL].max()
-    
-    # Define relative sliding windows (6 Months Test, 6 Months Val, Rest is Train)
+    embargo = pd.Timedelta(weeks=EMBARGO_WEEKS)
+
     test_start = max_date - pd.Timedelta(weeks=26)
     val_start = test_start - pd.Timedelta(weeks=26)
-    
-    train = df[df[DATE_COL] < val_start].copy()
-    val = df[(df[DATE_COL] >= val_start) & (df[DATE_COL] < test_start)].copy()
+
+    train = df[df[DATE_COL] < (val_start - embargo)].copy()
+    val = df[(df[DATE_COL] >= val_start) & (df[DATE_COL] < (test_start - embargo))].copy()
     test = df[df[DATE_COL] >= test_start].copy()
-    
+
     bounds = {
         "max_date": max_date,
         "val_start": val_start,
-        "test_start": test_start
+        "test_start": test_start,
+        "embargo_weeks": EMBARGO_WEEKS,
     }
     return train, val, test, bounds
 
@@ -176,8 +236,10 @@ def build_matrices(
     for name, frame in (("train", train), ("val", val), ("test", test)):
         X = frame[FEATURE_COLS].copy()
         y = frame[TARGET_COL].astype(float).to_numpy()
-        w = frame[WEIGHT_COL].astype(float).to_numpy()
-        w = np.where(np.isfinite(w) & (w > 0), w, np.nan)
+        # Inverse ATR: high-vol names already have noisier Rel_Forward. Weighting
+        # *by* ATR_Pct would amplify them; 1/ATR_Pct equalizes return-space MAE.
+        atr = frame[WEIGHT_COL].astype(float).to_numpy()
+        w = np.where(np.isfinite(atr) & (atr > 0), 1.0 / atr, np.nan)
         parts[name] = {"X": X, "y": y, "w": w, "n": len(frame)}
         
     med = np.nanmedian(parts["train"]["w"])
@@ -190,16 +252,25 @@ def build_matrices(
 
 
 def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    from sklearn.metrics import mean_squared_error
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
 def evaluate(model, X: pd.DataFrame, y: np.ndarray, label: str) -> dict:
+    from sklearn.metrics import mean_absolute_error
     pred = model.predict(X)
+    ic = float(pd.Series(pred).corr(pd.Series(y), method="spearman"))
+    if not np.isfinite(ic):
+        ic = 0.0
     metrics = {
         "mae": float(mean_absolute_error(y, pred)),
         "rmse": rmse(y, pred),
+        "spearman": ic,
     }
-    print(f"  {label}: MAE={metrics['mae']:.6f}  RMSE={metrics['rmse']:.6f}")
+    print(
+        f"  {label}: MAE={metrics['mae']:.6f}  RMSE={metrics['rmse']:.6f}  "
+        f"Spearman={metrics['spearman']:.4f}"
+    )
     return metrics
 
 
@@ -222,6 +293,8 @@ def save_importance_plot(
     out_path: Path,
 ) -> None:
     """Side-by-side gain/split importance bar chart."""
+    import matplotlib.pyplot as plt
+
     order = np.argsort(xgb_imp)[::-1]
     names = [feature_names[i] for i in order]
     xgb_sorted = xgb_imp[order]
@@ -263,6 +336,8 @@ def save_model_metadata(
     metadata = {
         "target_column": TARGET_COL,
         "target_horizon_weeks": TARGET_HORIZON_WEEKS,
+        "embargo_weeks": EMBARGO_WEEKS,
+        "sample_weight": "inverse_ATR_Pct",
         "feature_columns": feature_names,
         "decision_guidance": {
             "use_as": "soft ranking signal for setup selection",
@@ -287,14 +362,18 @@ def save_model_metadata(
             "xgb": {
                 "val_mae": xgb_val_metrics["mae"],
                 "val_rmse": xgb_val_metrics["rmse"],
+                "val_spearman": xgb_val_metrics["spearman"],
                 "test_mae": xgb_test_metrics["mae"],
                 "test_rmse": xgb_test_metrics["rmse"],
+                "test_spearman": xgb_test_metrics["spearman"],
             },
             "lgb": {
                 "val_mae": lgb_val_metrics["mae"],
                 "val_rmse": lgb_val_metrics["rmse"],
+                "val_spearman": lgb_val_metrics["spearman"],
                 "test_mae": lgb_test_metrics["mae"],
                 "test_rmse": lgb_test_metrics["rmse"],
+                "test_spearman": lgb_test_metrics["spearman"],
             },
         },
     }
@@ -304,6 +383,9 @@ def save_model_metadata(
 
 
 def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
+    from lightgbm import LGBMRegressor, early_stopping, log_evaluation
+    from xgboost import XGBRegressor
+
     X_train, y_train, w_train = parts["train"]["X"], parts["train"]["y"], parts["train"]["w"]
     X_val, y_val = parts["val"]["X"], parts["val"]["y"]
     X_test, y_test = parts["test"]["X"], parts["test"]["y"]
@@ -323,10 +405,17 @@ def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
         colsample_bytree=MODEL_PARAMS["colsample_bytree"],
         objective="reg:absoluteerror",
         tree_method="hist",
+        early_stopping_rounds=EARLY_STOPPING_ROUNDS,
         n_jobs=-1,
         random_state=42,
     )
-    xgb.fit(X_train, y_train, sample_weight=w_train)
+    xgb.fit(
+        X_train,
+        y_train,
+        sample_weight=w_train,
+        eval_set=[(X_val, y_val)],
+        verbose=False,
+    )
 
     print("XGBoost validation / OOS scores:")
     xgb_val_metrics = evaluate(xgb, X_val, y_val, f"Val ({labels['val']})")
@@ -339,12 +428,19 @@ def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
         n_estimators=MODEL_PARAMS["n_estimators"],
         subsample=MODEL_PARAMS["subsample"],
         colsample_bytree=MODEL_PARAMS["colsample_bytree"],
+        bagging_freq=MODEL_PARAMS["bagging_freq"],
         objective="regression_l1",
         n_jobs=-1,
         random_state=42,
         verbose=-1,
     )
-    lgb.fit(X_train, y_train, sample_weight=w_train)
+    lgb.fit(
+        X_train,
+        y_train,
+        sample_weight=w_train,
+        eval_set=[(X_val, y_val)],
+        callbacks=[early_stopping(EARLY_STOPPING_ROUNDS, verbose=False), log_evaluation(0)],
+    )
 
     print("LightGBM validation / OOS scores:")
     lgb_val_metrics = evaluate(lgb, X_val, y_val, f"Val ({labels['val']})")
@@ -397,7 +493,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--artifacts-dir",
         default=None,
-        help="Directory for plots (default: data/logs/weekly next to CSV or cwd)",
+        help="Directory for plots (default: same directory as the CSV, typically data/logs/daily)",
     )
     args = parser.parse_args(argv)
 
@@ -414,7 +510,7 @@ def main(argv: list[str] | None = None) -> int:
     t_str = f"{bounds['test_start'].strftime('%Y-%m-%d')} .. {bounds['max_date'].strftime('%Y-%m-%d')}"
 
     print("\n=== Temporal Split Bounds (Dynamic Rolling Windows) ===")
-    print(f"  Train:  Signal Date < {bounds['val_start'].strftime('%Y-%m-%d')} -> {len(train)} rows")
+    print(f"  Train:  Signal Date < {bounds['val_start'].strftime('%Y-%m-%d')} minus {bounds['embargo_weeks']}w embargo -> {len(train)} rows")
     print(f"  Val:    {v_str} -> {len(val)} rows")
     print(f"  Test:   {t_str} -> {len(test)} rows")
 

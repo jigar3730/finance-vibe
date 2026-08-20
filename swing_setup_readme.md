@@ -18,7 +18,7 @@ Or run the full pipeline:
 
 ```bash
 python src/finance_vibe/run_vibe.py
-python src/finance_vibe/run_vibe.py --mode daily
+python src/finance_vibe/run_vibe.py --mode weekly
 ```
 
 ## Inputs and outputs

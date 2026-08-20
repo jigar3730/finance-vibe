@@ -714,7 +714,7 @@ def print_summary(all_counts: dict, trades_df: pd.DataFrame) -> None:
 
 
 def run_backtest(
-    mode: str = "weekly",
+    mode: str | None = None,
     tickers: Optional[str] = None,
     long_min: int = config.BACKTEST_LONG_MIN_SCORE,
     short_max: int = config.BACKTEST_SHORT_MAX_SCORE,
@@ -727,6 +727,7 @@ def run_backtest(
     trailing_atr_mult: Optional[float] = 2.0,
 ) -> pd.DataFrame:
     """Run walk-forward backtest across raw CSV files for *mode*."""
+    mode = mode or config.DEFAULT_MODE
     data_mode, swing_profile = config.resolve_pipeline_mode(mode)
     mode_cfg = config.get_mode_config(data_mode)
     swing = config.get_swing_params(swing_profile)

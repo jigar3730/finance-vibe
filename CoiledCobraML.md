@@ -2,9 +2,9 @@
 
 **Module:** `src/finance_vibe/coiled_cobra_ml_training.py`
 
-Standalone training script that learns a short-horizon alpha gradient from Coiled Cobra backtest exports. It predicts **`Forward_Return_2w`** (2-bar / ~2-week forward close-to-close return) using only pre-signal technical attributes — never post-trade execution fields.
+Standalone training script that learns a short-horizon alpha gradient from Coiled Cobra backtest exports. It predicts **`Rel_Forward_2w`** (QQQ-relative 2-bar return; falls back to `Forward_Return_2w`) using rubric pillars plus EMA/ATR geometry — never Score, Grade, or post-trade execution fields.
 
-This is an **offline research baseline**, not part of `run_vibe.py` or the live scanner.
+Training rows are **`Is_New_Coil == True`** only. This is an **offline research baseline**. Old 6-feature models (Score + Fib %) will not score the new 10-feature frame — retrain after a fresh `--backtest`.
 
 ---
 
@@ -12,7 +12,7 @@ This is an **offline research baseline**, not part of `run_vibe.py` or the live 
 
 | Goal | Detail |
 | ---- | ------ |
-| Task | Regression: predict continuous `Forward_Return_2w` |
+| Task | Regression: predict continuous `Rel_Forward_2w` (fallback `Forward_Return_2w`) |
 | Models | Vanilla `XGBRegressor` + `LGBMRegressor` side-by-side |
 | Why | Rank which coil geometries historically realized stronger forward alpha; inform score/geometry research |
 | Not for | Live order routing, options P&L, or replacing the rubric score |
@@ -30,16 +30,16 @@ This is an **offline research baseline**, not part of `run_vibe.py` or the live 
 2. **Source data:** a Coiled Cobra walk-forward trades CSV produced by:
 
    ```bash
-   python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
+   python src/finance_vibe/coiled_cobra_backtest.py --backtest
    ```
 
    Typical path:
 
    ```
-   data/logs/weekly/coiled_cobra_backtest_trades_YYYY-MM-DD.csv
+   data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv
    ```
 
-   Default preferred filename in the script: `coiled_cobra_backtest_trades_2026-07-17.csv`. If that exact file is missing, the script falls back to the newest `coiled_cobra_backtest_trades_*.csv` under common log roots.
+   Default preferred filename in the script: `coiled_cobra_backtest_trades_2026-07-17.csv`. If that exact file is missing, the script falls back to the newest `coiled_cobra_backtest_trades_*.csv` under `data/logs/daily/` first, then `data/logs/weekly/`.
 
 3. **Environment:** run from the repo / container with `PYTHONPATH` including the project (Docker image already sets `PYTHONPATH=/app`).
 
@@ -48,17 +48,17 @@ This is an **offline research baseline**, not part of `run_vibe.py` or the live 
 ## How to run
 
 ```bash
-# Auto-discover CSV under data/logs/weekly (or /app/data/...)
+# Auto-discover CSV under data/logs/daily first (then weekly / container mounts)
 python src/finance_vibe/coiled_cobra_ml_training.py
 
 # Explicit CSV + artifact directory
 python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv \
-  --artifacts-dir data/logs/weekly
+  --csv data/logs/daily/coiled_cobra_backtest_trades_2026-07-17.csv \
+  --artifacts-dir data/logs/daily
 
 # Inside the finance_vibe container
 docker exec finance_vibe python /app/src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv /app/data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv
+  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_2026-07-17.csv
 ```
 
 | Flag | Meaning |
@@ -75,21 +75,19 @@ coiled_cobra_backtest_trades_*.csv
         │
         ▼
   load_and_prepare()
+    • keep Is_New_Coil == True
     • parse Signal Date → datetime
     • DROP leakage columns (execution / outcome)
-    • KEEP no_fill rows
-    • DROP rows with NaN Forward_Return_13w
+    • DROP rows with NaN Rel_Forward_2w (or Forward_Return_2w fallback)
         │
         ▼
   temporal_split() on Signal Date  (NO random K-fold)
-    Train  ≤ 2023-12-31
-    Val    2024-01-01 .. 2024-12-31
-    Test   2025-01-01 .. 2026-07-31
+    rolling 6-month val / 6-month test from max date
         │
         ▼
   build_matrices()
-    X = 6 pre-signal features
-    y = Forward_Return_13w
+    X = 10 pre-signal features (7 pillars + EMA% + ATR_Pct)
+    y = Rel_Forward_2w
     sample_weight = ATR_Pct
         │
         ├── XGBRegressor(objective="reg:absoluteerror")
@@ -104,26 +102,31 @@ coiled_cobra_backtest_trades_*.csv
 
 ## Column isolation (anti-leakage)
 
-### Feature space (X) — exactly 6 columns
+### Feature space (X) — exactly 10 columns
 
 | Feature | Role |
 | ------- | ---- |
-| `Score` | Rubric score at signal bar |
+| `Volume_Shelf` | Rubric pillar (0–20) |
+| `MACD_Compression` | Rubric pillar (0–20) |
+| `Structure` | Rubric pillar (0–20) |
+| `RS_Score` | Rubric pillar vs QQQ (0–15) |
+| `Coil_Width` | Rubric pillar (0–15) |
+| `MACD_Cross` | Rubric pillar (0–10) |
+| `Fib_Bonus` | Optional bonus (0–5) |
 | `Pct_From_EMA20` | Close vs EMA20 (fraction) |
 | `Pct_From_EMA50` | Close vs EMA50 (fraction) |
-| `Pct_From_Fib618` | Close vs Fib 61.8% (fraction) |
-| `Pct_From_Fib786` | Close vs Fib 78.6% (fraction) |
 | `ATR_Pct` | ATR / Close (volatility scale) |
 
-**`Grade` is intentionally excluded.** It is a redundant binned categorical of `Score` (e.g. A vs B). Including both wasted tree split budget and added multi-collinearity noise without predictive lift.
+**`Score` and `Grade` are excluded.** Score is a clipped sum of the pillars; Grade is a bin of Score.
 
 ### Target (y)
 
 | Column | Definition |
 | ------ | ---------- |
-| `Forward_Return_2w` | `(Close[t+2] − Close[t]) / Close[t]` on the weekly series |
+| `Rel_Forward_2w` (preferred) | Stock 2-bar return minus QQQ over the same dates |
+| `Forward_Return_2w` (fallback) | `(Close[t+2] − Close[t]) / Close[t]` |
 
-Also present in the CSV but **not** used as the baseline target: `Forward_Return_5w`, `Forward_Return_26w`.
+Also present but not the training target: 5w / 13w / 26w absolute and relative forwards.
 
 ### Leakage columns — strictly dropped before training
 
@@ -141,8 +144,8 @@ Other identity columns (`Symbol`, `Signal Date`, `Setup Type`) are used only for
 
 | Rule | Behavior |
 | ---- | -------- |
-| `Outcome == no_fill` | **Kept** — model still learns coil geometry vs continuous forward return |
-| `Forward_Return_13w` is NaN/None | **Dropped** — insufficient future bars near series end |
+| `Is_New_Coil == True` | **Kept** — train on new coil episodes, not aged continuation bars |
+| Target is NaN/None | **Dropped** — insufficient future bars near series end |
 | Random shuffle / K-fold | **Forbidden** — would leak future structure across time |
 
 ---
@@ -171,11 +174,11 @@ Raw CSV was 5397 rows; 118 rows dropped for missing `Forward_Return_13w`.
 
 ## Sample weighting
 
-Both frameworks receive `sample_weight=ATR_Pct` at `.fit()` time.
+Both frameworks receive **inverse** `ATR_Pct` sample weights at `.fit()` time (`1 / ATR_Pct`).
 
-- High-ATR (high-beta) names produce larger absolute return variance.
-- Weighting by `ATR_Pct` is the current baseline contract so optimization is not dominated solely by unscaled squared residuals on quiet large-caps (paired with MAE objectives below).
-- Non-finite or non-positive weights are replaced with the **train median** of `ATR_Pct`.
+- `Rel_Forward_2w` is already a return. High-ATR names are noisier; weighting *by* ATR would amplify them.
+- Inverse ATR equalizes MAE in return space so quiet large-caps are not ignored and high-beta tails do not dominate.
+- Non-finite or non-positive ATR values are replaced with the **train median** of the inverse weight.
 
 ---
 
@@ -185,9 +188,11 @@ Shared hyperparameters:
 
 | Param | Value |
 | ----- | ----- |
-| `max_depth` | 6 |
-| `learning_rate` | 0.03 |
-| `n_estimators` | 300 |
+| `max_depth` | 4 |
+| `learning_rate` | 0.01 |
+| `n_estimators` | 400 (early stopping, 40 rounds) |
+| `subsample` | 0.8 (`bagging_freq=1` for LightGBM) |
+| `colsample_bytree` | 0.8 |
 | `random_state` | 42 |
 
 | Framework | Objective | Rationale |
@@ -223,7 +228,8 @@ Side-by-side horizontal bar chart (XGBoost vs LightGBM), plus serialized model w
 | Metric | Interpretation |
 | ------ | -------------- |
 | **MAE** | Primary fit quality under the training objective; less dominated by extreme movers |
-| **RMSE** | Still reported for tail sensitivity; can remain high on OOS even when MAE improves |
+| **RMSE** | Tail sensitivity; can remain high on OOS even when MAE improves |
+| **Spearman** | **Production metric** — rank correlation of prediction vs realized Rel_Forward. This is what `ML_Rank` / helper Priority actually use. |
 
 Expect **Test RMSE ≫ Val RMSE** when a few extreme high-beta paths appear in 2025–2026. Prefer MAE for comparing objective upgrades; use RMSE to audit tail risk.
 
@@ -342,7 +348,7 @@ Full backtest column definitions and CLI: **`BacktestAndBackfill.md`**.
 
 | Symptom | Likely cause | Fix |
 | ------- | ------------ | --- |
-| `FileNotFoundError` for CSV | Backtest not run / wrong mount | Run `--backtest`; pass `--csv`; in Docker ensure `/app/data` volume has `logs/weekly/` |
+| `FileNotFoundError` for CSV | Backtest not run / wrong mount | Run `--backtest`; pass `--csv`; in Docker ensure `/app/data` volume has `logs/daily/` |
 | Empty train/val/test | Date range outside CSV | Check `Signal Date` min/max; regenerate backtest with full history |
 | Stale script in Docker | Image baked without host edits | `docker cp` the `.py` or `docker compose up -d --build` |
 | Import errors for xgboost/lightgbm | Old image / missing deps | Rebuild image; confirm `requirements.txt` installed |

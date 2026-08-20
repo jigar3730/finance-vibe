@@ -35,8 +35,9 @@ def _log_ingest_error(logs_dir: str, ticker: str, message: str) -> None:
     row.to_csv(err_path, mode="a", header=header, index=False)
 
 
-def ingest_market_data(mode="weekly"):
+def ingest_market_data(mode=None):
     # --- 2. EXTRACT SETTINGS DYNAMICALLY FROM PROFILE ---
+    mode = mode or config.DEFAULT_MODE
     mode_cfg = config.get_mode_config(mode)
 
     csv_path = config.TICKER_LIST_PATH
@@ -79,11 +80,15 @@ def ingest_market_data(mode="weekly"):
             if isinstance(df.columns, pd.MultiIndex):
                 df.columns = df.columns.get_level_values(0)
 
-            # --- 4. DATA CLEANING ---
-            # Remove the last row if it's an incomplete weekly candle (only for 1wk)
+            # Incomplete last bar: weekly if not Friday-dated; daily if dated today.
             if INTERVAL == "1wk" and len(df) > 0:
                 last_date = df.index[-1]
                 if hasattr(last_date, "weekday") and last_date.weekday() != 4:
+                    df = df.iloc[:-1]
+            elif INTERVAL == "1d" and len(df) > 0:
+                last_date = df.index[-1]
+                last_day = last_date.date() if hasattr(last_date, "date") else None
+                if last_day is not None and last_day == datetime.now().date():
                     df = df.iloc[:-1]
 
             # --- 4b. VALIDATE OHLCV CONTRACT (reject, never save partial) ---
@@ -120,13 +125,13 @@ def ingest_market_data(mode="weekly"):
 
 
 if __name__ == "__main__":
-    # Check for CLI argument, otherwise default to weekly execution
-    selected_mode = "weekly"
+    # Check for CLI argument, otherwise default to the project primary (daily)
+    selected_mode = config.DEFAULT_MODE
     if len(sys.argv) > 1:
         arg_mode = sys.argv[1].lower()
         if arg_mode in ["weekly", "daily"]:
             selected_mode = arg_mode
         else:
-            print(f"⚠️ Unknown mode '{arg_mode}'. Defaulting to 'weekly'.")
+            print(f"⚠️ Unknown mode '{arg_mode}'. Defaulting to '{config.DEFAULT_MODE}'.")
 
     ingest_market_data(mode=selected_mode)

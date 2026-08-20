@@ -117,6 +117,7 @@ def _run_scaled(rows, is_long, **kw):
         max_hold_bars=kw.get("max_hold_bars", 10),
         slippage_pct=kw.get("slippage_pct", 0.0),
         partial_fraction=kw.get("partial_fraction", 0.5),
+        trailing_atr_mult=kw.get("trailing_atr_mult", None),
     )
 
 

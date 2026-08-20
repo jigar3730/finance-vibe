@@ -1,5 +1,7 @@
 """Data-quality contract tests: OHLCV validation, setup schema, level math, R:R."""
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -72,11 +74,12 @@ def test_blank_setup_row_matches_schema():
 
 def test_setup_schema_includes_ml_feature_and_rank_columns():
     from finance_vibe.coiled_cobra_ml_training import FEATURE_COLS
-    # Every ML feature (except Score, already present) must be an emitted column.
     for col in FEATURE_COLS:
         assert col in config.SETUP_ROW_COLUMNS, f"missing feature col {col}"
     assert "ML_Pred_Return" in config.SETUP_ROW_COLUMNS
     assert "ML_Rank" in config.SETUP_ROW_COLUMNS
+    assert "Coil_High" in config.SETUP_ROW_COLUMNS
+    assert "Coil_Low" in config.SETUP_ROW_COLUMNS
 
 
 # ---------------------------------------------------------------------------
@@ -96,13 +99,12 @@ def _base_row(**overrides):
     return row
 
 
-def test_cobra_valid_fib_uses_structural_entry():
+def test_cobra_expansion_enters_at_close():
     row = _base_row(Source="coiled_cobra")
     row["Fib 78.6%"] = 95.0
     row["Swing Low"] = 97.0
     entry, stop, t1, t2, opt_type, delta = calculate_stock_levels(row)
-    # entry = max(fib786, close - 0.25*atr) = max(95, 99.5)
-    assert entry == pytest.approx(99.5)
+    assert entry == pytest.approx(100.0)
     assert stop < entry
     risk = entry - stop
     assert t1 == pytest.approx(entry + 2.0 * risk)
@@ -110,19 +112,30 @@ def test_cobra_valid_fib_uses_structural_entry():
     assert opt_type == "CALL"
 
 
-def test_cobra_distant_fib_uses_local_swing_not_macro_floor():
-    """Year-scale Fib must not place stops 40–50% away; local swing + 1.5×ATR wins."""
+def test_cobra_stop_uses_swing_low_when_coil_low_missing():
+    """Without Coil_Low, the local swing floor plus 1.5×ATR / 5% cap still binds."""
     row = _base_row(Source="coiled_cobra", Close=100.0, ATR=2.0)
-    row["Fib 78.6%"] = 50.0          # macro Fib far below market
-    row["Swing Low"] = 96.0          # 10-session consolidation floor
+    row["Fib 78.6%"] = 50.0
+    row["Swing Low"] = 96.0
     entry, stop, t1, t2, *_ = calculate_stock_levels(row)
-    assert entry == pytest.approx(99.5)  # close - 0.25*ATR
-    # Dual-constraint: max(swing-buf, entry-1.5ATR) = max(95.5, 96.5) = 96.5
+    assert entry == pytest.approx(100.0)
     assert stop == pytest.approx(entry - 1.5 * 2.0)
     assert (entry - stop) / entry < 0.05
     risk = entry - stop
     assert t1 == pytest.approx(entry + 2.0 * risk)
     assert t2 == pytest.approx(entry + 3.0 * risk)
+
+
+def test_cobra_coil_low_is_the_structural_floor():
+    row = _base_row(Source="coiled_cobra", Close=100.0, ATR=2.0)
+    row["Coil_Low"] = 98.0
+    row["Swing Low"] = 90.0
+    row["Fib 78.6%"] = 50.0
+    entry, stop, *_ = calculate_stock_levels(row)
+    assert entry == pytest.approx(100.0)
+    # max(coil_low - 0.25 ATR, entry - 1.5 ATR, entry - 5%) = max(97.5, 97, 95) = 97.5
+    assert stop == pytest.approx(97.5)
+    assert stop < float(row["Coil_Low"])
 
 
 def test_cobra_price_risk_cap_binds_when_atr_wide():
@@ -131,19 +144,19 @@ def test_cobra_price_risk_cap_binds_when_atr_wide():
     row["Fib 78.6%"] = 50.0
     row["Swing Low"] = 80.0
     entry, stop, t1, t2, *_ = calculate_stock_levels(row)
-    # 1.5×ATR = 15% of close; cap forces risk ≤ 5% of close.
+    assert entry == pytest.approx(100.0)
     assert (entry - stop) <= config.MAX_RISK_PCT_OF_CLOSE * 100.0 + 1e-9
     assert stop == pytest.approx(entry - config.MAX_RISK_PCT_OF_CLOSE * 100.0)
     risk = entry - stop
     assert t1 == pytest.approx(entry + 2.0 * risk)
 
 
-def test_cobra_nan_fib_falls_back_to_swing():
+def test_cobra_nan_fib_still_uses_expansion_geometry():
     row = _base_row(Source="coiled_cobra")
     row["Fib 78.6%"] = np.nan
+    row["Swing Low"] = 97.0
     entry, stop, *_ = calculate_stock_levels(row)
-    # Swing long entry = max(ema20, close - 0.25*atr) = max(105, 99.5)
-    assert entry == pytest.approx(105.0)
+    assert entry == pytest.approx(100.0)
     assert stop < entry
 
 
@@ -381,9 +394,9 @@ def test_high_beta_routing_and_log_isolation():
     data_mode, profile = config.resolve_pipeline_mode("high_beta")
     assert (data_mode, profile) == ("daily", "high_beta")
     log_dir = config.get_log_dir("high_beta")
-    assert log_dir.endswith("logs/high_beta")
+    assert Path(log_dir).name == "high_beta"
     # daily and high_beta share raw data but have separate log silos.
-    assert config.get_log_dir("daily").endswith("logs/daily")
+    assert Path(config.get_log_dir("daily")).name == "daily"
 
 
 # ---------------------------------------------------------------------------
@@ -479,9 +492,11 @@ def test_helper_ingestion_guardrails_drop_bad_rows(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     out_path = process_trade_plan("weekly", today=date_str)
     clean = pd.read_csv(out_path)
-    assert list(clean["Symbol"]) == ["KEEP"]
-    assert clean.iloc[0]["R:R T1"] >= 2.0
-    assert clean.iloc[0]["Expected Value"] == pytest.approx(85 * 3.0)
+    assert list(clean["Symbol"]) == ["FAILCHK", "KEEP", "LOWRR"]
+    assert "WIDE" not in set(clean["Symbol"])
+    # 4/6 coils and sub-2 T1 R:R are kept; only the 10% risk row is dropped.
+    assert "FAILCHK" in set(clean["Symbol"])
+    assert clean.loc[clean["Symbol"] == "KEEP", "Expected Value"].iloc[0] == pytest.approx(85 * 3.0)
 
 
 # ---------------------------------------------------------------------------

@@ -14,7 +14,7 @@ services:
       - /mnt/fast/finance-vibe-data:/app/data
 
     restart: unless-stopped
-    
+
     environment:
       TZ: America/New_York
       FLASK_DEBUG: "0"

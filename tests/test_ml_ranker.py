@@ -25,23 +25,25 @@ from finance_vibe.trade_plan_helper import rank_by_expected_value
 
 def test_build_feature_frame_uses_existing_columns():
     df = pd.DataFrame([{
-        "Score": 80, "Pct_From_EMA20": 0.01, "Pct_From_EMA50": 0.05,
-        "Pct_From_Fib618": 0.02, "Pct_From_Fib786": 0.04, "ATR_Pct": 0.03,
+        "Volume_Shelf": 16.0, "MACD_Compression": 18.0, "Structure": 17.0,
+        "RS_Score": 13.5, "Coil_Width": 12.0, "MACD_Cross": 0.0, "Fib_Bonus": 1.2,
+        "Pct_From_EMA20": 0.01, "Pct_From_EMA50": 0.05, "ATR_Pct": 0.03,
     }])
     feats = build_feature_frame(df)
     assert list(feats.columns) == FEATURE_COLS
     assert feats.iloc[0]["ATR_Pct"] == pytest.approx(0.03)
+    assert feats.iloc[0]["RS_Score"] == pytest.approx(13.5)
 
 
 def test_build_feature_frame_derives_from_raw_fields():
-    # No Pct_From_* columns present -> derive from Close/EMA/Fib/ATR.
     df = pd.DataFrame([{
-        "Score": 70, "Close": 100.0, "EMA20": 98.0, "EMA50": 95.0,
-        "Fib 61.8%": 96.0, "Fib 78.6%": 94.0, "ATR": 4.0,
+        "Volume_Shelf": 16.0, "MACD_Compression": 18.0, "Structure": 17.0,
+        "RS_Score": 13.5, "Coil_Width": 12.0, "MACD_Cross": 0.0, "Fib_Bonus": 1.2,
+        "Close": 100.0, "EMA20": 98.0, "EMA50": 95.0, "ATR": 4.0,
     }])
     feats = build_feature_frame(df)
     assert feats.iloc[0]["Pct_From_EMA20"] == pytest.approx((100 - 98) / 98, rel=1e-6)
-    assert feats.iloc[0]["Pct_From_Fib786"] == pytest.approx((100 - 94) / 94, rel=1e-6)
+    assert feats.iloc[0]["Pct_From_EMA50"] == pytest.approx((100 - 95) / 95, rel=1e-6)
     assert feats.iloc[0]["ATR_Pct"] == pytest.approx(0.04)
 
 
@@ -89,10 +91,26 @@ def test_attach_ml_ranks_no_model_falls_back_null(monkeypatch):
 
 
 def test_attach_ml_ranks_empty_frame():
-    out = attach_ml_ranks(pd.DataFrame(columns=["Symbol", "Score"]), "weekly")
+    out = attach_ml_ranks(pd.DataFrame(columns=["Symbol", "Score"]))
     assert ML_PRED_COL in out.columns
     assert ML_RANK_COL in out.columns
     assert len(out) == 0
+
+
+def test_attach_ml_ranks_defaults_to_daily_mode(monkeypatch):
+    df = pd.DataFrame([
+        {"Symbol": "A", "Score": 80, "Close": 100.0, "EMA20": 99.0, "EMA50": 98.0,
+         "Fib 61.8%": 97.0, "Fib 78.6%": 96.0, "ATR": 2.0},
+    ])
+    captured_mode = []
+
+    def fake_predict(frame, mode=None):
+        captured_mode.append(mode)
+        return pd.Series([0.05], index=frame.index)
+
+    monkeypatch.setattr(ml_ranker, "predict_returns", fake_predict)
+    attach_ml_ranks(df)
+    assert captured_mode == [None]
 
 
 # ---------------------------------------------------------------------------
@@ -121,3 +139,26 @@ def test_priority_falls_back_to_score_when_no_ml():
     ranked = rank_by_expected_value(df)
     assert list(ranked["Symbol"]) == ["B", "A"]
     assert ranked.iloc[0]["Expected Value"] == pytest.approx(270.0)
+
+
+def test_priority_keeps_negative_ml_below_zero():
+    df = pd.DataFrame([
+        {"Symbol": "NEG", "Source": "coiled_cobra", "Score": 95, "Close": 100.0,
+         "Risk Per Share": 4.5, "R:R T2": 3.0, "ML_Pred_Return": -0.04},
+        {"Symbol": "POS", "Source": "coiled_cobra", "Score": 70, "Close": 100.0,
+         "Risk Per Share": 4.5, "R:R T2": 3.0, "ML_Pred_Return": 0.01},
+    ])
+    ranked = rank_by_expected_value(df)
+    assert list(ranked["Symbol"]) == ["POS", "NEG"]
+
+
+def test_priority_boosts_tight_coil_width_not_every_cobra_row():
+    df = pd.DataFrame([
+        {"Symbol": "WIDE", "Source": "coiled_cobra", "Score": 90, "Close": 100.0,
+         "Risk Per Share": 4.5, "R:R T2": 3.0, "Coil_Width_ATR": 8.0},
+        {"Symbol": "TIGHT", "Source": "coiled_cobra", "Score": 80, "Close": 100.0,
+         "Risk Per Share": 4.5, "R:R T2": 3.0, "Coil_Width_ATR": 3.0},
+    ])
+    ranked = rank_by_expected_value(df)
+    assert list(ranked["Symbol"]) == ["TIGHT", "WIDE"]
+    assert ranked.iloc[0]["Priority"] == pytest.approx(80 * 1.25)

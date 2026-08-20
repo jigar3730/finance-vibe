@@ -1,7 +1,7 @@
 """Finance Vibe pipeline orchestrator.
 
-Runs ingestion, macro scoring, tactical scanning, and trade plan generation
-in sequence for a given timeframe profile (weekly or daily).
+Coiled Cobra v2.1 is the live path: ingest → coil scan → expansion trade plan.
+Quality-swing and analysis_engine remain in the repo for offline studies only.
 """
 import argparse
 from pathlib import Path
@@ -16,7 +16,7 @@ def clean_raw_folder(root_dir, mode):
     if not raw_dir.exists():
         print(f"⚠️ Raw '{mode}' folder does not exist. Skipping cleanup.")
         return
-        
+
     for item in raw_dir.iterdir():
         try:
             if item.is_file() or item.is_symlink():
@@ -25,58 +25,61 @@ def clean_raw_folder(root_dir, mode):
                 shutil.rmtree(item)
         except Exception as e:
             print(f"❌ Failed to delete {item}: {e}")
-            
+
     print(f"🧹 Raw '{mode}' folder cleaned.\n")
 
 def run_workflow():
     """Parse CLI args and execute each pipeline stage as a subprocess."""
-    parser = argparse.ArgumentParser(description="Finance-Vibe Pipeline Orchestrator")
+    parser = argparse.ArgumentParser(
+        description="Finance-Vibe Coiled Cobra pipeline (coil → expansion)"
+    )
     parser.add_argument(
         "--mode",
         choices=["weekly", "daily", "high_beta"],
-        default="weekly",
-        help="Execution profile (weekly, daily, or high_beta long-only single names)",
+        default="daily",
+        help="daily Cobra scan (default), weekly, or high_beta ingest-only",
+    )
+    parser.add_argument(
+        "--keep-raw",
+        action="store_true",
+        help="Skip wiping data/raw/{mode}/ so existing OHLCV is reused",
     )
     args = parser.parse_args()
     mode = args.mode.lower()
-
-    # high_beta reads daily OHLCV but keeps its own swing profile + log silo.
     data_mode = "daily" if mode == "high_beta" else mode
 
-    # 2. CLIMB TO ROOT
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
     ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "../../"))
     SRC_DIR = os.path.join(ROOT_DIR, "src")
 
-    # 3. ENVIRONMENT SETUP
     env = os.environ.copy()
     env["PYTHONPATH"] = SRC_DIR + os.pathsep + env.get("PYTHONPATH", "")
 
-    # 4. SCRIPT CONFIGURATION
-    # "scope" selects the argument each stage receives:
-    #   data    -> data timeframe (weekly/daily); shares raw data silo
-    #   profile -> swing profile (weekly/daily/high_beta); drives geometry + logs
-    # high_beta skips Coiled Cobra (LEAPS-oriented, not part of the long-only swing).
     scripts_config = [
         {"path": "src/finance_vibe/ticker_provider.py", "pass_mode": False, "scope": "data"},
         {"path": "src/finance_vibe/data_ingestor.py", "pass_mode": True, "scope": "data"},
-        #{"path": "src/finance_vibe/analysis_engine.py", "pass_mode": True, "scope": "data"},
-        {"path": "src/finance_vibe/swing_scanner.py", "pass_mode": True, "scope": "profile"},
         {"path": "src/finance_vibe/coiled_cobra.py", "pass_mode": True, "scope": "data",
          "skip_modes": ["high_beta"]},
-        {"path": "src/finance_vibe/trade_planner.py", "pass_mode": True, "scope": "profile"},
-        {"path": "src/finance_vibe/trade_plan_helper.py", "pass_mode": True, "scope": "profile"},
-        {"path": "src/finance_vibe/ai_notifier.py", "pass_mode": True, "scope": "profile"},
+        {"path": "src/finance_vibe/trade_planner.py", "pass_mode": True, "scope": "profile",
+         "skip_modes": ["high_beta"]},
+        {"path": "src/finance_vibe/trade_plan_helper.py", "pass_mode": True, "scope": "profile",
+         "skip_modes": ["high_beta"]},
+        {"path": "src/finance_vibe/ai_notifier.py", "pass_mode": True, "scope": "profile",
+         "skip_modes": ["high_beta"]},
     ]
 
-    print(f"🚀 Starting Finance-Vibe Pipeline [{mode.upper()} MODE]...")
+    print(f"🚀 Starting Coiled Cobra Pipeline [{mode.upper()} MODE]...")
     print(f"📍 Project Root: {ROOT_DIR}")
     if mode != data_mode:
-        print(f"🧬 Data timeframe: {data_mode} | Swing profile: {mode}")
+        print(f"🧬 Data timeframe: {data_mode} | Profile: {mode}")
+    if mode == "high_beta":
+        print("ℹ️  high_beta is ingest-only. Use pipeline_backtest.py for the swing study.\n")
     print()
 
-    # Clean the shared raw silo for the data timeframe.
-    clean_raw_folder(ROOT_DIR, data_mode)
+    if args.keep_raw:
+        print(f"📦 --keep-raw: leaving data/raw/{data_mode}/ in place.\n")
+    else:
+        clean_raw_folder(ROOT_DIR, data_mode)
 
     for script in scripts_config:
         if mode in script.get("skip_modes", []):
@@ -85,11 +88,7 @@ def run_workflow():
 
         script_path = os.path.join(ROOT_DIR, script["path"])
         print(f"🔹 Running: {script['path']}...")
-
-        # Data-scope stages receive the data timeframe; profile-scope stages
-        # receive the swing profile so high_beta geometry/logs stay isolated.
         arg_mode = data_mode if script.get("scope") == "data" else mode
-
         cmd = [sys.executable, script_path]
         if script["pass_mode"]:
             cmd.append(arg_mode)

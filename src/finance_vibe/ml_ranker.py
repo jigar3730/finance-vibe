@@ -31,12 +31,13 @@ ML_PRED_COL = "ML_Pred_Return"
 ML_RANK_COL = "ML_Rank"
 
 
-def resolve_model_paths(mode: str = "weekly") -> dict[str, Path | None]:
+def resolve_model_paths(mode: str | None = None) -> dict[str, Path | None]:
     """Locate saved XGB/LGB artifacts for ``mode``.
 
     Searches the mode log silo first, then common container/data roots. Returns
     a dict with ``xgb`` / ``lgb`` keys set to the first existing path or None.
     """
+    mode = mode or config.DEFAULT_MODE
     search_dirs: list[Path] = []
     try:
         search_dirs.append(Path(config.get_log_dir(mode)))
@@ -44,11 +45,10 @@ def resolve_model_paths(mode: str = "weekly") -> dict[str, Path | None]:
         pass
 
     project_root = Path(config.PROJECT_ROOT)
+    # Mode silo only — a weekly Rel_Forward_2w model must not rank daily coils.
     search_dirs.extend([
         project_root / "data" / "logs" / mode,
-        project_root / "data" / "logs" / "weekly",
         Path("/app/data/logs") / mode,
-        Path("/app/data/logs/weekly"),
         Path.cwd() / "data" / "logs" / mode,
     ])
 
@@ -70,9 +70,9 @@ def resolve_model_paths(mode: str = "weekly") -> dict[str, Path | None]:
 def build_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     """Return a numeric frame with exactly ``FEATURE_COLS`` in training order.
 
-    Existing feature columns are coerced to numeric. Missing ``Pct_From_*`` /
-    ``ATR_Pct`` columns are derived from raw Close/EMA/Fib/ATR fields when those
-    are present, so both the scanner (raw fields) and pre-featurized frames work.
+    Existing feature columns are coerced to numeric. Missing ``Pct_From_EMA*``
+    / ``ATR_Pct`` columns are derived from Close/EMA/ATR when those are present.
+    Pillars have no fallback — they must be written by the scanner/backtest.
     """
     out = pd.DataFrame(index=df.index)
 
@@ -92,16 +92,10 @@ def build_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
         elif col == "Pct_From_EMA50":
             ema = _num("EMA50")
             out[col] = (close - ema) / ema.replace(0, np.nan)
-        elif col == "Pct_From_Fib618":
-            fib = _num("Fib 61.8%")
-            out[col] = (close - fib) / fib.replace(0, np.nan)
-        elif col == "Pct_From_Fib786":
-            fib = _num("Fib 78.6%")
-            out[col] = (close - fib) / fib.replace(0, np.nan)
         elif col == "ATR_Pct":
             atr = _num("ATR")
             out[col] = atr / close.replace(0, np.nan)
-        else:  # Score or any unexpected feature with no fallback
+        else:
             out[col] = np.nan
 
     return out[FEATURE_COLS]
@@ -131,12 +125,24 @@ def _load_lgb(path: Path):
         return None
 
 
-def predict_returns(df: pd.DataFrame, mode: str = "weekly") -> pd.Series:
+def _booster_feature_names(booster, *, xgb: bool) -> list[str] | None:
+    try:
+        names = booster.feature_names if xgb else list(booster.feature_name())
+    except Exception:
+        return None
+    if not names:
+        return None
+    return [str(n) for n in names]
+
+
+def predict_returns(df: pd.DataFrame, mode: str | None = None) -> pd.Series:
     """Predict forward return per row, averaging available XGB/LGB models.
 
     Returns a float Series aligned to ``df.index``; all-NaN when no model loads.
-    Rows with any NaN feature are left NaN.
+    Rows with any NaN feature are left NaN. Boosters whose feature schema does
+    not match ``FEATURE_COLS`` are skipped (stale 6-feature artifacts).
     """
+    mode = mode or config.DEFAULT_MODE
     result = pd.Series(np.nan, index=df.index, dtype="float64")
     if df.empty:
         return result
@@ -149,23 +155,32 @@ def predict_returns(df: pd.DataFrame, mode: str = "weekly") -> pd.Series:
 
     X = feats.loc[valid]
     preds: list[np.ndarray] = []
+    expected = list(FEATURE_COLS)
 
     if paths["xgb"] is not None:
         booster = _load_xgb(paths["xgb"])
         if booster is not None:
-            try:
-                import xgboost as xgb
-                preds.append(booster.predict(xgb.DMatrix(X, feature_names=list(X.columns))))
-            except Exception:  # pragma: no cover
-                pass
+            names = _booster_feature_names(booster, xgb=True)
+            if names is not None and names != expected:
+                booster = None
+            elif booster is not None:
+                try:
+                    import xgboost as xgb
+                    preds.append(booster.predict(xgb.DMatrix(X, feature_names=list(X.columns))))
+                except Exception:  # pragma: no cover
+                    pass
 
     if paths["lgb"] is not None:
         booster = _load_lgb(paths["lgb"])
         if booster is not None:
-            try:
-                preds.append(np.asarray(booster.predict(X)))
-            except Exception:  # pragma: no cover
-                pass
+            names = _booster_feature_names(booster, xgb=False)
+            if names is not None and names != expected:
+                booster = None
+            elif booster is not None:
+                try:
+                    preds.append(np.asarray(booster.predict(X)))
+                except Exception:  # pragma: no cover
+                    pass
 
     if not preds:
         return result
@@ -175,7 +190,7 @@ def predict_returns(df: pd.DataFrame, mode: str = "weekly") -> pd.Series:
     return result
 
 
-def attach_ml_ranks(df: pd.DataFrame, mode: str = "weekly") -> pd.DataFrame:
+def attach_ml_ranks(df: pd.DataFrame, mode: str | None = None) -> pd.DataFrame:
     """Attach ``ML_Pred_Return`` + dense ``ML_Rank`` and sort best-first.
 
     Rank 1 is the highest predicted return. Rows without a prediction sort last

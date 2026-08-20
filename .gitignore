@@ -2,11 +2,23 @@
 data/
 *.log
 
+# Virtual Environments
+.venv/
+venv/
+env/
+
 # Python junk
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
 .ipynb_checkpoints/
 
 # Environment/OS
 .DS_Store
 .env
+.env.*
+!.env.example

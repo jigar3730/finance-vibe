@@ -1,15 +1,31 @@
 """Unit tests for the Coiled Cobra coil → expansion scorecard."""
 
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
 
+from finance_vibe import config
 from finance_vibe.coiled_cobra import (
+    MAX_SCORE,
+    _interp_score,
     coil_width_score,
     evaluate_coiled_cobra,
     macd_compression_score,
+    macd_cross_score,
     structure_score,
 )
+
+
+def test_project_default_horizon_is_daily():
+    from finance_vibe import coiled_cobra as cc
+
+    assert config.DEFAULT_MODE == "daily"
+    assert cc.mode == "daily"
+    assert cc.LOOKBACK == 252
+    assert cc.COIL_BARS == 30
+    assert cc.RS_LOOKBACK == 63
 
 
 def _ohlc(n=80, *, start=100.0, drift=0.3, noise=0.5, seed=0):
@@ -32,11 +48,42 @@ def _ohlc(n=80, *, start=100.0, drift=0.3, noise=0.5, seed=0):
     })
 
 
+def test_interp_score_linear_and_clamps():
+    knots = [(0.05, 20.0), (0.10, 15.0)]
+    assert _interp_score(0.00, knots) == 20.0
+    assert _interp_score(0.075, knots) == 17.5
+    assert _interp_score(0.20, knots) == 15.0
+
+
 def test_macd_compression_no_negative_macd_required():
     # Positive MACD with tight spread still compresses (uptrend coil).
     assert macd_compression_score(macd=2.0, macd_signal=1.95, atr=10.0) == 20
     # Wide spread scores zero.
     assert macd_compression_score(macd=5.0, macd_signal=0.0, atr=10.0) == 0
+
+
+def test_macd_compression_interpolates_between_knots():
+    # spread 0.075 sits halfway between 20 and 15.
+    assert macd_compression_score(macd=2.0, macd_signal=1.25, atr=10.0) == 17.5
+    assert macd_compression_score(macd=2.0, macd_signal=1.0, atr=10.0) == 15.0
+    assert macd_compression_score(macd=2.0, macd_signal=-2.0, atr=10.0) == 0.0
+
+
+def test_macd_cross_scales_by_tightness():
+    assert macd_cross_score(0.0, 0.1, 0.6, 0.1, atr=10.0) == 10.0
+    assert macd_cross_score(0.2, 0.1, 0.3, 0.1, atr=10.0) == 0.0
+    assert macd_cross_score(-1.0, 0.0, 3.0, 0.0, atr=10.0) == 6.0
+
+
+def test_rs_score_full_pass_is_continuous(monkeypatch):
+    from finance_vibe import coiled_cobra as cc
+
+    df = _ohlc(80)
+    bench = _ohlc(80, start=100.0, drift=0.1, seed=9)
+    monkeypatch.setattr(cc, "relative_strength", lambda *a, **k: (True, 0.05))
+    pts, rel = cc.rs_score(df, bench)
+    assert pts == 13.5
+    assert rel == pytest.approx(0.05)
 
 
 def test_coil_width_rewards_tight_range():
@@ -92,3 +139,72 @@ def test_evaluate_can_pass_coiled_uptrend(monkeypatch):
     assert setup["Score"] >= 70
     assert "Coil" in setup["Grade"]
     assert setup["Parts"]["relative_strength"] >= 12
+
+
+def test_evaluate_clips_score_at_100(monkeypatch):
+    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.coiled_cobra import add_macro_indicators
+
+    df = add_macro_indicators(_ohlc(120, drift=0.6, noise=0.15, seed=6))
+    monkeypatch.setattr(cc, "evaluate_volume_profile_shelf", lambda *a, **k: 20)
+    monkeypatch.setattr(cc, "macd_compression_score", lambda *a, **k: 20)
+    monkeypatch.setattr(cc, "coil_width_score", lambda *a, **k: 15)
+    monkeypatch.setattr(cc, "structure_score", lambda *a, **k: 20)
+    monkeypatch.setattr(cc, "rs_score", lambda *a, **k: (15, 0.20))
+    monkeypatch.setattr(cc, "macd_cross_score", lambda *a, **k: 10)
+    monkeypatch.setattr(cc, "fibonacci_score", lambda *a, **k: 5.0)
+
+    setup = evaluate_coiled_cobra(df, benchmark_df=None)
+    assert setup is not None
+    assert setup["Score"] == MAX_SCORE
+
+
+def test_coil_width_interpolates_between_knots():
+    df = _ohlc(40, drift=0.0, noise=0.0, seed=1)
+    # range is 2.0 (high-low = 2) so width_atr = 2 / atr
+    assert coil_width_score(df, atr=0.5, coil_bars=8) == 15.0  # 4 ATR
+    assert coil_width_score(df, atr=2.0 / 6.0, coil_bars=8) == 10.0
+    assert coil_width_score(df, atr=0.2, coil_bars=8) == 0.0  # 10 ATR
+
+
+def test_configure_mode_switches_lookback_and_paths():
+    from finance_vibe import coiled_cobra as cc
+    weekly = cc.configure_mode("weekly")
+    assert weekly == "weekly"
+    assert cc.LOOKBACK == 52
+    assert cc.COIL_BARS == 8
+    assert cc.STRUCTURE_STOP_BARS == 8
+    assert cc.RS_LOOKBACK == 13
+    assert Path(cc.RAW_DATA_DIR).name == "weekly"
+    daily = cc.configure_mode("daily")
+    assert daily == "daily"
+    assert cc.LOOKBACK == 252
+    assert cc.COIL_BARS == 30
+    assert cc.STRUCTURE_STOP_BARS == 30
+    assert cc.RS_LOOKBACK == 63
+    assert cc.RS_RATIO_MA == 20
+    cc.configure_mode("weekly")
+    assert cc.STRUCTURE_STOP_BARS == 8
+    assert cc.RS_LOOKBACK == 13
+    cc.configure_mode(config.DEFAULT_MODE)
+
+
+def test_local_swing_low_follows_configure_mode():
+    from finance_vibe import coiled_cobra as cc
+    df = _ohlc(40, drift=0.0, noise=0.0, seed=3)
+    df.loc[df.index[-1], "Low"] = 50.0
+    cc.configure_mode("daily")
+    # Daily coil window is 30 bars; the last low of 50 must be inside it.
+    assert cc.local_swing_low(df) == pytest.approx(50.0)
+    cc.configure_mode(config.DEFAULT_MODE)
+
+
+def test_coil_geometry_fields_reports_high_low_and_width():
+    from finance_vibe.coiled_cobra import coil_geometry_fields
+    df = _ohlc(20, drift=0.0, noise=0.0, seed=2)
+    geom = coil_geometry_fields(df, atr=2.0)
+    assert geom["Coil_High"] == pytest.approx(float(df["High"].max()))
+    assert geom["Coil_Low"] == pytest.approx(float(df["Low"].min()))
+    assert geom["Coil_Width_ATR"] == pytest.approx(
+        (geom["Coil_High"] - geom["Coil_Low"]) / 2.0
+    )

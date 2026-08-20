@@ -1,7 +1,8 @@
-"""Trade plan generator: stock levels and options metadata from swing setups.
+"""Trade plan generator for Coiled Cobra expansion levels.
 
-Reads ``swing_setups_<date>.csv`` and writes ``trade_plan_<date>.csv`` with
-entry, stop, ATR targets, and LEAPS (weekly) or short-dated options (daily) fields.
+Reads ``coiled_cobra_setups_<date>.csv`` and writes ``trade_plan_<date>.csv``
+with Close / Coil_Low / 2R-3R geometry (spec: ``Coiled Cobra Rubric .MD``).
+Quality-swing rows remain supported for offline ``pipeline_backtest`` only.
 """
 
 import os
@@ -22,8 +23,8 @@ except ImportError:
 if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily", "high_beta"]:
     mode = sys.argv[1].lower()
 else:
-    print("⚠️ Unknown mode parsed to trade planner. Defaulting to 'weekly'.")
-    mode = "weekly"
+    print(f"⚠️ Unknown mode parsed to trade planner. Defaulting to '{config.DEFAULT_MODE}'.")
+    mode = config.DEFAULT_MODE
 
 # --------- CONFIG ----------
 DELTA_LONG = (0.65, 0.80)
@@ -36,7 +37,6 @@ _SHORT_DATED_MODES = {"daily", "high_beta"}
 # high_beta gets its own log silo via config.get_log_dir.
 BASE_DIR = Path(__file__).resolve().parents[2]
 SCANNER_DIR = Path(config.get_log_dir(mode))
-SCANNER_PREFIX = "swing_setups_"
 COILED_PREFIX = "coiled_cobra_setups_"
 OUTPUT_PREFIX = "trade_plan_"
 
@@ -53,26 +53,25 @@ def _resolve_row_mode(row, mode: str | None) -> str:
     candidate = (
         (mode or "").strip().lower()
         or str(row.get("Mode", "")).strip().lower()
-        or globals().get("mode", "weekly")
+        or globals().get("mode", config.DEFAULT_MODE)
     )
-    return candidate if candidate in config.SWING_PROFILES else "weekly"
+    return candidate if candidate in config.SWING_PROFILES else config.DEFAULT_MODE
 
 
 def calculate_stock_levels(row, mode: str | None = None):
-    """
-    Derive entry, stop, targets, option side, and delta band from one setup row.
+    """Derive entry, stop, targets, option side, and delta band from one setup row.
 
-    Quality swing geometry is mode-aware via ``config.get_swing_params``.
-    The high_beta profile uses dual-constraint stops and true 1R/2R targets.
-    Row ``Mode`` is authoritative unless an explicit ``mode`` is passed.
+    Coiled Cobra uses expansion geometry: enter at Close, protect Coil_Low
+    (else Swing Low) with a triple-constraint stop, targets at 2R / 3R.
+    Quality-swing rows still use ``config.compute_swing_levels`` for offline studies.
     """
     atr = float(row["ATR"])
     close = float(row["Close"])
     ema20 = float(row["EMA20"])
     ema50 = float(row["EMA50"])
-    fib786 = row.get("Fib 78.6%", None)
     swing_low = row.get("Swing Low", None)
     swing_high = row.get("Swing High", None)
+    coil_low = row.get("Coil_Low", None)
     source = str(row.get("Source", "swing")).strip().lower()
     setup_type = row["Setup Type"]
 
@@ -82,19 +81,22 @@ def calculate_stock_levels(row, mode: str | None = None):
     options_type = "CALL"
     delta_range = DELTA_LONG
 
-    if setup_type == "SETUP_LONG" and source in {"coiled_cobra", "cobra"} and pd.notna(fib786):
-        # Fib-anchored entry; stop uses triple-constraint rule:
-        # local 10-session floor vs 1.5×ATR vs 5% of close (highest / tightest wins).
-        # Year-long Fib levels must NOT widen the stop — only entry context.
-        entry = max(float(fib786), close - 0.25 * atr)
+    if setup_type == "SETUP_LONG" and source in {"coiled_cobra", "cobra"}:
+        # Expansion: buy the close of a passing coil. Fib is context only.
+        entry = close
         buf = 0.25 * atr
-        if swing_low is not None and pd.notna(swing_low):
-            structural = float(swing_low) - buf
+        if coil_low is not None and pd.notna(coil_low):
+            floor = float(coil_low)
+        elif swing_low is not None and pd.notna(swing_low):
+            floor = float(swing_low)
         else:
-            structural = entry - 1.5 * atr
+            floor = entry - 1.5 * atr
+        structural = floor - buf
         vol_floor = entry - 1.5 * atr
         price_floor = entry - config.MAX_RISK_PCT_OF_CLOSE * close
         stop = min(max(structural, vol_floor, price_floor), entry - buf)
+        if stop >= entry:
+            stop = entry - buf
         risk = abs(entry - stop)
         target1 = entry + 2.0 * risk
         target2 = entry + 3.0 * risk
@@ -179,60 +181,33 @@ def generate_trade_plan(scanner_csv_path=None):
         f"--- STEP 5: Drafting Trade Execution Architectures [{mode.upper()} MODE] ---"
     )
 
-    # Auto-detect latest scanner CSVs inside isolated subdirectory if none provided
+    # Auto-detect latest Coiled Cobra scanner CSV. Explicit path still accepted
+    # (offline swing studies can pass a swing_setups file directly).
     if scanner_csv_path is None:
         if not SCANNER_DIR.exists():
             print(f"⚠️ Target scanner directory empty or non-existent: {SCANNER_DIR}")
             return None
 
-        # Find latest swing scanner file
-        swing_files = list(SCANNER_DIR.glob(f"{SCANNER_PREFIX}*.csv"))
-        swing_files.sort(key=lambda f: f.stem.split("_")[-1], reverse=True)
-        swing_csv_path = swing_files[0] if swing_files else None
-
-        # Find latest Coiled Cobra scanner file
         cobra_files = list(SCANNER_DIR.glob(f"{COILED_PREFIX}*.csv"))
         cobra_files.sort(key=lambda f: f.stem.split("_")[-1], reverse=True)
-        cobra_csv_path = cobra_files[0] if cobra_files else None
-
-        if swing_csv_path is None and cobra_csv_path is None:
+        if not cobra_files:
             print(
-                f"⚠️ No active setup archives discovered in {SCANNER_DIR}. Exiting plan generation."
+                f"⚠️ No {COILED_PREFIX}*.csv archive in {SCANNER_DIR}. Exiting plan generation."
             )
             return None
-
-        print(f"Using swing scanner file: {swing_csv_path}")
-        print(f"Using Coiled Cobra scanner file: {cobra_csv_path}")
+        scanner_file = cobra_files[0]
+        print(f"Using Coiled Cobra scanner file: {scanner_file}")
     else:
-        # Explicit single-source path provided (treated as a swing-style file)
-        swing_csv_path = Path(scanner_csv_path)
-        cobra_csv_path = None
-        print(f"Using provided scanner file: {swing_csv_path}")
+        scanner_file = Path(scanner_csv_path)
+        print(f"Using provided scanner file: {scanner_file}")
 
-    # Load swing setups
-    df_swing = None
-    if swing_csv_path:
-        df_swing = pd.read_csv(swing_csv_path)
-        if "Source" not in df_swing.columns:
-            df_swing["Source"] = "swing"
-        print(f"Loaded {len(df_swing)} swing setups.")
-
-    # Load Coiled Cobra setups
-    df_cobra = None
-    if cobra_csv_path:
-        df_cobra = pd.read_csv(cobra_csv_path)
-        if "Source" not in df_cobra.columns:
-            df_cobra["Source"] = "coiled_cobra"
-        print(f"Loaded {len(df_cobra)} Coiled Cobra setups.")
-
-    # Combine into one DataFrame
-    dfs = [df for df in [df_swing, df_cobra] if df is not None and not df.empty]
-    if not dfs:
-        print("⚠️ All setup archives are empty. Skipping calculations.")
+    df = pd.read_csv(scanner_file)
+    if "Source" not in df.columns:
+        df["Source"] = "coiled_cobra"
+    if df.empty:
+        print("⚠️ Setup archive is empty. Skipping calculations.")
         return None
-
-    df = pd.concat(dfs, ignore_index=True)
-    print(f"Combined total setups: {len(df)}")
+    print(f"Loaded {len(df)} setup(s).")
 
     plan_rows = []
     short_dated = mode in _SHORT_DATED_MODES
@@ -276,7 +251,17 @@ def generate_trade_plan(scanner_csv_path=None):
                 "Score": row.get("Score", None),
                 "Grade": row.get("Grade", None),
                 "Checks Met": row.get("Checks Met", None),
-                # Offline-model ranking signal (soft; null when no model ran)
+                "Volume_Shelf": row.get("Volume_Shelf", None),
+                "MACD_Compression": row.get("MACD_Compression", None),
+                "Structure": row.get("Structure", None),
+                "RS_Score": row.get("RS_Score", None),
+                "Coil_Width": row.get("Coil_Width", None),
+                "MACD_Cross": row.get("MACD_Cross", None),
+                "Fib_Bonus": row.get("Fib_Bonus", None),
+                "MACD_Spread_ATR": row.get("MACD_Spread_ATR", None),
+                "Coil_Width_ATR": row.get("Coil_Width_ATR", None),
+                "Coil_High": row.get("Coil_High", None),
+                "Coil_Low": row.get("Coil_Low", None),
                 "ML_Pred_Return": row.get("ML_Pred_Return", None),
                 "ML_Rank": row.get("ML_Rank", None),
                 "Notes": row.get("Notes", None),
@@ -291,15 +276,6 @@ def generate_trade_plan(scanner_csv_path=None):
 
     plan_df = pd.DataFrame(plan_rows)
 
-    # Auto-generate output filename within isolated directory block context
-    # Use the latest of the two detected files (swing or cobra)
-    latest_file = swing_csv_path or cobra_csv_path
-    if cobra_csv_path and swing_csv_path:
-        swing_date = swing_csv_path.stem.split("_")[-1]
-        cobra_date = cobra_csv_path.stem.split("_")[-1]
-        latest_file = swing_csv_path if swing_date >= cobra_date else cobra_csv_path
-
-    scanner_file = Path(latest_file)
     date_str = scanner_file.stem.split("_")[-1]
     output_csv_path = SCANNER_DIR / f"{OUTPUT_PREFIX}{date_str}.csv"
 
