@@ -1,5 +1,7 @@
 # Coiled Cobra ML Baseline
 
+**Train, evaluate, and deploy in Docker:** **`MLOps.md`** (runbook + concepts). This file is the **feature/metric contract**.
+
 **Module:** `src/finance_vibe/coiled_cobra_ml_training.py`
 
 Standalone training script that learns a short-horizon alpha gradient from Coiled Cobra backtest exports. It predicts **`Rel_Forward_2w`** (QQQ-relative 2-bar return; falls back to `Forward_Return_2w`) using rubric pillars plus EMA/ATR geometry — never Score, Grade, or post-trade execution fields.
@@ -47,18 +49,20 @@ Training rows are **`Is_New_Coil == True`** only. This is an **offline research 
 
 ## How to run
 
+**Preferred (Docker):** follow **`MLOps.md`** §5. One-shot from the host:
+
 ```bash
-# Auto-discover CSV under data/logs/daily first (then weekly / container mounts)
-python src/finance_vibe/coiled_cobra_ml_training.py
+docker exec -w /app finance_vibe python src/finance_vibe/coiled_cobra_ml_training.py \
+  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv \
+  --artifacts-dir /app/data/logs/daily
+```
 
-# Explicit CSV + artifact directory
+Local / PYTHONPATH=src (same flags, host paths):
+
+```bash
 python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv data/logs/daily/coiled_cobra_backtest_trades_2026-07-17.csv \
+  --csv data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv \
   --artifacts-dir data/logs/daily
-
-# Inside the finance_vibe container
-docker exec finance_vibe python /app/src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_2026-07-17.csv
 ```
 
 | Flag | Meaning |
@@ -348,7 +352,7 @@ Full backtest column definitions and CLI: **`BacktestAndBackfill.md`**.
 
 | Symptom | Likely cause | Fix |
 | ------- | ------------ | --- |
-| `FileNotFoundError` for CSV | Backtest not run / wrong mount | Run `--backtest`; pass `--csv`; in Docker ensure `/app/data` volume has `logs/daily/` |
+| `FileNotFoundError` for CSV | Backtest not run / wrong mount | See **`MLOps.md`**: `--backtest` then `--csv` under `/app/data/logs/daily/` |
 | Empty train/val/test | Date range outside CSV | Check `Signal Date` min/max; regenerate backtest with full history |
 | Stale script in Docker | Image baked without host edits | `docker cp` the `.py` or `docker compose up -d --build` |
 | Import errors for xgboost/lightgbm | Old image / missing deps | Rebuild image; confirm `requirements.txt` installed |

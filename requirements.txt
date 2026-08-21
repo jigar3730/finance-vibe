@@ -4,6 +4,7 @@ pandas_ta
 yfinance
 yahooquery
 Flask
+markdown
 tabulate
 pytest>=8.0.0
 xgboost

@@ -27,6 +27,8 @@ finance-vibe/
 │   ├── raw/{daily|weekly}/    # Ingested OHLCV CSVs (daily is primary)
 │   └── logs/{daily|weekly|high_beta}/  # Cobra scans, trade plans, backtests
 ├── Coiled Cobra Rubric .MD    # Live scorecard (source of truth)
+├── Learn.md / LearnTA.md / LearnML.md  # Curriculum + primers (/learn on :5000)
+├── MLOps.md                   # Docker train / evaluate / deploy
 ├── BacktestAndBackfill.md     # Offline validation guide
 ├── CoiledCobraML.md           # ML baseline (XGBoost / LightGBM)
 └── tests/
@@ -60,6 +62,8 @@ python src/finance_vibe/coiled_cobra_backtest.py --backfill
 python src/finance_vibe/coiled_cobra_backtest.py --backtest
 python src/finance_vibe/coiled_cobra_ml_training.py
 ```
+
+On the `finance_vibe` container, prefix with `docker exec -w /app finance_vibe` and use `/app/data/...` paths. Full train/deploy: **`MLOps.md`**.
 
 Individual stages (omit the mode argument to use daily; pass `weekly` when needed):
 
@@ -159,9 +163,12 @@ Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI: **`BacktestA
 
 ## Further reading
 
+- `Learn.md` — **curriculum** (TA, system, ML). Dashboard: `http://host:5000/learn`
+- `LearnTA.md` / `LearnML.md` — **beginner primers**
 - `Coiled Cobra Rubric .MD` — **live scorecard (source of truth)**
 - `BacktestAndBackfill.md` — **data backfill, signal backfill, and walk-forward backtests**
-- `CoiledCobraML.md` — **Coiled Cobra ML baseline (XGBoost / LightGBM)**
+- `MLOps.md` — **Docker-first train / evaluate / deploy runbook + ML concepts**
+- `CoiledCobraML.md` — **Coiled Cobra ML baseline (feature contract, metrics)**
 - `OperationManual.md` — operations and troubleshooting
 - `swing_setup_readme.md` — offline tactical scanner reference
 - `src/finance_vibe/pipeline_backtest.py` — offline quality-swing validation

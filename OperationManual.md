@@ -155,11 +155,12 @@ Trains XGBoost + LightGBM to predict **`Rel_Forward_2w`** (fallback `Forward_Ret
 - Retrain after this feature set; old 6-feature Score+Fib models will not score new frames
 
 ```bash
-python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv data/logs/daily/coiled_cobra_backtest_trades_2026-07-17.csv
+docker exec -w /app finance_vibe python src/finance_vibe/coiled_cobra_ml_training.py \
+  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv \
+  --artifacts-dir /app/data/logs/daily
 ```
 
-Not part of the default pipeline. Full specification: **`CoiledCobraML.md`**.
+Not part of the default pipeline. **Runbook (Docker + concepts):** **`MLOps.md`**. Feature contract: **`CoiledCobraML.md`**.
 
 ## UI dashboard
 
@@ -167,7 +168,7 @@ Not part of the default pipeline. Full specification: **`CoiledCobraML.md`**.
 python src/finance_vibe/app.py
 ```
 
-Open `http://127.0.0.1:5000` to browse trade plans by mode and date.
+Open `http://127.0.0.1:5000` (container port 5000) for **Plans**, **Learn**, and allowlisted **Docs**. After changing markdown, rebuild the image so the container sees it.
 
 ## Data maintenance
 
@@ -186,9 +187,9 @@ python src/finance_vibe/run_vibe.py
 | Ingest skips a symbol | No yfinance data for that ticker; check symbol validity |
 | Empty `coiled_cobra_setups_*.csv` | No ticker passed hard gates (compression / structure / RS vs QQQ) |
 | `trade_plan_helper` file not found | Run full pipeline first; helper expects a dated `trade_plan_*.csv` |
-| ML ranks all null | Retrain 10-feature model (`CoiledCobraML.md`); old Score+Fib artifacts will not score |
+| ML ranks all null | Retrain 10-feature daily model — **`MLOps.md`**; old Score+Fib artifacts will not score |
 | Macro report missing tickers | Check ingest logs; file needs ≥ 60 rows |
-| ML script cannot find trades CSV | Run `coiled_cobra_backtest.py weekly --backtest`; pass `--csv`; see **`CoiledCobraML.md`** |
+| ML script cannot find trades CSV | `docker exec -w /app finance_vibe python src/finance_vibe/coiled_cobra_backtest.py --backtest`; pass `--csv`; see **`MLOps.md`** |
 
 ## Extending the project
 

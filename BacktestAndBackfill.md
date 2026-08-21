@@ -341,14 +341,14 @@ Each valid coil bar is a row (including overlapping weeks in the same episode). 
 ### ML baseline (downstream of backtest)
 
 **Module:** `src/finance_vibe/coiled_cobra_ml_training.py`  
-**Doc:** **`CoiledCobraML.md`**
+**Docs:** **`MLOps.md`** (Docker train/deploy) · **`CoiledCobraML.md`** (feature contract)
 
 Consumes `coiled_cobra_backtest_trades_*.csv` to train XGBoost + LightGBM on **`Rel_Forward_2w`** (fallback `Forward_Return_2w`) with:
 
 - 10 pre-signal features (7 rubric pillars + EMA distances + `ATR_Pct`; `Score`/`Grade` excluded)
 - Rows restricted to `Is_New_Coil == True`
 - Rolling temporal split from max `Signal Date` — **no random K-fold**
-- MAE objectives + `ATR_Pct` sample weights
+- MAE objectives + inverse `ATR_Pct` sample weights
 - Retrain required; old 6-feature Score+Fib artifacts will not score new frames
 
 ```bash
