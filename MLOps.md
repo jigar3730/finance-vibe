@@ -130,7 +130,7 @@ docker compose up -d --build
   [5] Serve (soft)      coiled_cobra.py  →  ml_ranker.attach_ml_ranks
           │               live scan reads the same /app/data/logs/daily/ files
           ▼
-     ML_Rank            trade_plan_helper.py sorts by predicted return
+     ML_Rank            trade_planner.py sorts the book by predicted return
 ```
 
 Steps 1–4 are **batch**. Step 5 is **inference** on the next live run. Nothing is uploaded to a registry; “deploy” means “files exist in the daily log silo.”
@@ -293,7 +293,7 @@ Test RMSE ≫ val RMSE is common when 2025–2026 contains a handful of violent 
 
 `ml_ranker.predict_returns` loads XGB and LGB if files exist, **skips** a booster whose feature names are not exactly the 10-column list (stale 6-feature models), then **nan-mean**s their predictions. Rank 1 = highest predicted relative return. Null predictions sort last.
 
-The helper (`trade_plan_helper.py`) may apply a **1.25× propensity** when `Coil_Width_ATR ≤ 4` or risk ≤ 3% of close. That is a business rule on top of the model, not part of training.
+The planner (`trade_planner.py`) may apply a **1.25× propensity** when `Coil_Width_ATR ≤ 4` or risk ≤ 3% of close. That is a business rule on top of the model, not part of training.
 
 ---
 
@@ -468,7 +468,7 @@ Never copy weekly `*_model.json` into `logs/daily/`.
 
 1. **Metadata first** — confirm schema and Spearman before looking at plots.
 2. **Importance PNG** — which pillars the trees used. If `ATR_Pct` dominates both models, the ranker may be sorting by volatility, not coil quality. That is a research finding, not a bug.
-3. **Compare ML_Rank vs Score** on `trade_plan_clean_*.csv`:
+3. **Compare ML_Rank vs Score** on `trade_plan_*.csv`:
    - Same names at the top → model agrees with the rubric.
    - High Score, poor ML rank → historically similar geometry did not beat QQQ over 2 weeks. Investigate regime, RS, width.
    - Low Score, high ML rank → **do not override the hard gates**. The coil already failed compression / structure / RS.
@@ -539,7 +539,7 @@ python src/finance_vibe/coiled_cobra_ml_training.py --help
 | `coiled_cobra_ml_training.py` | **Trainer** — split, fit, metrics, serialize |
 | `ml_ranker.py` | **Inference** — load boosters, average, rank |
 | `coiled_cobra.py` | Live scan; calls `attach_ml_ranks` |
-| `trade_plan_helper.py` | Sort by `ML_Pred_Return` (tight-coil boost) |
+| `trade_planner.py` | Sort by `ML_Pred_Return` (tight-coil boost) |
 | `run_vibe.py` | Orchestrates live path; **does not train** |
 | `pipeline_backtest.py` | Quality-swing study — **not** an ML input |
 

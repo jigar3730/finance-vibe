@@ -13,7 +13,7 @@ graph TD
     A([Market Universe])
     A -->|coiled_cobra.py| B[Passing coils]
     B -->|trade_planner.py| C[Close / Coil_Low / 2R-3R]
-    C -->|trade_plan_helper.py| D[Ranked plan]
+    C -->|trade_planner.py| D[Ranked plan]
 
     style A fill:#f9f,stroke:#333,stroke-width:1px
     style B fill:#bbf,stroke:#333,stroke-width:1px
@@ -64,9 +64,9 @@ $$\text{Risk-to-Reward (R:R)} = \frac{\text{Target Level} - \text{Stock Entry}}{
 
 ---
 
-## 🎭 Options Parameter Ruleset (Daily Swing Mode)
+## Options overlay (not live)
 
-When parsing in **DAILY MODE**, the asset holds a multi-week expected duration. The `trade_plan_helper.py` script automatically overlays institutional options criteria based on fixed tracking logic:
+Live `trade_plan_*.csv` files are **equity expansion** only (Close / Coil_Low / 2R / 3R). LEAPS expiry and delta bands are not written. Historical swing options notes remain below for the offline lab.
 
 | Parameter | Assigned Value / Range | Operational Strategy Logic |
 | :--- | :--- | :--- |

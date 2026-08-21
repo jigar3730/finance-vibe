@@ -124,5 +124,5 @@ Requires ≥ 60 bars in the input DataFrame (before indicators).
 ## Related files
 
 - `src/finance_vibe/trade_planner.py` — structural levels + options metadata
-- `src/finance_vibe/trade_plan_helper.py` — R:R cleanup
+- `src/finance_vibe/trade_planner.py` — expansion levels + rank
 - `src/finance_vibe/config.py` — `SWING_*` tunables

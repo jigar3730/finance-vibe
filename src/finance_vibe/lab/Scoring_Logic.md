@@ -10,14 +10,14 @@ For tactical entry rules (EMA pullbacks), see [`swing_scanner.py`](swing_scanner
 
 | | |
 | --- | --- |
-| Module | `src/finance_vibe/analysis_engine.py` |
-| Pipeline step | **3** in `run_vibe.py` (after ingestion, before swing scanner) |
+| Module | `src/finance_vibe/lab/analysis_engine.py` (shim: `analysis_engine.py`) |
+| Pipeline | **Offline lab only** — not invoked by `run_vibe.py` |
 | Input | All CSV files in `data/raw/{mode}/` |
 | Output | `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv` |
 
 ```bash
 python src/finance_vibe/analysis_engine.py weekly
-python src/finance_vibe/run_vibe.py
+# or: python -m finance_vibe.lab.analysis_engine weekly
 ```
 
 Scoring uses the **latest bar** of each ticker file. Minimum history: **60 rows** (`MIN_ROWS`); shorter files are skipped.

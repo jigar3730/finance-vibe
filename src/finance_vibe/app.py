@@ -70,7 +70,7 @@ DOC_CATALOG = {
         "blurb": "How Rel_Forward labels are produced.",
     },
     "vibe": {
-        "file": "src/finance_vibe/Scoring_Logic.md",
+        "file": "src/finance_vibe/lab/Scoring_Logic.md",
         "title": "Macro vibe (offline)",
         "blurb": "SMA / MACD / RSI score — not live Cobra.",
     },
@@ -133,7 +133,7 @@ def render_markdown_file(path: Path) -> str:
 
 
 def get_available_runs():
-    """List dated trade plans; prefer trade_plan_clean_* when both exist."""
+    """List dated ``trade_plan_YYYY-MM-DD.csv`` files (legacy ``_clean_`` as fallback)."""
     runs = {"daily": [], "weekly": []}
 
     for mode, folder_path in MODES.items():
@@ -155,7 +155,8 @@ def get_available_runs():
             date_str = parts[:10]
             is_clean = "clean" in file_name
             prev = by_date.get(date_str)
-            if prev is None or (is_clean and not prev["is_clean"]):
+            # Canonical plan wins; leftover clean files only if no canonical exists.
+            if prev is None or (not is_clean and prev["is_clean"]):
                 by_date[date_str] = {
                     "date": date_str,
                     "file_name": file_name,
@@ -247,7 +248,7 @@ INDEX_TEMPLATE = """
 """ + NAV_HTML + """
     <div class="page">
     <h1>Execution hub</h1>
-    <p>Daily is the live Coiled Cobra book. Cleaned plans are preferred when both files exist. Use <a href="/learn">Learn</a> for TA and ML internals.</p>
+    <p>Daily is the live Coiled Cobra book. Each date is one ranked plan (Close / Coil_Low / 2R–3R). Use <a href="/learn">Learn</a> for TA and ML internals.</p>
 
     <div class="container">
         <div class="column">
@@ -257,9 +258,7 @@ INDEX_TEMPLATE = """
                 {% for run in runs['daily'] %}
                     <li>
                         <a href="/view/daily/{{ run['date'] }}?file={{ run['file_name'] }}">Trade plan ({{ run['date'] }})</a>
-                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
-                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
-                        </span>
+                        {% if run['is_clean'] %}<span class="badge">legacy clean</span>{% endif %}
                     </li>
                 {% endfor %}
                 </ul>
@@ -277,9 +276,7 @@ INDEX_TEMPLATE = """
                 {% for run in runs['weekly'] %}
                     <li>
                         <a href="/view/weekly/{{ run['date'] }}?file={{ run['file_name'] }}">Trade plan ({{ run['date'] }})</a>
-                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
-                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
-                        </span>
+                        {% if run['is_clean'] %}<span class="badge">legacy clean</span>{% endif %}
                     </li>
                 {% endfor %}
                 </ul>

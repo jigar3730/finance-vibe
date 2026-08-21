@@ -1,7 +1,7 @@
 """Finance Vibe pipeline orchestrator.
 
 Coiled Cobra v2.1 is the live path: ingest → coil scan → expansion trade plan.
-Quality-swing and analysis_engine remain in the repo for offline studies only.
+Quality-swing and the vibe engine live in ``finance_vibe.lab`` (offline only).
 """
 import argparse
 from pathlib import Path
@@ -61,8 +61,6 @@ def run_workflow():
         {"path": "src/finance_vibe/coiled_cobra.py", "pass_mode": True, "scope": "data",
          "skip_modes": ["high_beta"]},
         {"path": "src/finance_vibe/trade_planner.py", "pass_mode": True, "scope": "profile",
-         "skip_modes": ["high_beta"]},
-        {"path": "src/finance_vibe/trade_plan_helper.py", "pass_mode": True, "scope": "profile",
          "skip_modes": ["high_beta"]},
         {"path": "src/finance_vibe/ai_notifier.py", "pass_mode": True, "scope": "profile",
          "skip_modes": ["high_beta"]},

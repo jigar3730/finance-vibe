@@ -11,9 +11,9 @@ The orchestrator is `src/finance_vibe/run_vibe.py` (ingest → coil scan → exp
 | Layer | Module | Output |
 | ----- | ------ | ------ |
 | **Coiled Cobra (live)** | `coiled_cobra.py` | `data/logs/{mode}/coiled_cobra_setups_<date>.csv` |
-| **Expansion plan** | `trade_planner.py` / `trade_plan_helper.py` | `trade_plan_<date>.csv`, `trade_plan_clean_<date>.csv` |
+| **Expansion plan** | `trade_planner.py` | `trade_plan_<date>.csv` (levels + rank) |
 | **Cobra history / ML** | `coiled_cobra_backtest.py` / `coiled_cobra_ml_training.py` | backfill, expansion trades, XGB/LGB ranks |
-| **Offline swing (not in `run_vibe`)** | `swing_scanner.py` / `pipeline_backtest.py` | `swing_setups_<date>.csv`, swing backtests |
+| **Offline lab (not in `run_vibe`)** | `lab/swing_scanner.py` / `lab/pipeline_backtest.py` | `swing_setups_<date>.csv`, swing backtests |
 
 Hard gates: MACD compression ≥ 5, structure ≥ 8, relative strength vs QQQ ≥ 12. Grades: **A ≥ 85**, **B ≥ 70**.
 
@@ -21,16 +21,17 @@ Hard gates: MACD compression ≥ 5, structure ≥ 8, relative strength vs QQQ �
 
 ```
 finance-vibe/
-├── src/finance_vibe/          # Application code
-├── data/
-│   ├── active_tickers.csv     # Universe from ticker_provider
-│   ├── raw/{daily|weekly}/    # Ingested OHLCV CSVs (daily is primary)
-│   └── logs/{daily|weekly|high_beta}/  # Cobra scans, trade plans, backtests
+├── src/finance_vibe/          # Live Coiled Cobra + shared market helpers
+│   ├── run_vibe.py            # ingest → cobra → plan → helper → notifier
+│   ├── coiled_cobra.py        # v2.1 live scan
+│   ├── market.py              # OHLCV load, QQQ RS (shared with lab)
+│   ├── lab/                   # Offline vibe + quality-swing (not in run_vibe)
+│   └── app.py                 # Dashboard :5000
+├── data/                      # Volume in Docker; not in git
+├── docs/archive/              # Stale reviews / worklogs
 ├── Coiled Cobra Rubric .MD    # Live scorecard (source of truth)
-├── Learn.md / LearnTA.md / LearnML.md  # Curriculum + primers (/learn on :5000)
-├── MLOps.md                   # Docker train / evaluate / deploy
-├── BacktestAndBackfill.md     # Offline validation guide
-├── CoiledCobraML.md           # ML baseline (XGBoost / LightGBM)
+├── Learn.md / LearnTA.md / LearnML.md
+├── MLOps.md
 └── tests/
 ```
 
@@ -40,9 +41,8 @@ finance-vibe/
 2. `ticker_provider.py` → `data/active_tickers.csv`
 3. `data_ingestor.py` → download OHLCV per active ticker
 4. `coiled_cobra.py` → v2.1 coil scorecard on the latest bar
-5. `trade_planner.py` → Close / Coil_Low / 2R–3R expansion plan
-6. `trade_plan_helper.py` → risk cap, ML-then-Score rank, cleaned CSV
-7. `ai_notifier.py` → optional Gemini briefing
+5. `trade_planner.py` → Close / Coil_Low / 2R–3R, rank, one plan CSV
+6. `ai_notifier.py` → optional Gemini briefing
 
 ## Running
 
@@ -72,7 +72,6 @@ python src/finance_vibe/ticker_provider.py
 python src/finance_vibe/data_ingestor.py
 python src/finance_vibe/coiled_cobra.py
 python src/finance_vibe/trade_planner.py
-python src/finance_vibe/trade_plan_helper.py
 ```
 
 `high_beta` on `run_vibe` is ingest-only (use `pipeline_backtest.py` for the swing study).
@@ -91,8 +90,7 @@ Filenames: `<TICKER>_<period>_<interval>.csv` (e.g. `AAPL_5y_1d.csv`, `AAPL_10y_
 | File | Description |
 | ---- | ----------- |
 | `coiled_cobra_setups_<date>.csv` | Passing coils (v2.1 pillars + Coil_High/Low) |
-| `trade_plan_<date>.csv` | Expansion levels: Close entry, Coil_Low stop, 2R/3R targets |
-| `trade_plan_clean_<date>.csv` | Ranked plan (ML predicted return, else Score) |
+| `trade_plan_<date>.csv` | Expansion levels + rank (ML predicted return, else Score) |
 | `ingest_errors_<date>.csv` | Per-ticker ingestion failures (empty/invalid/insufficient data) |
 
 The live scanner emits `config.SETUP_ROW_COLUMNS`. Raw CSVs are validated against `config.REQUIRED_OHLCV` at ingest and scan time.
@@ -108,8 +106,7 @@ See **`Coiled Cobra Rubric .MD`**. Core six pillars sum to 100; Fib bonus 0–5 
 - **Entry:** Close of the passing coil bar
 - **Stop:** triple constraint — `Coil_Low − 0.25×ATR` (else Swing Low), `entry − 1.5×ATR`, `entry − 5% of close`; cap so the stop stays below entry
 - **Targets:** 2R and 3R
-- **Weekly mode:** LEAPS CALL, 12–24 month expiry, delta 0.65–0.80
-- **Daily mode:** Options CALL, 1–3 month expiry, same delta band
+- **Targets:** 2R and 3R (equity). Options/LEAPS overlays are not part of the live CSV.
 
 Quality-swing geometry remains in `config.compute_swing_levels` for offline `pipeline_backtest` only.
 
@@ -136,7 +133,8 @@ Browse historic trade plans by date and mode (weekly/daily).
 Walk-forward backtest of swing setups + trade-plan stock levels on historical OHLC data. Modes: `weekly`, `daily`, `high_beta`.
 
 ```bash
-python src/finance_vibe/pipeline_backtest.py weekly --tickers SPY,QQQ
+python src/finance_vibe/lab/pipeline_backtest.py weekly --tickers SPY,QQQ
+python src/finance_vibe/pipeline_backtest.py weekly --tickers SPY,QQQ   # shim
 python src/finance_vibe/pipeline_backtest.py daily --tickers QQQ,SPY
 python src/finance_vibe/pipeline_backtest.py high_beta --tickers PLTR,TSLA,HOOD
 
@@ -159,7 +157,7 @@ Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI: **`BacktestA
 ## Notes
 
 - `run_vibe.py` deletes `data/raw/{mode}/` unless you pass `--keep-raw`.
-- Spec: **`Coiled Cobra Rubric .MD`**. `swing_scanner.py` / `analysis_engine.py` are offline only.
+- Spec: **`Coiled Cobra Rubric .MD`**. Offline lab: `src/finance_vibe/lab/` (vibe + swing).
 
 ## Further reading
 

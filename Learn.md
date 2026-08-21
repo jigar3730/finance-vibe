@@ -18,7 +18,7 @@ Suggested order: **A → B → C**. Then operate: scan, read a plan, train only 
 | A2 | EMA, ATR, MACD, RSI in Cobra language | [LearnTA.md](/docs/learn-ta) | Open a raw CSV; compare Close vs a 20-bar average |
 | A3 | Relative strength vs QQQ | Rubric § RS | Live scan column `RS_Score` / `RS 63d` |
 | A4 | Coil vs pullback vs vibe | LearnTA “two labs”; [swing](/docs/swing); [vibe](/docs/vibe) | Offline only — not in `run_vibe` |
-| A5 | Risk: R-multiple, Coil_Low, 5% cap | [Trade plan math](/docs/trade-plan) | Open `trade_plan_clean_*.csv` |
+| A5 | Risk: R-multiple, Coil_Low, 5% cap | [Trade plan math](/docs/trade-plan) | Open `trade_plan_*.csv` |
 
 **Source of truth for live scoring:** [Coiled Cobra Rubric](/docs/rubric).
 

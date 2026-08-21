@@ -8,7 +8,7 @@ Stable
 
 This manual describes how to operate the **Coiled Cobra** pipeline: ingest OHLCV, score compressed leaders vs QQQ, draft expansion trade plans, and optionally email a briefing.
 
-The live spec is **`Coiled Cobra Rubric .MD`**. `analysis_engine.py` and `swing_scanner.py` are offline-only.
+The live spec is **`Coiled Cobra Rubric .MD`**. Offline vibe/swing: `src/finance_vibe/lab/`.
 
 ## Environment
 
@@ -53,9 +53,8 @@ Execution order:
 | 1 | `ticker_provider.py` | `data/active_tickers.csv` |
 | 2 | `data_ingestor.py` | Raw CSVs in `data/raw/{mode}/` |
 | 3 | `coiled_cobra.py` | `coiled_cobra_setups_<date>.csv` |
-| 4 | `trade_planner.py` | `trade_plan_<date>.csv` (Close / Coil_Low / 2R–3R) |
-| 5 | `trade_plan_helper.py` | `trade_plan_clean_<date>.csv` |
-| 6 | `ai_notifier.py` | Email briefing (if credentials set) |
+| 4 | `trade_planner.py` | `trade_plan_<date>.csv` (levels + rank) |
+| 5 | `ai_notifier.py` | Email briefing (if credentials set) |
 
 ```bash
 python src/finance_vibe/run_vibe.py --keep-raw
@@ -68,7 +67,6 @@ python src/finance_vibe/ticker_provider.py
 python src/finance_vibe/data_ingestor.py
 python src/finance_vibe/coiled_cobra.py
 python src/finance_vibe/trade_planner.py
-python src/finance_vibe/trade_plan_helper.py
 ```
 
 Pass `weekly` after each script for the slower confirmation horizon.
@@ -88,7 +86,7 @@ Pass `weekly` after each script for the slower confirmation horizon.
 
 ### `analysis_engine.py` / `swing_scanner.py` (offline)
 
-Not invoked by `run_vibe.py`. Macro Vibe Score and quality-swing setups remain available for `pipeline_backtest.py` studies. Specs: `src/finance_vibe/Scoring_Logic.md`, `swing_setup_readme.md`.
+Not invoked by `run_vibe.py`. Macro Vibe Score and quality-swing setups remain available for `pipeline_backtest.py` studies. Specs: `src/finance_vibe/lab/Scoring_Logic.md`, `swing_setup_readme.md`.
 
 ### `coiled_cobra.py` (live)
 
@@ -101,15 +99,10 @@ Not invoked by `run_vibe.py`. Macro Vibe Score and quality-swing setups remain a
 
 - Auto-detects latest `coiled_cobra_setups_*.csv` in `data/logs/{mode}/`
 - **Entry** = Close; **stop** protects `Coil_Low` (else Swing Low) with 1.5×ATR and 5% risk cap; **T1/T2** = 2R / 3R
-- Weekly: LEAPS metadata (12–24 mo); daily: options metadata (1–3 mo)
+- Drops rows whose risk still exceeds 5% of close after rounding
+- Ranks by `ML_Pred_Return` (else `Score`); +25% boost when `Coil_Width_ATR` ≤ 4 or risk ≤ 3%
+- Writes one `trade_plan_<date>.csv`
 - Explicit path still accepted (offline swing CSVs keep swing geometry)
-
-### `trade_plan_helper.py`
-
-- Loads today’s `trade_plan_<date>.csv` (falls back to newest dated file)
-- Drops rows whose risk exceeds 5% of close
-- Ranks by `ML_Pred_Return` (clipped ≥ 0), else `Score`; +25% boost only when `Coil_Width_ATR` ≤ 4 or risk ≤ 3%
-- Writes `trade_plan_clean_<date>.csv`
 
 ### `src/finance_vibe/pipeline_backtest.py` (offline)
 
@@ -186,7 +179,7 @@ python src/finance_vibe/run_vibe.py
 | Missing `active_tickers.csv` | Run `ticker_provider.py` |
 | Ingest skips a symbol | No yfinance data for that ticker; check symbol validity |
 | Empty `coiled_cobra_setups_*.csv` | No ticker passed hard gates (compression / structure / RS vs QQQ) |
-| `trade_plan_helper` file not found | Run full pipeline first; helper expects a dated `trade_plan_*.csv` |
+| Missing `trade_plan_*.csv` | Run scan + planner first |
 | ML ranks all null | Retrain 10-feature daily model — **`MLOps.md`**; old Score+Fib artifacts will not score |
 | Macro report missing tickers | Check ingest logs; file needs ≥ 60 rows |
 | ML script cannot find trades CSV | `docker exec -w /app finance_vibe python src/finance_vibe/coiled_cobra_backtest.py --backtest`; pass `--csv`; see **`MLOps.md`** |
@@ -218,8 +211,7 @@ Edit `TIMEFRAME_PROFILES` in `config.py`:
 | File | Layer |
 | ---- | ----- |
 | `coiled_cobra_setups_<date>.csv` | Live coil scan |
-| `trade_plan_<date>.csv` | Expansion plan |
-| `trade_plan_clean_<date>.csv` | Ranked plan |
+| `trade_plan_<date>.csv` | Ranked expansion plan |
 | `coiled_cobra_backfill_<date>.csv` | Historical coil archive |
 | `coiled_cobra_backtest_trades_<date>.csv` | Expansion study (ML source) |
 | `coiled_cobra_ml_feature_importance.png` | ML feature-importance chart |

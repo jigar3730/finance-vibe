@@ -21,14 +21,8 @@ import pandas as pd
 import pandas_ta as ta
 
 # --- PACKAGE IMPORT ---
-try:
-    from finance_vibe import config
-    from finance_vibe.analysis_engine import load_benchmark_frame, relative_strength
-except ImportError:
-    sys.path.append(os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..")))
-    from finance_vibe import config
-    from finance_vibe.analysis_engine import load_benchmark_frame, relative_strength
+from finance_vibe import config
+from finance_vibe.market import load_benchmark_frame, relative_strength
 
 # =========================
 # PROFILE CONFIGURATION

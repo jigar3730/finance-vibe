@@ -2,7 +2,7 @@
 
 **Live Cobra TA primer:** [`LearnTA.md`](LearnTA.md) (dashboard: `/docs/learn-ta`). **Curriculum:** [`Learn.md`](Learn.md) (`/learn` on port 5000).
 
-This file is the **offline** vibe / swing interpretation guide (`analysis_engine.py`, `swing_scanner.py`). The live pipeline defaults to **daily** Coiled Cobra (`5y` × `1d`). Weekly is opt-in. Macro scoring rules: `src/finance_vibe/Scoring_Logic.md`.
+This file is the **offline** vibe / swing interpretation guide (`analysis_engine.py`, `swing_scanner.py`). The live pipeline defaults to **daily** Coiled Cobra (`5y` × `1d`). Weekly is opt-in. Macro scoring rules: `src/finance_vibe/lab/Scoring_Logic.md`.
 
 ## 1. The Trend Pillars (Moving Averages)
 Moving averages establish the baseline structural bias of an asset.

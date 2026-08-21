@@ -14,34 +14,18 @@ from typing import Optional
 
 import pandas as pd
 
-try:
-    from finance_vibe import config
-    from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
-    from finance_vibe import coiled_cobra as cobra
-    from finance_vibe.coiled_cobra import (
-        BENCHMARK,
-        add_macro_indicators,
-        coil_geometry_fields,
-        configure_mode,
-        evaluate_coiled_cobra,
-        local_swing_low,
-        pillar_row_fields,
-    )
-except ImportError:  # pragma: no cover
-    # Package lives under src/; repo root alone is not enough for `finance_vibe`.
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    from finance_vibe import config
-    from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
-    from finance_vibe import coiled_cobra as cobra
-    from finance_vibe.coiled_cobra import (
-        BENCHMARK,
-        add_macro_indicators,
-        coil_geometry_fields,
-        configure_mode,
-        evaluate_coiled_cobra,
-        local_swing_low,
-        pillar_row_fields,
-    )
+from finance_vibe import config
+from finance_vibe.market import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
+from finance_vibe import coiled_cobra as cobra
+from finance_vibe.coiled_cobra import (
+    BENCHMARK,
+    add_macro_indicators,
+    coil_geometry_fields,
+    configure_mode,
+    evaluate_coiled_cobra,
+    local_swing_low,
+    pillar_row_fields,
+)
 
 FORWARD_LABELS = (2, 5, 13, 26)  # column suffixes: Forward_Return_{N}w
 # Bar counts that correspond to those labels. Daily uses ~5 sessions per week.

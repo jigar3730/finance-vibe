@@ -208,22 +208,6 @@ _SWING_DEFAULTS = {
     "rs_ratio_ma_bars": 20,
 }
 
-# Backward-compatible aliases (weekly defaults)
-SWING_ENTRY_ATR = _SWING_WEEKLY["entry_atr"]
-SWING_STOP_BUFFER_ATR = _SWING_WEEKLY["stop_buffer_atr"]
-SWING_STOP_ATR_CAP = _SWING_WEEKLY["stop_atr_cap"]
-SWING_T1_ATR = _SWING_WEEKLY["t1_atr"]
-SWING_T2_ATR = _SWING_WEEKLY["t2_atr"]
-SWING_PROX_PCT_WEEKLY = _SWING_WEEKLY["prox_pct"]
-SWING_PROX_PCT_DAILY = _SWING_DAILY["prox_pct"]
-SWING_RSI_MIN_LONG_WEEKLY = _SWING_WEEKLY["rsi_min_long"]
-SWING_RSI_MIN_LONG_DAILY = _SWING_DAILY["rsi_min_long"]
-SWING_RSI_MAX_LONG = _SWING_WEEKLY["rsi_max_long"]
-SWING_RSI_MIN_SHORT = _SWING_WEEKLY["rsi_min_short"]
-SWING_RSI_MAX_SHORT = _SWING_WEEKLY["rsi_max_short"]
-SWING_STRUCTURE_BARS = _SWING_WEEKLY["structure_bars"]
-
-
 def get_swing_params(mode: str = "weekly") -> dict:
     """Return quality-swing geometry + filter params for a swing profile.
 

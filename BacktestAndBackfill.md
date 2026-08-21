@@ -471,7 +471,7 @@ PY
 | `OperationManual.md` | Day-to-day pipeline ops |
 | `CoiledCobraML.md` | Coiled Cobra ML baseline (features, splits, metrics) |
 | `swing_setup_readme.md` | Quality-swing rules and geometry table |
-| `src/finance_vibe/Scoring_Logic.md` | Vibe Score rubric |
+| `src/finance_vibe/lab/Scoring_Logic.md` | Vibe Score rubric |
 | `Coiled Cobra Rubric .MD` | Coiled Cobra checklist / grades |
 | `Trade Plan Calculations.md` | Entry / stop / target math |
 

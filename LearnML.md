@@ -85,7 +85,7 @@ Test Spearman **> 0** (and not collapsing vs val) → weak ranking edge. **~0** 
 
 `ml_ranker.py` looks only in the **active mode** silo (`data/logs/daily/` for the default scan). It loads XGB JSON and LGB text, **skips** a booster whose feature names are not the current 10 columns (old Score+Fib models), then **averages** predictions. Rank 1 = highest predicted relative return. No file or all NaN → Score sort; the pipeline still runs.
 
-The helper may multiply a **1.25×** boost when coil width ≤ 4 ATR or risk ≤ 3% of close. That is a business rule on top of `f(X)`, not part of training.
+The planner may multiply a **1.25×** boost when coil width ≤ 4 ATR or risk ≤ 3% of close. That is a business rule on top of `f(X)`, not part of training.
 
 ---
 
