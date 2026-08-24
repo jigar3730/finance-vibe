@@ -1,13 +1,10 @@
 """Coiled Cobra ML baseline: LightGBM + XGBoost on new-coil expansion vs QQQ.
 
 Standalone training script. Looks for coiled_cobra_backtest_trades_*.csv,
-keeps ``Is_New_Coil`` rows, isolates pre-signal pillar + geometry features,
+keeps ``Is_New_Coil`` rows, isolates pre-signal pillar + raw geometry features,
 applies a dynamic relative temporal split, and trains MAE-objective
-XGBRegressor / LGBMRegressor baselines for ``Rel_Forward_2w`` (fallback
-``Forward_Return_2w``) with ATR_Pct sample weights.
-
-Old 6-feature models (Score + Fib %) will not score the new 10-feature frame —
-retrain after this change.
+XGBRegressor / LGBMRegressor baselines for ``Rel_Forward_42d`` (daily) or
+``Rel_Forward_13w`` (weekly). Score/Grade are filters and live baselines, not tree features.
 """
 from __future__ import annotations
 
@@ -22,26 +19,55 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # Column zones (strict isolation — no leakage from post-trade metrics)
 # ---------------------------------------------------------------------------
-# Seven rubric pillars + two EMA distances + ATR scale. Score/Grade excluded
-# (Score is a linear mix of the pillars; Grade is a bin of Score).
+# Pillars + raw geometry. Score/Grade excluded (filter + live baseline only).
 FEATURE_COLS = [
     "Volume_Shelf",
     "MACD_Compression",
     "Structure",
     "RS_Score",
     "Coil_Width",
-    "MACD_Cross",
-    "Fib_Bonus",
+    "Proximity_Highs",
+    "Volume_Contraction_Ratio",
+    "MACD_Spread_ATR",
+    "Coil_Width_ATR",
+    "Coil_Width_Pctile",
+    "Dist_High_63_Pct",
+    "Dist_High_63_ATR",
+    "Dist_High_126_Pct",
+    "Dist_High_126_ATR",
+    "Dist_High_252_Pct",
+    "Dist_High_252_ATR",
+    "OBV_Coil_Slope",
+    "Up_Volume_Ratio",
+    "Volume_Trend_Ratio",
+    "RSI",
+    "RSI_Healthy",
     "Pct_From_EMA20",
     "Pct_From_EMA50",
     "ATR_Pct",
+    "Distance_To_Pivot_Pct",
+    "MACD_Crossed",
 ]
-PREFERRED_TARGET_COL = "Rel_Forward_2w"
+PREFERRED_TARGET_COL = "Rel_Forward_42d"
 FALLBACK_TARGET_COL = "Forward_Return_2w"
+DAILY_TARGET_PREFERENCE = (
+    "Rel_Forward_42d",
+    "Rel_Forward_13w",
+    "Rel_Forward_2w",
+)
+WEEKLY_TARGET_PREFERENCE = (
+    "Rel_Forward_13w",
+    "Rel_Forward_26w",
+    "Rel_Forward_2w",
+)
 TARGET_COL = PREFERRED_TARGET_COL
-TARGET_HORIZON_WEEKS = 2
+TARGET_HORIZON_WEEKS = 9
 DATE_COL = "Signal Date"
 WEIGHT_COL = "ATR_Pct"
+# Experiment switch:
+# False = every training row has equal influence.
+# True  = quieter stocks receive more influence through inverse ATR weighting.
+USE_INVERSE_ATR_WEIGHTS = False
 NEW_COIL_COL = "Is_New_Coil"
 MODEL_METADATA_FILENAME = "coiled_cobra_ml_model_metadata.json"
 EMBARGO_WEEKS = TARGET_HORIZON_WEEKS
@@ -133,14 +159,45 @@ def resolve_source_csv(explicit: str | None = None) -> Path:
     )
 
 
+def _infer_frame_mode(df: pd.DataFrame) -> str:
+    if "Mode" in df.columns:
+        modes = df["Mode"].dropna().astype(str).str.strip().str.lower()
+        if len(modes) and (modes == "weekly").all():
+            return "weekly"
+    return "daily"
+
+
+def embargo_weeks_for_target(target_col: str) -> int:
+    mapping = {
+        "Rel_Forward_42d": 9,
+        "Forward_Return_42d": 9,
+        "Rel_Forward_21d": 5,
+        "Forward_Return_21d": 5,
+        "Rel_Forward_26w": 26,
+        "Rel_Forward_13w": 13,
+        "Rel_Forward_8w": 8,
+        "Rel_Forward_5w": 5,
+        "Rel_Forward_4w": 4,
+        "Rel_Forward_2w": 2,
+        "Forward_Return_2w": 2,
+    }
+    return mapping.get(target_col, 2)
+
+
 def select_target_col(df: pd.DataFrame) -> str:
-    """Prefer QQQ-relative 2-week return; fall back to absolute forward return."""
-    if PREFERRED_TARGET_COL in df.columns and df[PREFERRED_TARGET_COL].notna().any():
-        return PREFERRED_TARGET_COL
+    """Prefer QQQ-relative medium/long horizon; fall back to shorter then absolute."""
+    prefs = (
+        WEEKLY_TARGET_PREFERENCE
+        if _infer_frame_mode(df) == "weekly"
+        else DAILY_TARGET_PREFERENCE
+    )
+    for col in prefs:
+        if col in df.columns and df[col].notna().any():
+            return col
     if FALLBACK_TARGET_COL in df.columns:
         return FALLBACK_TARGET_COL
     raise ValueError(
-        f"Missing target column: need {PREFERRED_TARGET_COL} or {FALLBACK_TARGET_COL}"
+        f"Missing target column: need one of {prefs} or {FALLBACK_TARGET_COL}"
     )
 
 
@@ -155,7 +212,7 @@ def _is_new_coil_mask(series: pd.Series) -> pd.Series:
 
 def load_and_prepare(csv_path: Path) -> pd.DataFrame:
     """Load CSV, keep new coils, drop leakage cols, drop NaN targets."""
-    global TARGET_COL
+    global TARGET_COL, EMBARGO_WEEKS, TARGET_HORIZON_WEEKS
     df = pd.read_csv(csv_path)
     print(f"Loaded source: {csv_path}")
     print(f"Raw shape: {df.shape[0]} rows x {df.shape[1]} cols")
@@ -170,7 +227,9 @@ def load_and_prepare(csv_path: Path) -> pd.DataFrame:
         raise ValueError(f"Missing date column: {DATE_COL}")
 
     TARGET_COL = select_target_col(df)
-    print(f"Target column: {TARGET_COL}")
+    EMBARGO_WEEKS = embargo_weeks_for_target(TARGET_COL)
+    TARGET_HORIZON_WEEKS = EMBARGO_WEEKS
+    print(f"Target column: {TARGET_COL} (embargo={EMBARGO_WEEKS}w)")
 
     if NEW_COIL_COL in df.columns:
         before_coil = len(df)
@@ -238,9 +297,24 @@ def build_matrices(
         y = frame[TARGET_COL].astype(float).to_numpy()
         # Inverse ATR: high-vol names already have noisier Rel_Forward. Weighting
         # *by* ATR_Pct would amplify them; 1/ATR_Pct equalizes return-space MAE.
-        atr = frame[WEIGHT_COL].astype(float).to_numpy()
-        w = np.where(np.isfinite(atr) & (atr > 0), 1.0 / atr, np.nan)
-        parts[name] = {"X": X, "y": y, "w": w, "n": len(frame)}
+        if USE_INVERSE_ATR_WEIGHTS:
+            # Optional legacy behavior: quieter stocks receive more weight.
+            atr = frame[WEIGHT_COL].astype(float).to_numpy()
+            w = np.where(
+                np.isfinite(atr) & (atr > 0),
+                1.0 / atr,
+                np.nan,
+            )
+        else:
+            # Default experiment: every setup has equal influence.
+             w = np.ones(len(frame), dtype=float)
+
+        parts[name] = {
+            "X": X,
+            "y": y,
+            "w": w,
+            "n": len(frame),
+        }
         
     med = np.nanmedian(parts["train"]["w"])
     if not np.isfinite(med) or med <= 0:
@@ -256,6 +330,28 @@ def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
+def ndcg_at_k(y_true: np.ndarray, y_pred: np.ndarray, k: int = 10) -> float:
+    from sklearn.metrics import ndcg_score
+
+    if len(y_true) < 2:
+        return 0.0
+    k = min(k, len(y_true))
+    # Shift labels so NDCG can handle negatives (rank-only).
+    shifted = y_true - float(np.min(y_true)) + 1e-9
+    try:
+        return float(ndcg_score(shifted.reshape(1, -1), y_pred.reshape(1, -1), k=k))
+    except Exception:
+        return 0.0
+
+
+def top_decile_mean(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    if len(y_true) == 0:
+        return 0.0
+    n = max(1, len(y_true) // 10)
+    order = np.argsort(y_pred)[::-1][:n]
+    return float(np.mean(y_true[order]))
+
+
 def evaluate(model, X: pd.DataFrame, y: np.ndarray, label: str) -> dict:
     from sklearn.metrics import mean_absolute_error
     pred = model.predict(X)
@@ -266,10 +362,13 @@ def evaluate(model, X: pd.DataFrame, y: np.ndarray, label: str) -> dict:
         "mae": float(mean_absolute_error(y, pred)),
         "rmse": rmse(y, pred),
         "spearman": ic,
+        "ndcg10": ndcg_at_k(y, pred, k=10),
+        "top_decile_mean": top_decile_mean(y, pred),
     }
     print(
         f"  {label}: MAE={metrics['mae']:.6f}  RMSE={metrics['rmse']:.6f}  "
-        f"Spearman={metrics['spearman']:.4f}"
+        f"Spearman={metrics['spearman']:.4f}  NDCG@10={metrics['ndcg10']:.4f}  "
+        f"TopDecileRel={metrics['top_decile_mean']:.4f}"
     )
     return metrics
 
@@ -337,7 +436,11 @@ def save_model_metadata(
         "target_column": TARGET_COL,
         "target_horizon_weeks": TARGET_HORIZON_WEEKS,
         "embargo_weeks": EMBARGO_WEEKS,
-        "sample_weight": "inverse_ATR_Pct",
+        "sample_weight": (
+            "inverse_ATR_Pct"
+            if USE_INVERSE_ATR_WEIGHTS
+            else "uniform"
+        ),
         "feature_columns": feature_names,
         "decision_guidance": {
             "use_as": "soft ranking signal for setup selection",
@@ -363,17 +466,25 @@ def save_model_metadata(
                 "val_mae": xgb_val_metrics["mae"],
                 "val_rmse": xgb_val_metrics["rmse"],
                 "val_spearman": xgb_val_metrics["spearman"],
+                "val_ndcg10": xgb_val_metrics.get("ndcg10"),
+                "val_top_decile_mean": xgb_val_metrics.get("top_decile_mean"),
                 "test_mae": xgb_test_metrics["mae"],
                 "test_rmse": xgb_test_metrics["rmse"],
                 "test_spearman": xgb_test_metrics["spearman"],
+                "test_ndcg10": xgb_test_metrics.get("ndcg10"),
+                "test_top_decile_mean": xgb_test_metrics.get("top_decile_mean"),
             },
             "lgb": {
                 "val_mae": lgb_val_metrics["mae"],
                 "val_rmse": lgb_val_metrics["rmse"],
                 "val_spearman": lgb_val_metrics["spearman"],
+                "val_ndcg10": lgb_val_metrics.get("ndcg10"),
+                "val_top_decile_mean": lgb_val_metrics.get("top_decile_mean"),
                 "test_mae": lgb_test_metrics["mae"],
                 "test_rmse": lgb_test_metrics["rmse"],
                 "test_spearman": lgb_test_metrics["spearman"],
+                "test_ndcg10": lgb_test_metrics.get("ndcg10"),
+                "test_top_decile_mean": lgb_test_metrics.get("top_decile_mean"),
             },
         },
     }
@@ -519,9 +630,19 @@ def main(argv: list[str] | None = None) -> int:
             f"Empty partition(s): train={len(train)} val={len(val)} test={len(test)}"
         )
 
+    if "Score" in test.columns:
+        score = pd.to_numeric(test["Score"], errors="coerce")
+        y = test[TARGET_COL].astype(float)
+        mask = score.notna() & y.notna()
+        if mask.sum() >= 5:
+            ic = float(score[mask].corr(y[mask], method="spearman"))
+            print(
+                f"\nScore-only ranking baseline on test: Spearman={ic:.4f} "
+                f"TopDecileRel={top_decile_mean(y[mask].to_numpy(), score[mask].to_numpy()):.4f}"
+            )
+
     parts = build_matrices(train, val, test)
     labels = {"val": v_str, "test": t_str}
-    
     train_and_report(parts, art_dir, labels)
     print("\nDone.")
     return 0

@@ -170,17 +170,17 @@ Absolute return `Forward_Return_2w` is:
 (Close[t + H] − Close[t]) / Close[t]
 ```
 
-`H` is **10 daily bars** or **2 weekly bars** so the column name `*_2w` stays calendar-true.
+Daily primary H is **42 sessions** (`Rel_Forward_42d`); weekly primary H is **13 bars** (`Rel_Forward_13w`). Short `*_2w` labels stay in the CSV.
 
 **Relative** return subtracts QQQ over the same dates:
 
 ```text
-Rel_Forward_2w = stock_2w_return − QQQ_2w_return
+Rel_Forward_* = stock_return − QQQ_return
 ```
 
 **Why relative?** A coil that rallies 4% while QQQ rallies 5% did not expand as a *leader*. The rubric is “compressed leaders vs QQQ.” Training on relative return matches that philosophy.
 
-If `Rel_Forward_2w` is missing, training falls back to `Forward_Return_2w`. Prefer regenerating the backtest so QQQ is in the daily raw silo.
+If the preferred relative column is missing, training walks the fallback list then `Forward_Return_2w`. Prefer regenerating the backtest so QQQ is in the mode raw silo.
 
 Rows with a NaN target (not enough future bars at the end of the file) are dropped. That is correct, not data loss.
 
@@ -188,22 +188,11 @@ Rows with a NaN target (not enough future bars at the end of the file) are dropp
 
 A coil can stay valid for several bars. Those extra rows are the **same episode** aging (`Coil_Age_Bars` 2, 3, …). Training on every bar would overweight long-lived coils and leak overlapping forward windows. One row per episode start is the unit of learning.
 
-### 4.5 The 10 features (X)
+### 4.5 Features (X)
 
-Score is a **linear mix** of pillars. Grade is a **bin** of Score. Feeding Score+Grade plus pillars teaches the tree to copy the rubric, not to find residual alpha.
+Score is a **linear mix** of pillars. Grade is a **bin** of Score. Feeding Score+Grade plus pillars teaches the tree to copy the rubric, not to find residual alpha. Score still **filters** rows (hard gates + ≥70) and is the live fallback sort.
 
-| Feature | Meaning | Why it can predict expansion |
-| ------- | ------- | ---------------------------- |
-| `Volume_Shelf` | Accumulation / auction shelf (0–20) | Coils in value often resolve with volume |
-| `MACD_Compression` | Tight MACD−Signal / ATR (0–20) | Stored energy |
-| `Structure` | Rising EMA stack (0–20) | Leaders still healthy |
-| `RS_Score` | Vs QQQ (0–15) | Already leading |
-| `Coil_Width` | N-bar range / ATR (0–15) | Tighter bases often expand cleaner |
-| `MACD_Cross` | Early bullish cross (0–10) | Trigger quality |
-| `Fib_Bonus` | Optional Fib proximity (0–5) | Context only |
-| `Pct_From_EMA20` | `(Close − EMA20) / EMA20` | Stretch vs pullback |
-| `Pct_From_EMA50` | `(Close − EMA50) / EMA50` | Location in the trend |
-| `ATR_Pct` | `ATR / Close` | Volatility scale |
+`FEATURE_COLS` is pillars **plus raw** measurements: volume contraction ratio, MACD spread/ATR, coil width ATR + percentile, distances to 63/126/252-bar highs, coil OBV slope / up-volume / volume trend, RSI + healthy flag, EMA distances, ATR_Pct, distance to pivot, `MACD_Crossed`. `MACD_Cross` and `Fib_Bonus` are not tree features.
 
 Trees split on these numbers. They do **not** see ticker names, so they cannot memorize “NVDA always wins” unless NVDA’s *geometry* is distinctive.
 
@@ -376,15 +365,15 @@ p = sorted(Path("/app/data/logs/daily").glob("coiled_cobra_backtest_trades_*.csv
 df = pd.read_csv(p)
 print(p.name, "rows", len(df))
 print("new coils", df["Is_New_Coil"].astype(str).str.lower().isin(["true","1"]).sum() if "Is_New_Coil" in df.columns else "missing")
-print("Rel_Forward_2w non-null", df["Rel_Forward_2w"].notna().sum() if "Rel_Forward_2w" in df.columns else "missing")
+print("Rel_Forward_42d non-null", df["Rel_Forward_42d"].notna().sum() if "Rel_Forward_42d" in df.columns else "missing")
 print("Signal Date", df["Signal Date"].min(), "→", df["Signal Date"].max())
 print("pillars ok", all(c in df.columns for c in [
-    "Volume_Shelf","MACD_Compression","Structure","RS_Score","Coil_Width","MACD_Cross","Fib_Bonus",
-    "Pct_From_EMA20","Pct_From_EMA50","ATR_Pct"]))
+    "Volume_Shelf","MACD_Compression","Structure","RS_Score","Coil_Width","Proximity_Highs",
+    "Pct_From_EMA20","Pct_From_EMA50","ATR_Pct","Dist_High_63_Pct"]))
 PY
 ```
 
-You want **hundreds** of new-coil rows with non-null `Rel_Forward_2w` spanning **well over a year**.
+You want **hundreds** of new-coil rows with non-null primary Rel_Forward spanning **well over a year**.
 
 ### Step 5 — Train (write artifacts next to the CSV)
 

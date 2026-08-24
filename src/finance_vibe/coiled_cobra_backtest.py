@@ -20,24 +20,36 @@ from finance_vibe import coiled_cobra as cobra
 from finance_vibe.coiled_cobra import (
     BENCHMARK,
     add_macro_indicators,
-    coil_geometry_fields,
+    build_setup_row,
     configure_mode,
     evaluate_coiled_cobra,
-    local_swing_low,
-    pillar_row_fields,
 )
 
-FORWARD_LABELS = (2, 5, 13, 26)  # column suffixes: Forward_Return_{N}w
-# Bar counts that correspond to those labels. Daily uses ~5 sessions per week.
-FORWARD_HORIZONS = FORWARD_LABELS  # calendar-week labels; bar counts from forward_horizon_bars()
+def forward_label_specs(scan_mode: str | None = None) -> tuple[tuple[int, str], ...]:
+    """(bar_offset, column_suffix) for forward / relative / MAE / held-low labels."""
+    m = scan_mode or cobra.mode
+    if m == "daily":
+        return (
+            (10, "2w"),
+            (21, "21d"),
+            (25, "5w"),
+            (42, "42d"),
+            (63, "13w"),
+            (126, "26w"),
+        )
+    return (
+        (2, "2w"),
+        (4, "4w"),
+        (5, "5w"),
+        (8, "8w"),
+        (13, "13w"),
+        (26, "26w"),
+    )
 
 
 def forward_horizon_bars(scan_mode: str | None = None) -> tuple[int, ...]:
-    """Bar counts for Rel/Forward_Return_{2,5,13,26}w so labels stay calendar-true."""
-    m = scan_mode or cobra.mode
-    if m == "daily":
-        return (10, 25, 63, 126)
-    return (2, 5, 13, 26)
+    """Bar counts for forward labels (daily adds 21d/42d; weekly adds 4w/8w)."""
+    return tuple(bars for bars, _ in forward_label_specs(scan_mode))
 
 
 _FIB_PLAYBOOK_NOTE = (
@@ -116,19 +128,65 @@ def rel_forward_at(
     return round(stock_fwd - bench_fwd, 4)
 
 
+def mae_at(
+    df: pd.DataFrame,
+    idx: int,
+    horizon: int,
+    setup_close: float,
+) -> Optional[float]:
+    """Max adverse excursion: (close - min Low over the horizon) / close."""
+    if setup_close == 0 or idx + 1 >= len(df):
+        return None
+    end = min(idx + horizon + 1, len(df))
+    future = df.iloc[idx + 1 : end]
+    if future.empty:
+        return None
+    low_water = float(pd.to_numeric(future["Low"], errors="coerce").min())
+    if not pd.notna(low_water):
+        return None
+    return round((setup_close - low_water) / setup_close, 4)
+
+
+def held_coil_low_at(
+    df: pd.DataFrame,
+    idx: int,
+    horizon: int,
+    coil_low,
+) -> Optional[int]:
+    """1 if every Close in the horizon stays at or above Coil_Low."""
+    if coil_low is None or (isinstance(coil_low, float) and pd.isna(coil_low)):
+        return None
+    if idx + 1 >= len(df):
+        return None
+    end = min(idx + horizon + 1, len(df))
+    future = df.iloc[idx + 1 : end]
+    if future.empty:
+        return None
+    floor = float(coil_low)
+    closes = pd.to_numeric(future["Close"], errors="coerce")
+    if closes.isna().all():
+        return None
+    return int(bool((closes >= floor).all()))
+
+
 def _horizon_fields(
     df: pd.DataFrame,
     idx: int,
     setup_close: float,
     benchmark_df: Optional[pd.DataFrame],
+    coil_low=None,
 ) -> dict:
     fields: dict = {}
-    for bars, weeks in zip(forward_horizon_bars(), FORWARD_LABELS):
-        fields[f"Forward_Return_{weeks}w"] = forward_return_at(
+    for bars, suffix in forward_label_specs():
+        fields[f"Forward_Return_{suffix}"] = forward_return_at(
             df, idx, bars, setup_close
         )
-        fields[f"Rel_Forward_{weeks}w"] = rel_forward_at(
+        fields[f"Rel_Forward_{suffix}"] = rel_forward_at(
             df, benchmark_df, idx, bars, setup_close
+        )
+        fields[f"MAE_{suffix}"] = mae_at(df, idx, bars, setup_close)
+        fields[f"Held_Coil_Low_{suffix}"] = held_coil_low_at(
+            df, idx, bars, coil_low
         )
     return fields
 
@@ -155,40 +213,7 @@ def detect_cobra_setup_at_bar(
     if not setup:
         return None
 
-    latest = window.iloc[-1]
-    close = float(latest["Close"])
-    ema20 = float(latest["EMA20"])
-    ema50 = float(latest["EMA50"])
-    atr = float(latest["ATR"])
-    fib_618 = float(latest["Fib_618"]) if pd.notna(latest.get("Fib_618")) else None
-    fib_786 = float(latest["Fib_786"]) if pd.notna(latest.get("Fib_786")) else None
-
-    geom = coil_geometry_fields(window, atr)
-
-    return {
-        "Symbol": symbol.upper(),
-        "Date": latest["Date"],
-        "Setup Type": "SETUP_LONG",
-        "Close": round(close, 2),
-        "EMA20": round(ema20, 2),
-        "EMA50": round(ema50, 2),
-        "ATR": round(atr, 2),
-        "Swing Low": round(local_swing_low(window), 2),
-        "Fib 61.8%": round(fib_618, 2) if fib_618 is not None else None,
-        "Fib 78.6%": round(fib_786, 2) if fib_786 is not None else None,
-        "Pct_From_EMA20": round((close - ema20) / ema20, 4),
-        "Pct_From_EMA50": round((close - ema50) / ema50, 4),
-        "Pct_From_Fib618": round((close - fib_618) / fib_618, 4) if fib_618 is not None else None,
-        "Pct_From_Fib786": round((close - fib_786) / fib_786, 4) if fib_786 is not None else None,
-        "ATR_Pct": round(atr / close, 4) if close else None,
-        **geom,
-        "Score": setup["Score"],
-        "Grade": setup["Grade"],
-        "Checks Met": setup["Checks Met"],
-        "Source": "coiled_cobra",
-        "RS 63d": setup.get("RS 63d"),
-        **pillar_row_fields(setup.get("Parts") or {}),
-    }
+    return build_setup_row(symbol, window, setup, cobra.mode)
 
 
 def generate_backfill(mode: str | None = None, tickers: Optional[str] = None) -> pd.DataFrame:
@@ -298,7 +323,13 @@ def backtest_ticker(
             "Signal Date": signal_date.strftime("%Y-%m-%d")
             if hasattr(signal_date, "strftime")
             else signal_date,
-            **_horizon_fields(df, idx, setup_close, benchmark_df),
+            **_horizon_fields(
+                df,
+                idx,
+                setup_close,
+                benchmark_df,
+                coil_low=stamped.get("Coil_Low"),
+            ),
         }
         trades.append(row)
 
@@ -377,8 +408,10 @@ def _print_expansion_summary(trades_df: pd.DataFrame) -> None:
         if g.empty:
             continue
         m2 = pd.to_numeric(g.get("Forward_Return_2w"), errors="coerce").median()
-        r13 = pd.to_numeric(g.get("Rel_Forward_13w"), errors="coerce").median()
-        print(f"  {grade}: n={len(g)} median Fwd_2w={m2} median Rel_13w={r13}")
+        r_med = pd.to_numeric(
+            g.get("Rel_Forward_42d", g.get("Rel_Forward_13w")), errors="coerce"
+        ).median()
+        print(f"  {grade}: n={len(g)} median Fwd_2w={m2} median Rel_med={r_med}")
 
 
 def run_backtest(

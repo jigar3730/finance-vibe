@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-Finance Vibe’s live product is the **Coiled Cobra** scanner: compressed leaders vs QQQ that are ready to expand (coil → breakout). The scoring spec is **`Coiled Cobra Rubric .MD`** (v2.1). It is not a swing-pullback scanner and not a Fib-dip mean-reversion model.
+Finance Vibe’s live product is the **Coiled Cobra** scanner: compressed leaders vs QQQ that are ready to expand (coil → breakout). The scoring spec is **`Coiled Cobra Rubric .MD`** (v2.2). It is not a swing-pullback scanner and not a Fib-dip mean-reversion model.
 
 The orchestrator is `src/finance_vibe/run_vibe.py` (ingest → coil scan → expansion trade plan → helper → notifier). Quality-swing and macro Vibe scoring remain in the repo for **offline** studies only.
 
@@ -23,7 +23,7 @@ Hard gates: MACD compression ≥ 5, structure ≥ 8, relative strength vs QQQ �
 finance-vibe/
 ├── src/finance_vibe/          # Live Coiled Cobra + shared market helpers
 │   ├── run_vibe.py            # ingest → cobra → plan → helper → notifier
-│   ├── coiled_cobra.py        # v2.1 live scan
+│   ├── coiled_cobra.py        # v2.2 live scan
 │   ├── market.py              # OHLCV load, QQQ RS (shared with lab)
 │   ├── lab/                   # Offline vibe + quality-swing (not in run_vibe)
 │   └── app.py                 # Dashboard :5000
@@ -40,7 +40,7 @@ finance-vibe/
 1. Clean `data/raw/{mode}/` (skip with `--keep-raw`)
 2. `ticker_provider.py` → `data/active_tickers.csv`
 3. `data_ingestor.py` → download OHLCV per active ticker
-4. `coiled_cobra.py` → v2.1 coil scorecard on the latest bar
+4. `coiled_cobra.py` → v2.2 coil scorecard on the latest bar; daily scans join the latest weekly setups for a soft confirmation boost
 5. `trade_planner.py` → Close / Coil_Low / 2R–3R, rank, one plan CSV
 6. `ai_notifier.py` → optional Gemini briefing
 

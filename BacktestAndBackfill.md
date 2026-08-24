@@ -302,7 +302,7 @@ python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill
 
 **Output:** `data/logs/{mode}/coiled_cobra_backfill_{YYYY-MM-DD}.csv`
 
-Columns include Symbol, Date, Setup Type, Close, EMAs, ATR, v2.1 pillars (`Volume_Shelf`, `MACD_Compression`, `Structure`, `RS_Score`, `Coil_Width`, `MACD_Cross`, `Fib_Bonus`), raw geometry (`MACD_Spread_ATR`, `Coil_Width_ATR`, `Coil_High`, `Coil_Low`), `Is_New_Coil`, `Coil_Age_Bars`, Score, Grade, Source.
+Columns include Symbol, Date, Mode, RSI, v2.2 pillars (`Volume_Shelf`, `MACD_Compression`, `Structure`, `RS_Score`, `Coil_Width`, `Proximity_Highs`), raw geometry (`MACD_Spread_ATR`, `Coil_Width_ATR`, `Coil_Width_Pctile`, `Dist_High_*`, volume-accumulation fields), `MACD_Crossed`, `Is_New_Coil`, `Coil_Age_Bars`, Score, Grade, Source.
 
 A coil that stays valid for several bars is one **episode**: the first bar has `Is_New_Coil=True` / `Coil_Age_Bars=1`; later bars increment age. Use `Is_New_Coil` when counting events.
 
@@ -332,18 +332,19 @@ Each valid coil bar is a row (including overlapping weeks in the same episode). 
 | ---- | ------- |
 | Identity | `Symbol`, `Signal Date`, `Setup Type` |
 | Episode | `Is_New_Coil`, `Coil_Age_Bars` |
-| Pre-signal features | `Score`, `Grade`, `Pct_From_EMA20`, `Pct_From_EMA50`, `Pct_From_Fib618`, `Pct_From_Fib786`, `ATR_Pct`, v2.1 pillars |
-| Expansion | `Forward_Return_2w`, `5w`, `13w`, `26w` |
-| Vs QQQ | `Rel_Forward_2w`, `5w`, `13w`, `26w` |
+| Pre-signal features | pillars + raw geometry (see CoiledCobraML.md); Score/Grade exported but not tree features |
+| Expansion | `Forward_Return_{2w,21d,5w,42d,13w,26w}` (daily) / `{2w,4w,5w,8w,13w,26w}` (weekly) |
+| Vs QQQ | matching `Rel_Forward_*` |
+| Path quality | `MAE_*`, `Held_Coil_Low_*` |
 
-`Forward_Return_{Nw}` is `(Close[t+N] − Close[t]) / Close[t]` when enough future bars exist; otherwise `None` / NaN. `Rel_Forward_{Nw}` is that return minus QQQ over the same dates (on-or-before close if calendars differ).
+`Forward_Return_{suffix}` is `(Close[t+h] − Close[t]) / Close[t]` for horizon bars `h`. `Rel_Forward_*` subtracts QQQ over the same dates. `MAE_*` is max adverse excursion vs signal close. `Held_Coil_Low_*` is 1 if every Close in the horizon stays ≥ `Coil_Low`.
 
 ### ML baseline (downstream of backtest)
 
 **Module:** `src/finance_vibe/coiled_cobra_ml_training.py`  
 **Docs:** **`MLOps.md`** (Docker train/deploy) · **`CoiledCobraML.md`** (feature contract)
 
-Consumes `coiled_cobra_backtest_trades_*.csv` to train XGBoost + LightGBM on **`Rel_Forward_2w`** (fallback `Forward_Return_2w`) with:
+Consumes `coiled_cobra_backtest_trades_*.csv` to train XGBoost + LightGBM on **`Rel_Forward_42d`** (daily) or **`Rel_Forward_13w`** (weekly) with:
 
 - 10 pre-signal features (7 rubric pillars + EMA distances + `ATR_Pct`; `Score`/`Grade` excluded)
 - Rows restricted to `Is_New_Coil == True`
@@ -488,6 +489,6 @@ PY
 | `trade_planner.py` | `calculate_stock_levels` (Cobra: Close / Coil_Low / 2R–3R) |
 | `pipeline_backtest.py` | Offline swing walk-forward + scaled simulator |
 | `coiled_cobra_backtest.py` | Cobra signal backfill + expansion backtest (forward / vs QQQ) |
-| `coiled_cobra_ml_training.py` | XGBoost/LightGBM on `Rel_Forward_2w` (new coils, 10 features) |
+| `coiled_cobra_ml_training.py` | XGBoost/LightGBM on Rel_Forward_42d (daily) / 13w (weekly); new coils; pillars + raw |
 | `tests/test_pipeline_backtest.py` | Scale-out, gap, slippage, long-only, cooldown contracts |
 | `tests/test_coiled_cobra_backtest.py` | Cobra planner + backtest smoke tests |

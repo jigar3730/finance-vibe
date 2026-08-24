@@ -325,7 +325,8 @@ VIEW_TEMPLATE = """
         <strong>How to read this table:</strong>
         Entry is the coil bar <em>Close</em>. Stop protects <em>Coil_Low</em> (ATR and 5% caps).
         Targets are <em>2R</em> and <em>3R</em>. <em>Score</em> is the rubric gate (already passed).
-        <em>ML_Rank</em> 1 = highest predicted 2-week return vs QQQ — a sort, not a gate.
+        <em>ML_Rank</em> 1 = highest predicted relative return vs QQQ (daily 42d / weekly 13w) — a sort, not a gate.
+        <em>Weekly_Coil_Pass</em> marks names that also passed weekly hard gates (soft boost only).
         <a href="/docs/rubric">Rubric</a> ·
         <a href="/docs/trade-plan">Level math</a> ·
         <a href="/docs/learn-ml">Learn ML</a>

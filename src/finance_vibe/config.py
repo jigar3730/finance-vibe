@@ -12,7 +12,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(_CONFIG_DIR, "../.."))
 
 TIMEFRAME_PROFILES = {
     "daily": {
-        "period": "5y",
+        "period": "10y",
         "interval": "1d",
         "raw_dir": os.path.join(PROJECT_ROOT, "data", "raw", "daily"),
         "logs_dir": os.path.join(PROJECT_ROOT, "data", "logs", "daily"),
@@ -45,7 +45,11 @@ def get_mode_config(mode: str = None) -> dict:
 
 
 # Always-included symbols merged with manifest and screener output
-STATIC_TICKERS = ["SPY", "QQQ", "IWM", "SCHD","IBIT","SCHG"]
+STATIC_TICKERS = [
+    "NVDA", "TSLA", "PLTR", "AMD", "CELH", "SMCI", "SOFI", "HOOD", 
+    "COIN", "AFRM", "UPST", "AXON", "MELI", "DUOL", "ANET", "DECK", 
+    "AAPL", "MSFT", "AMZN", "GOOGL", "META", "QQQ", "SPY", "IWM", "SMH"
+]
 
 # Universe size for ticker_provider → data/active_tickers.csv
 ACTIVE_TICKER_CAP = 1000
@@ -409,6 +413,8 @@ SETUP_ROW_COLUMNS = [
     "EMA50",
     "ATR",
     "RSI",
+    "RSI_Healthy",
+    "RSI_Zone_Score",
     "Swing Low",
     "Swing High",
     "Risk Per Share",
@@ -423,12 +429,27 @@ SETUP_ROW_COLUMNS = [
     "Structure",
     "RS_Score",
     "Coil_Width",
+    "Proximity_Highs",
     "MACD_Cross",
+    "MACD_Crossed",
     "Fib_Bonus",
     "MACD_Spread_ATR",
     "Coil_Width_ATR",
+    "Coil_Width_Pctile",
     "Coil_High",
     "Coil_Low",
+    "Volume_Contraction_Ratio",
+    "OBV_Coil_Slope",
+    "Up_Volume_Ratio",
+    "Volume_Trend_Ratio",
+    "Pivot_Price",
+    "Distance_To_Pivot_Pct",
+    "Dist_High_63_Pct",
+    "Dist_High_63_ATR",
+    "Dist_High_126_Pct",
+    "Dist_High_126_ATR",
+    "Dist_High_252_Pct",
+    "Dist_High_252_ATR",
     "Fib 61.8%",
     "Fib 78.6%",
     "Fib Score",
@@ -439,6 +460,8 @@ SETUP_ROW_COLUMNS = [
     "Pct_From_Fib618",
     "Pct_From_Fib786",
     "ATR_Pct",
+    "Weekly_Coil_Pass",
+    "Weekly_Score",
     "ML_Pred_Return",
     "ML_Rank",
 ]

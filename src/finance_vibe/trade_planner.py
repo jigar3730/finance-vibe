@@ -190,7 +190,11 @@ PLAN_EXPORT_COLUMNS = [
     "Structure",
     "RS_Score",
     "Coil_Width",
+    "Proximity_Highs",
     "MACD_Cross",
+    "MACD_Crossed",
+    "Weekly_Coil_Pass",
+    "Weekly_Score",
     "Fib_Bonus",
 ]
 
@@ -282,7 +286,11 @@ def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
         ml_pred = pd.Series(np.nan, index=out.index, dtype="float64")
 
     if ml_pred.notna().any():
-        out["Priority"] = (ml_pred * propensity).round(4)
+        weekly_boost = np.ones(len(out), dtype=float)
+        if "Weekly_Coil_Pass" in out.columns:
+            weekly_flag = pd.to_numeric(out["Weekly_Coil_Pass"], errors="coerce").fillna(0)
+            weekly_boost = np.where(weekly_flag.eq(1), TIGHT_COIL_PROPENSITY, 1.0)
+        out["Priority"] = (ml_pred * propensity * weekly_boost).round(4)
     else:
         out["Priority"] = (score * propensity).round(2)
 
@@ -441,6 +449,9 @@ def generate_trade_plan(scanner_csv_path=None):
                 "RS_Score": row.get("RS_Score", None),
                 "Coil_Width": row.get("Coil_Width", None),
                 "MACD_Cross": row.get("MACD_Cross", None),
+                "MACD_Crossed": row.get("MACD_Crossed", None),
+                "Weekly_Coil_Pass": row.get("Weekly_Coil_Pass", None),
+                "Weekly_Score": row.get("Weekly_Score", None),
                 "Fib_Bonus": row.get("Fib_Bonus", None),
                 "MACD_Spread_ATR": row.get("MACD_Spread_ATR", None),
                 "Coil_Width_ATR": row.get("Coil_Width_ATR", None),

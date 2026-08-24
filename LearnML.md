@@ -8,8 +8,8 @@ You do not need a graduate course to understand what Finance Vibe trains. You do
 
 You collect examples `(X, y)`:
 
-- **X** — numbers known **when the coil prints** (pillars, EMA distances, ATR_Pct).
-- **y** — a number known only **later** (forward return vs QQQ over ~2 weeks).
+- **X** — numbers known **when the coil prints** (pillars, proximity-to-highs, volume raw, RSI, EMA distances, ATR_Pct).
+- **y** — a number known only **later** (forward return vs QQQ; daily 42 sessions / weekly 13 bars).
 
 A model learns `f(X) ≈ y`. On a live scan you compute `f(X_today)` and **sort**. That sort is `ML_Rank`. The rubric **Score** already decided the coil was legal.
 
@@ -31,7 +31,7 @@ A 2-week **relative** return can be small and still useful if the **order** of n
 
 ## 3. Leakage (the silent cheat)
 
-If a column is only known after the signal (exit, fill, R-multiple), putting it in X makes history look smart and live ranks worthless. Training **drops** execution-style columns. **Score** and **Grade** are also out of X: Score is a mix of the pillars; Grade is a bin of Score. Trees would copy the rubric instead of finding residual pattern.
+If a column is only known after the signal (exit, fill, R-multiple), putting it in X makes history look smart and live ranks worthless. Training **drops** execution-style columns. **Score** and **Grade** are also out of X: Score is a mix of the pillars; Grade is a bin of Score. Trees would copy the rubric instead of finding residual pattern. Score still **filters** training rows (hard gates + ≥70) and remains the live **fallback sort**.
 
 **Episode leakage:** a coil that lasts five bars is one story. Training keeps **`Is_New_Coil == True`** only (age = 1). Continuation bars share overlapping forward windows.
 
@@ -51,7 +51,7 @@ If any split is empty, you do not have enough history. A 3-ticker smoke backtest
 
 ## 5. Sample weights
 
-Violent names have noisier 2-week returns. Weighting **by** ATR_Pct would train mostly on lottery tickets. The code uses **`1 / ATR_Pct`** (non-finite weights → train median). That is fit-time only, not portfolio risk parity.
+Violent names have noisier 2-week returns. Weighting **by** ATR_Pct would train mostly on lottery tickets. The code defaults to **uniform** weights. `1 / ATR_Pct` is an opt-in experiment (`USE_INVERSE_ATR_WEIGHTS`).
 
 ---
 
@@ -83,7 +83,7 @@ Test Spearman **> 0** (and not collapsing vs val) → weak ranking edge. **~0** 
 
 ## 8. Inference (fail-soft)
 
-`ml_ranker.py` looks only in the **active mode** silo (`data/logs/daily/` for the default scan). It loads XGB JSON and LGB text, **skips** a booster whose feature names are not the current 10 columns (old Score+Fib models), then **averages** predictions. Rank 1 = highest predicted relative return. No file or all NaN → Score sort; the pipeline still runs.
+`ml_ranker.py` looks only in the **active mode** silo (`data/logs/daily/` for the default scan). It loads XGB JSON and LGB text, **skips** a booster whose feature names are not the current `FEATURE_COLS`, then **averages** predictions. Rank 1 = highest predicted relative return. Daily scans may **soft-boost** names that also appear in the latest weekly setups CSV (`Weekly_Coil_Pass`). No file or all NaN → Score sort; the pipeline still runs. ML never gates.
 
 The planner may multiply a **1.25×** boost when coil width ≤ 4 ATR or risk ≤ 3% of close. That is a business rule on top of `f(X)`, not part of training.
 

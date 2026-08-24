@@ -61,8 +61,25 @@ def test_rel_forward_subtracts_qqq_on_or_before_date():
 
 
 def test_forward_horizon_bars_are_calendar_equivalent():
-    assert forward_horizon_bars("weekly") == (2, 5, 13, 26)
-    assert forward_horizon_bars("daily") == (10, 25, 63, 126)
+    assert forward_horizon_bars("weekly") == (2, 4, 5, 8, 13, 26)
+    assert forward_horizon_bars("daily") == (10, 21, 25, 42, 63, 126)
+    from finance_vibe.coiled_cobra_backtest import forward_label_specs, mae_at, held_coil_low_at
+
+    daily_suffixes = [s for _, s in forward_label_specs("daily")]
+    assert "21d" in daily_suffixes and "42d" in daily_suffixes
+    weekly_suffixes = [s for _, s in forward_label_specs("weekly")]
+    assert "4w" in weekly_suffixes and "8w" in weekly_suffixes
+
+    dates = pd.date_range("2024-01-01", periods=10, freq="B")
+    df = pd.DataFrame({
+        "Date": dates,
+        "Close": [100.0] * 10,
+        "Low": [100.0, 100.0, 90.0, 95.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
+    })
+    assert mae_at(df, 0, 3, 100.0) == pytest.approx(0.10)
+    df["Close"] = [100.0, 101.0, 102.0, 99.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+    assert held_coil_low_at(df, 0, 3, 100.0) == 0
+    assert held_coil_low_at(df, 0, 2, 100.0) == 1
 
 
 def _fake_setup(symbol: str) -> dict:
@@ -89,8 +106,10 @@ def _fake_setup(symbol: str) -> dict:
         "Structure": 17.0,
         "RS_Score": 13.5,
         "Coil_Width": 12.0,
+        "Proximity_Highs": 8.0,
         "MACD_Cross": 0.0,
         "Fib_Bonus": 1.2,
+        "Coil_Low": 94.0,
     }
 
 
@@ -140,6 +159,9 @@ def test_coiled_cobra_backtest_ticker_records_expansion(tmp_path, monkeypatch):
         assert trades[0]["Coil_Age_Bars"] == 1
         assert trades[0]["Forward_Return_2w"] == 0.0
         assert "Rel_Forward_2w" in trades[0]
+        assert "Rel_Forward_42d" in trades[0]
+        assert "MAE_2w" in trades[0]
+        assert "Held_Coil_Low_2w" in trades[0]
         assert trades[0]["MACD_Compression"] == 18.5
 
         assert trades[1]["Is_New_Coil"] is False

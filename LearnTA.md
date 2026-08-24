@@ -48,7 +48,9 @@ Cobra **normalizes** several ideas by ATR:
 - Coil width = N-bar range / ATR.
 - Stops use ATR buffers so a $5 name and a $400 name are not treated as the same dollar stop.
 
-**ATR_Pct** = ATR / Close. High ATR_Pct means violent names; the trainer **down-weights** them (`1 / ATR_Pct`) so lottery tickets do not dominate the loss.
+**ATR_Pct** = ATR / Close. High ATR_Pct means violent names. Inverse ATR sample
+weighting (`1 / ATR_Pct`) is an **optional** trainer switch (`USE_INVERSE_ATR_WEIGHTS`);
+the default is uniform weights.
 
 ---
 
@@ -80,9 +82,12 @@ Forward labels for ML use the same idea: `Rel_Forward_2w` = stock 2-week return 
 
 ---
 
-## 7. Volume shelf
+## 7. Volume contraction (not a volume-profile shelf)
 
-Price can sit in a range while volume **accumulates** in a price bin (auction / volume profile). Cobra scores a “shelf”: topology vs neighbors, location vs point of control, close vs bin. It is **not** a hard gate. Think “is this a pause with sponsorship?” not “highest volume of the year.”
+Price can sit in a range while **volume dries up** versus the bars before the coil.
+Cobra scores median coil volume / median baseline volume (`Volume_Contraction_Ratio`)
+into the 0–20 `Volume_Shelf` alias. Complementary raw fields: OBV slope over the coil,
+up-volume ratio, and late/early volume trend. Daily OHLCV cannot show true volume-at-price.
 
 ---
 

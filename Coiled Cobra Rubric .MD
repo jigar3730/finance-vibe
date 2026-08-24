@@ -1,7 +1,7 @@
 # Coiled Cobra Scanner
 ## Scoring Rubric & Technical Design
 
-Version: 2.1 (Coil → Expansion, granular pillars)
+Version: 2.2 (Coil → Expansion, proximity-to-highs, cleaned scorecard)
 
 ---
 
@@ -12,42 +12,42 @@ The **Coiled Cobra Scanner** identifies **compressed leaders ready to expand**
 
 It looks for securities that are:
 
-- Sitting in a volume / accumulation shelf
+- Contracting volume during the coil (dry-up vs the prior baseline)
 - Compressing on MACD (tight MACD−Signal spread) — MACD may be ≥ 0
 - Holding healthy structure (price above a rising EMA50 / EMA100 stack)
 - Showing positive relative strength vs QQQ
 - Coiling in a tight N-bar range (low range / ATR)
-- Optionally printing an early bullish MACD cross
+- Sitting near recent highs (63/126/252-bar, weekly 13/26/52)
 
-Deep markdown under EMA20 was **removed** — it systematically filtered out
-high-base coils (NVDA / APP / MU-class) that the scanner is meant to catch
-before a monster run.
+MACD cross and Fib distances are **exported as flags/raw features**, not added to Score.
+RSI (45–70 healthy zone) is an ML feature, not a Score pillar.
 
-Pillars are **piecewise-linear** (not 5-point cliffs). Core six sum to **100**;
-the Fib bonus is 0–5 and the printed total is **clipped at 100**.
-Only setups scoring ≥ 70 are returned.
+Pillars are **piecewise-linear**. Core six sum to **100** (clipped).
+Only setups scoring ≥ 70 are returned. Score is a **filter and live ranking baseline**,
+not the ML ranker.
 
 ---
 
-# Overall Scoring Matrix (v2.1 — Coil)
+# Overall Scoring Matrix (v2.2 — Coil)
 
-| Category | Weight | Purpose |
-|----------|---------:|---------|
-| Volume Profile Shelf | 20 | Accumulation zone |
-| MACD Compression (ATR-normalized) | 20 | Coiled energy (no MACD &lt; 0) |
-| Structure (rising EMA stack) | 20 | Leader still healthy |
-| Relative Strength vs QQQ | 15 | Prefer names already leading |
-| Coil Width (range / ATR) | 15 | Tight base before expansion |
-| Bullish MACD Crossover | 10 | Early trigger (quality-scaled) |
-| Fib bonus (optional) | 5 | Context only — not a gate |
+| Category | Weight | Purpose | Gate? |
+|----------|---------:|---------|-------|
+| Volume contraction | 20 | Dry-up during the coil | no |
+| MACD Compression (ATR-normalized) | 20 | Coiled energy (no MACD &lt; 0) | yes ≥ 5 |
+| Structure (rising EMA stack) | 20 | Leader still healthy | yes ≥ 8 + Close &gt; rising EMA50 |
+| Relative Strength vs QQQ | 15 | Prefer names already leading | yes ≥ 12 |
+| Coil Width (range / ATR) | 13 | Tight base before expansion | no |
+| Proximity to highs | 12 | Ready to push through supply | no |
+| MACD cross (export only) | 0 | `MACD_Crossed` bool + `MACD_Spread_ATR` | no |
+| Fib (export only) | 0 | `Pct_From_Fib618/786` optional ML context | no |
 
-Core maximum = **100**. Fib may add up to 5, then **clip to 100**.
+Hard gates: MACD compression ≥ 5, structure ≥ 8 **and** `healthy_structure_gate`,
+**and relative strength ≥ 12** (full RS pass vs QQQ). Negative-RS coils that only
+look tight (BA/DG-class) are rejected.
 
-Hard gates: MACD compression ≥ 5, structure ≥ 8, **and relative strength ≥ 12**
-(full RS pass vs QQQ). Negative-RS coils that only look tight (BA/DG-class) are rejected.
-
-Scan / backtest CSVs write each pillar: `Volume_Shelf`, `MACD_Compression`,
-`Structure`, `RS_Score`, `Coil_Width`, `MACD_Cross`, `Fib_Bonus`.
+CSVs write pillars **and** raw measurements (`Volume_Contraction_Ratio`,
+`Dist_High_*`, `Coil_Width_ATR`, `Coil_Width_Pctile`, coil OBV / up-volume /
+volume-trend, RSI, `MACD_Crossed`).
 
 ---
 
@@ -66,17 +66,15 @@ Scan / backtest CSVs write each pillar: `Volume_Shelf`, `MACD_Compression`,
 Interpolation uses linear segments between the knots below, rounded to 2 decimals.
 Values outside the first/last knot clamp to that knot’s points.
 
-## 1. Volume Profile Shelf (20 Points)
+## 1. Volume contraction (20 Points)
 
-Auction-market bins over the lookback window. Three sub-scores (floats):
+Median coil-window volume / median prior baseline volume (`Volume_Contraction_Ratio`).
+Lower is better (dry-up). Not a hard gate. `Volume_Shelf` is the 0–20 score alias.
 
-| Sub-score | Max | Rule |
-|-----------|----:|------|
-| Topology | 8 | `min(8, (bin_vol / neighbor_vol) × 2.5)` — no integer truncation |
-| Value vs POC | 8 | Tent: 5 at POC, peak 8 at 1–3 bins, 8→4 at 3–6, 4→0 at 6–10 |
-| Behavior | 4 | 4 if close ≥ bin center; decay toward 1 if below |
+Complementary **raw** fields (not in Score): `OBV_Coil_Slope`, `Up_Volume_Ratio`,
+`Volume_Trend_Ratio` (late-half / early-half median volume; declining ≈ accumulation).
 
-Prefer *near* value (not glued to the POC). Not a hard gate.
+Daily/weekly OHLCV cannot produce a true volume-at-price shelf.
 
 ## 2. MACD Compression (20 Points)
 
@@ -121,34 +119,39 @@ Stock/QQQ ratio above its MA **and** positive lookback relative return
 
 **Worked contrast:** full-pass +5% RS → **13.5**, not lumped with +0.1% at 12.
 
-## 5. Coil Width (15 Points)
+## 5. Coil Width (13 Points)
 
 N-bar range / ATR (weekly N=8, daily N=30):
 
 | width (ATR) | Points |
 |-------------|-------:|
-| ≤ 4 | 15 |
-| 6 | 10 |
-| 8 | 5 |
+| ≤ 4 | 13 |
+| 6 | 9 |
+| 8 | 4 |
 | ≥ 10 | 0 |
 
-## 6. Bullish MACD Cross (10 Points)
+Also export `Coil_Width_ATR` and `Coil_Width_Pctile` (percentile of current N-bar
+range vs the prior 252 daily / 52 weekly bars, excluding the signal bar).
 
-Prior bar MACD ≤ Signal and current MACD > Signal. Otherwise **0**
-(no approach credit).
+## 6. Proximity to highs (12 Points)
 
-If crossed, scale by remaining tightness:
+Distance from Close to rolling highs. Column names are always `Dist_High_{63,126,252}_Pct`
+and `_ATR`; weekly uses 13/26/52 bars.
 
-```
-10 × clip(1 - (spread - 0.05) / 0.25, 0.60, 1.00)
-```
+- Up to 8 pts from the near (63/13) high
+- Up to 2 pts from the mid (126/26) high
+- Up to 2 pts from the year (252/52) high
 
-10 at spread ≤ 0.05; 6 at wide/late crosses.
+Not a hard gate.
 
-## 7. Fib Bonus (0–5 Points)
+## 7. MACD Cross and Fib (export only)
 
-Optional proximity to rolling Fib 61.8 / 78.6 (ATR-normalized). Not required.
-Does not change hard gates. Cannot push the printed score above 100.
+`MACD_Crossed` is 1 when prior MACD ≤ Signal and current MACD > Signal.
+Tightness stays in `MACD_Spread_ATR`. **0 points in Score.**
+
+Fib 61.8 / 78.6 distances remain optional columns. **0 points in Score.**
+
+RSI(14) plus `RSI_Healthy` (45–70) and `RSI_Zone_Score` (0–5) are ML/context only.
 
 ---
 
@@ -159,7 +162,8 @@ Favor:
 - Compression before expansion
 - Relative-strength leaders
 - Structural health
-- Accumulation shelves
+- Accumulation / volume dry-up during the coil
+- Proximity to recent highs without chasing a vertical extension
 
 Avoid:
 
@@ -175,12 +179,13 @@ Avoid:
   QQQ-relative expansion, not bounce P&L. Filter `Is_New_Coil` to score episodes.
 - IPO / short-history names (GEV, APP early years) may lack EMA100 / RS history.
 - Daily is the primary horizon (5y `1d`, coil N=30, 1–3 month options). Weekly is slower confirmation (10y `1wk`, coil N=8, LEAPS).
-- Granular `Score` spreads vs v2.0 buckets; retrain the offline ML ranker if ranks look stale
-  (10 features = 7 pillars + EMA distances + ATR_Pct — old Score+Fib models will not score).
+- Granular `Score` spreads vs v2.1; retrain the offline ML ranker after this
+  scorecard (pillars + raw geometry — old Score+Fib / 10-feature models will not score).
+  Daily primary target is `Rel_Forward_42d`; weekly is `Rel_Forward_13w`.
 
 ---
 
 # Legacy v1 note
 
 v1 scored deep markdown + MACD &lt; 0 + heavy yearly Fib (macro reversal). That
-model remains documented in git history; live code is the v2.1 coil scorecard above.
+model remains documented in git history; live code is the v2.2 coil scorecard above.

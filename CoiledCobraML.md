@@ -4,9 +4,9 @@
 
 **Module:** `src/finance_vibe/coiled_cobra_ml_training.py`
 
-Standalone training script that learns a short-horizon alpha gradient from Coiled Cobra backtest exports. It predicts **`Rel_Forward_2w`** (QQQ-relative 2-bar return; falls back to `Forward_Return_2w`) using rubric pillars plus EMA/ATR geometry — never Score, Grade, or post-trade execution fields.
+Standalone training script that learns a medium-horizon alpha gradient from Coiled Cobra backtest exports. Daily models predict **`Rel_Forward_42d`** (fall back `Rel_Forward_13w` then `Rel_Forward_2w`). Weekly models predict **`Rel_Forward_13w`**. Features are rubric pillars **plus** raw continuous measurements — never Score, Grade, or post-trade execution fields.
 
-Training rows are **`Is_New_Coil == True`** only. This is an **offline research baseline**. Old 6-feature models (Score + Fib %) will not score the new 10-feature frame — retrain after a fresh `--backtest`.
+Training rows are **`Is_New_Coil == True`** only. Splits are temporal (no random K-fold). Old 6-feature or 10-feature Score/Fib models will not score the v2.2 frame — retrain after a fresh `--backtest`.
 
 ---
 
@@ -90,7 +90,8 @@ coiled_cobra_backtest_trades_*.csv
         │
         ▼
   build_matrices()
-    X = 10 pre-signal features (7 pillars + EMA% + ATR_Pct)
+    X = v2.2 pillars + raw geometry (no Score/Grade)
+    y = Rel_Forward_42d (daily) or Rel_Forward_13w (weekly)
     y = Rel_Forward_2w
     sample_weight = ATR_Pct
         │
@@ -106,31 +107,24 @@ coiled_cobra_backtest_trades_*.csv
 
 ## Column isolation (anti-leakage)
 
-### Feature space (X) — exactly 10 columns
+### Feature space (X) — pillars and raw (no Score/Grade)
 
-| Feature | Role |
-| ------- | ---- |
-| `Volume_Shelf` | Rubric pillar (0–20) |
-| `MACD_Compression` | Rubric pillar (0–20) |
-| `Structure` | Rubric pillar (0–20) |
-| `RS_Score` | Rubric pillar vs QQQ (0–15) |
-| `Coil_Width` | Rubric pillar (0–15) |
-| `MACD_Cross` | Rubric pillar (0–10) |
-| `Fib_Bonus` | Optional bonus (0–5) |
-| `Pct_From_EMA20` | Close vs EMA20 (fraction) |
-| `Pct_From_EMA50` | Close vs EMA50 (fraction) |
-| `ATR_Pct` | ATR / Close (volatility scale) |
+Pillars: `Volume_Shelf`, `MACD_Compression`, `Structure`, `RS_Score`, `Coil_Width`, `Proximity_Highs`.
 
-**`Score` and `Grade` are excluded.** Score is a clipped sum of the pillars; Grade is a bin of Score.
+Raw: `Volume_Contraction_Ratio`, `MACD_Spread_ATR`, `Coil_Width_ATR`, `Coil_Width_Pctile`, `Dist_High_{63,126,252}_Pct` / `_ATR` (weekly bars 13/26/52, same names), `OBV_Coil_Slope`, `Up_Volume_Ratio`, `Volume_Trend_Ratio`, `RSI`, `RSI_Healthy`, `Pct_From_EMA20`, `Pct_From_EMA50`, `ATR_Pct`, `Distance_To_Pivot_Pct`, `MACD_Crossed`.
+
+**`Score` and `Grade` are excluded from trees.** Score gates the sample (≥70 + hard gates) and is a live ranking baseline, not `FEATURE_COLS`.
 
 ### Target (y)
 
-| Column | Definition |
-| ------ | ---------- |
-| `Rel_Forward_2w` (preferred) | Stock 2-bar return minus QQQ over the same dates |
-| `Forward_Return_2w` (fallback) | `(Close[t+2] − Close[t]) / Close[t]` |
+| Mode | Preferred | Fallbacks |
+| ---- | --------- | --------- |
+| Daily | `Rel_Forward_42d` | `Rel_Forward_13w`, `Rel_Forward_2w`, `Forward_Return_2w` |
+| Weekly | `Rel_Forward_13w` | `Rel_Forward_26w`, `Rel_Forward_2w` |
 
-Also present but not the training target: 5w / 13w / 26w absolute and relative forwards.
+Also exported: 21d (daily), 4w/8w (weekly), absolute forwards, `MAE_*`, `Held_Coil_Low_*`.
+
+Embargo weeks match the training target (9 weeks for 42d, 13 weeks for Rel_Forward_13w, etc.).
 
 ### Leakage columns — strictly dropped before training
 
@@ -178,11 +172,7 @@ Raw CSV was 5397 rows; 118 rows dropped for missing `Forward_Return_13w`.
 
 ## Sample weighting
 
-Both frameworks receive **inverse** `ATR_Pct` sample weights at `.fit()` time (`1 / ATR_Pct`).
-
-- `Rel_Forward_2w` is already a return. High-ATR names are noisier; weighting *by* ATR would amplify them.
-- Inverse ATR equalizes MAE in return space so quiet large-caps are not ignored and high-beta tails do not dominate.
-- Non-finite or non-positive ATR values are replaced with the **train median** of the inverse weight.
+Both frameworks receive **uniform** sample weights by default. Inverse `ATR_Pct` (`USE_INVERSE_ATR_WEIGHTS = True`) is a later experiment.
 
 ---
 
