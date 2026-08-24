@@ -143,12 +143,17 @@ python src/finance_vibe/coiled_cobra_backtest.py --backfill
 python src/finance_vibe/coiled_cobra_backtest.py --backtest
 python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest   # slower confirmation horizon
 
-# Coiled Cobra ML baseline (predict Rel_Forward_2w on new coils)
+# Coiled Cobra ML: separate 10d / 21d / 42d hit classifiers on new coils
 python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv data/logs/daily/coiled_cobra_backtest_trades_2026-07-17.csv
+  --csv data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv \
+  --artifacts-dir data/logs/daily
 ```
 
-The training run writes `coiled_cobra_xgb_model.json`, `coiled_cobra_lgb_model.txt`, and `coiled_cobra_ml_model_metadata.json`. `ml_ranker.py` attaches `ML_Pred_Return` / `ML_Rank` as a **soft** rank — never a gate. Retrain after the 10-feature pillar set; old 6-feature (Score + Fib %) models will not score new frames.
+Training writes separate `coiled_cobra_xgb_{10d,21d,42d}.json` files and
+per-horizon metadata. Live output keeps `ML_Prob_10Pct_10d`,
+`ML_Prob_15Pct_21d`, and `ML_Prob_25Pct_42d` separate. A probability is enabled
+only when that horizon beats Score under the walk-forward promotion rule;
+otherwise Score remains authoritative.
 
 Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI: **`BacktestAndBackfill.md`**. Features/splits: **`CoiledCobraML.md`**.
 

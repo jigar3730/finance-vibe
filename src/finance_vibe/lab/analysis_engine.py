@@ -27,6 +27,7 @@ from finance_vibe.market import (
     load_ohlc_csv,
     market_regime_ok,
     relative_strength,
+    select_raw_paths,
     ticker_from_filename,
 )
 
@@ -37,6 +38,7 @@ __all__ = [
     "calculate_vibe_score",
     "ema",
     "iter_raw_csv_paths",
+    "select_raw_paths",
     "load_benchmark_frame",
     "load_ohlc_csv",
     "market_regime_ok",
@@ -335,8 +337,9 @@ def run_scan(mode: str | None = None, max_workers: Optional[int] = None) -> pd.D
     logs_dir = mode_cfg["logs_dir"]
 
     print(f"--- STEP 3: Macro Vibe Score Scan [{mode.upper()} MODE] ---")
+    print(f"Using {mode_cfg['period']} {mode_cfg['interval']} files in {raw_dir}")
 
-    paths = list(iter_raw_csv_paths(raw_dir))
+    paths = select_raw_paths(raw_dir, cfg=mode_cfg)
     if not paths:
         print(f"No CSV files found in {raw_dir}")
         return pd.DataFrame()

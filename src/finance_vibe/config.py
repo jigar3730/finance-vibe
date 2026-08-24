@@ -464,6 +464,9 @@ SETUP_ROW_COLUMNS = [
     "Weekly_Score",
     "ML_Pred_Return",
     "ML_Rank",
+    "ML_Prob_10Pct_10d",
+    "ML_Prob_15Pct_21d",
+    "ML_Prob_25Pct_42d",
 ]
 
 

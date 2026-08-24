@@ -78,6 +78,14 @@ def test_setup_schema_includes_ml_feature_and_rank_columns():
         assert col in config.SETUP_ROW_COLUMNS, f"missing feature col {col}"
     assert "ML_Pred_Return" in config.SETUP_ROW_COLUMNS
     assert "ML_Rank" in config.SETUP_ROW_COLUMNS
+
+
+def test_daily_timeframe_profile_is_ten_year_daily():
+    cfg = config.get_mode_config("daily")
+    assert cfg["period"] == "10y"
+    assert cfg["interval"] == "1d"
+    assert config.get_raw_filename("AAPL", cfg) == "AAPL_10y_1d.csv"
+    assert config.get_raw_filename("QQQ", cfg).endswith("_10y_1d.csv")
     assert "Coil_High" in config.SETUP_ROW_COLUMNS
     assert "Coil_Low" in config.SETUP_ROW_COLUMNS
 

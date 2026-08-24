@@ -13,9 +13,16 @@ from datetime import datetime
 from typing import Optional
 
 import pandas as pd
+import numpy as np
 
 from finance_vibe import config
-from finance_vibe.market import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
+from finance_vibe.market import (
+    load_benchmark_frame,
+    load_ohlc_csv,
+    resolve_raw_path,
+    select_raw_paths,
+    ticker_from_filename,
+)
 from finance_vibe import coiled_cobra as cobra
 from finance_vibe.coiled_cobra import (
     BENCHMARK,
@@ -25,12 +32,38 @@ from finance_vibe.coiled_cobra import (
     evaluate_coiled_cobra,
 )
 
+# Hit / win labels are written only for daily ML horizons.  Each threshold is
+# evaluated from the same signal-time close and future-High window.
+HIT_LABEL_SPECS = {
+    "10d": {
+        "win_col": "Win_10d",
+        "hits": (("Hit_10Pct_10d", 0.10), ("Hit_15Pct_10d", 0.15)),
+    },
+    "21d": {
+        "win_col": "Win_21d",
+        "hits": (
+            ("Hit_10Pct_21d", 0.10),
+            ("Hit_15Pct_21d", 0.15),
+            ("Hit_20Pct_21d", 0.20),
+        ),
+    },
+    "42d": {
+        "win_col": "Win_42d",
+        "hits": (
+            ("Hit_10Pct_42d", 0.10),
+            ("Hit_25Pct_42d", 0.25),
+            ("Hit_50Pct_42d", 0.50),
+        ),
+    },
+}
+
+
 def forward_label_specs(scan_mode: str | None = None) -> tuple[tuple[int, str], ...]:
     """(bar_offset, column_suffix) for forward / relative / MAE / held-low labels."""
     m = scan_mode or cobra.mode
     if m == "daily":
         return (
-            (10, "2w"),
+            (10, "10d"),
             (21, "21d"),
             (25, "5w"),
             (42, "42d"),
@@ -128,6 +161,99 @@ def rel_forward_at(
     return round(stock_fwd - bench_fwd, 4)
 
 
+def max_return_at(
+    df: pd.DataFrame,
+    idx: int,
+    horizon: int,
+    setup_close: float,
+) -> Optional[float]:
+    """Max favorable excursion: (max High over the next *horizon* bars − close) / close.
+
+    Requires a complete horizon (same gate as ``forward_return_at``) so labels
+    are not computed from truncated windows at the end of a series.
+    """
+    future_idx = idx + horizon
+    if future_idx >= len(df) or setup_close == 0:
+        return None
+    future = df.iloc[idx + 1 : idx + horizon + 1]
+    if future.empty or "High" not in future.columns:
+        return None
+    high_water = float(pd.to_numeric(future["High"], errors="coerce").max())
+    if not pd.notna(high_water):
+        return None
+    return round((high_water - setup_close) / setup_close, 4)
+
+
+def future_max_return_series(ohlc: pd.DataFrame, bars: int) -> pd.Series:
+    """Vectorized Max_Return for every bar: max High over the next *bars* sessions.
+
+    Incomplete windows at the tail are NaN. Uses future High only — label construction,
+    never a live feature.
+    """
+    n = len(ohlc)
+    out = np.full(n, np.nan, dtype=float)
+    if n <= bars or "High" not in ohlc.columns or "Close" not in ohlc.columns:
+        return pd.Series(out, index=ohlc.index)
+    high = pd.to_numeric(ohlc["High"], errors="coerce").to_numpy(dtype=float)
+    close = pd.to_numeric(ohlc["Close"], errors="coerce").to_numpy(dtype=float)
+    from numpy.lib.stride_tricks import sliding_window_view
+
+    windows = sliding_window_view(high, bars)
+    # windows[i] = high[i:i+bars]; next-bars max at bar i is windows[i+1]
+    fut_max = windows[1:].max(axis=1)
+    usable = min(len(fut_max), n - bars)
+    c = close[:usable]
+    with np.errstate(divide="ignore", invalid="ignore"):
+        out[:usable] = np.where(c != 0, (fut_max[:usable] - c) / c, np.nan)
+    return pd.Series(out, index=ohlc.index)
+
+
+def enrich_mfe_targets(df: pd.DataFrame, mode: str | None = None) -> pd.DataFrame:
+    """Attach Max_Return / Hit_* from raw OHLC for existing signal rows.
+
+    Lets older backtest CSVs (forward closes only) gain intra-horizon MFE labels
+    without re-scanning coils. Future prices are not copied into feature columns.
+    """
+    if df.empty or "Symbol" not in df.columns or "Signal Date" not in df.columns:
+        return df
+    mode = mode or config.DEFAULT_MODE
+    cfg = config.get_mode_config(mode)
+    horizons = ((10, "10d"), (21, "21d"), (42, "42d"))
+    pieces: list[pd.DataFrame] = []
+    n_ok = 0
+    n_miss = 0
+    for symbol, group in df.groupby("Symbol", sort=False):
+        path = resolve_raw_path(str(symbol), cfg)
+        g = group.copy()
+        if not path or not os.path.isfile(path):
+            n_miss += 1
+            pieces.append(g)
+            continue
+        try:
+            ohlc = load_ohlc_csv(path)
+        except Exception:
+            n_miss += 1
+            pieces.append(g)
+            continue
+        ohlc = ohlc.copy()
+        ohlc["Date"] = pd.to_datetime(ohlc["Date"], errors="coerce").dt.normalize()
+        ohlc = ohlc.dropna(subset=["Date"]).drop_duplicates("Date", keep="last")
+        sig = pd.to_datetime(g["Signal Date"], errors="coerce").dt.normalize()
+        for bars, suffix in horizons:
+            mfe = future_max_return_series(ohlc, bars)
+            mapper = pd.Series(mfe.to_numpy(), index=ohlc["Date"])
+            mx = sig.map(mapper)
+            g[f"Max_Return_{suffix}"] = pd.to_numeric(mx, errors="coerce").round(4)
+            for hit_col, threshold in HIT_LABEL_SPECS[suffix]["hits"]:
+                g[hit_col] = np.where(
+                    mx.isna(), np.nan, (mx >= threshold).astype(float)
+                )
+        n_ok += 1
+        pieces.append(g)
+    print(f"MFE enrich: {n_ok} symbol file(s) loaded, {n_miss} missing/unreadable")
+    return pd.concat(pieces, ignore_index=True) if pieces else df
+
+
 def mae_at(
     df: pd.DataFrame,
     idx: int,
@@ -135,10 +261,10 @@ def mae_at(
     setup_close: float,
 ) -> Optional[float]:
     """Max adverse excursion: (close - min Low over the horizon) / close."""
-    if setup_close == 0 or idx + 1 >= len(df):
+    future_idx = idx + horizon
+    if future_idx >= len(df) or setup_close == 0:
         return None
-    end = min(idx + horizon + 1, len(df))
-    future = df.iloc[idx + 1 : end]
+    future = df.iloc[idx + 1 : future_idx + 1]
     if future.empty:
         return None
     low_water = float(pd.to_numeric(future["Low"], errors="coerce").min())
@@ -156,10 +282,10 @@ def held_coil_low_at(
     """1 if every Close in the horizon stays at or above Coil_Low."""
     if coil_low is None or (isinstance(coil_low, float) and pd.isna(coil_low)):
         return None
-    if idx + 1 >= len(df):
+    future_idx = idx + horizon
+    if future_idx >= len(df):
         return None
-    end = min(idx + horizon + 1, len(df))
-    future = df.iloc[idx + 1 : end]
+    future = df.iloc[idx + 1 : future_idx + 1]
     if future.empty:
         return None
     floor = float(coil_low)
@@ -178,9 +304,10 @@ def _horizon_fields(
 ) -> dict:
     fields: dict = {}
     for bars, suffix in forward_label_specs():
-        fields[f"Forward_Return_{suffix}"] = forward_return_at(
-            df, idx, bars, setup_close
-        )
+        fwd = forward_return_at(df, idx, bars, setup_close)
+        mfe = max_return_at(df, idx, bars, setup_close)
+        fields[f"Forward_Return_{suffix}"] = fwd
+        fields[f"Max_Return_{suffix}"] = mfe
         fields[f"Rel_Forward_{suffix}"] = rel_forward_at(
             df, benchmark_df, idx, bars, setup_close
         )
@@ -188,6 +315,17 @@ def _horizon_fields(
         fields[f"Held_Coil_Low_{suffix}"] = held_coil_low_at(
             df, idx, bars, coil_low
         )
+        hit_spec = HIT_LABEL_SPECS.get(suffix)
+        if hit_spec:
+            fields[hit_spec["win_col"]] = None if fwd is None else int(fwd > 0)
+            for hit_col, threshold in hit_spec["hits"]:
+                fields[hit_col] = None if mfe is None else int(mfe >= threshold)
+    # Daily 10-session labels keep the historical 2w names for older consumers.
+    if "Forward_Return_10d" in fields:
+        for kind in ("Forward_Return", "Max_Return", "Rel_Forward", "MAE", "Held_Coil_Low"):
+            src = f"{kind}_10d"
+            if src in fields:
+                fields[f"{kind}_2w"] = fields[src]
     return fields
 
 
@@ -227,20 +365,11 @@ def generate_backfill(mode: str | None = None, tickers: Optional[str] = None) ->
     if tickers:
         ticker_filter = {t.strip().upper() for t in tickers.split(",") if t.strip()}
 
-    file_paths = sorted(
-        os.path.join(raw_dir, f)
-        for f in os.listdir(raw_dir)
-        if f.lower().endswith(".csv")
-    )
-    work_paths = [
-        path
-        for path in file_paths
-        if not ticker_filter or ticker_from_filename(path) in ticker_filter
-    ]
+    work_paths = select_raw_paths(raw_dir, ticker_filter, cfg=mode_cfg)
 
     max_workers = os.cpu_count() or 1
     print(f"--- Coiled Cobra Backfill [{mode.upper()}] ---")
-    print(f"Raw dir: {raw_dir}")
+    print(f"Raw dir: {raw_dir}  ({mode_cfg['period']} {mode_cfg['interval']})")
     print(f"Workers: {max_workers}  Tickers: {len(work_paths)}\n")
 
     results_by_path: dict[str, list[dict]] = {}
@@ -430,23 +559,14 @@ def run_backtest(
     if tickers:
         ticker_filter = {t.strip().upper() for t in tickers.split(",") if t.strip()}
 
-    paths = sorted(
-        os.path.join(raw_dir, f)
-        for f in os.listdir(raw_dir)
-        if f.lower().endswith(".csv")
-    )
-    work_paths = [
-        path
-        for path in paths
-        if not ticker_filter or ticker_from_filename(path) in ticker_filter
-    ]
+    work_paths = select_raw_paths(raw_dir, ticker_filter, cfg=mode_cfg)
 
     max_workers = os.cpu_count() or 1
     all_trades: list[dict] = []
     all_counts: dict = {}
 
     print(f"--- Coiled Cobra Expansion Backtest [{mode.upper()}] ---")
-    print(f"Raw dir: {raw_dir}")
+    print(f"Raw dir: {raw_dir}  ({mode_cfg['period']} {mode_cfg['interval']})")
     print(f"Workers: {max_workers}  Tickers: {len(work_paths)}")
     print(_FIB_PLAYBOOK_NOTE + "\n")
 

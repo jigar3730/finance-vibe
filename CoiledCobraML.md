@@ -4,9 +4,15 @@
 
 **Module:** `src/finance_vibe/coiled_cobra_ml_training.py`
 
-Standalone training script that learns a medium-horizon alpha gradient from Coiled Cobra backtest exports. Daily models predict **`Rel_Forward_42d`** (fall back `Rel_Forward_13w` then `Rel_Forward_2w`). Weekly models predict **`Rel_Forward_13w`**. Features are rubric pillars **plus** raw continuous measurements — never Score, Grade, or post-trade execution fields.
+Standalone daily trainer for three independent hit-probability models:
+`Hit_10Pct_10d`, `Hit_15Pct_21d`, and `Hit_25Pct_42d`. Each uses the same 26
+signal-time features and its matching realized forward return for trading
+evaluation. `Rel_Forward_42d` remains research-only.
 
-Training rows are **`Is_New_Coil == True`** only. Splits are temporal (no random K-fold). Old 6-feature or 10-feature Score/Fib models will not score the v2.2 frame — retrain after a fresh `--backtest`.
+Training rows are **`Is_New_Coil == True`** only. Splits are expanding,
+chronological walk-forward folds with 2/5/9-week embargoes. Score, Logistic
+Regression, XGBoost, and deterministic random selection are compared. No
+XGBoost/LightGBM averaging is performed.
 
 ---
 
@@ -14,10 +20,13 @@ Training rows are **`Is_New_Coil == True`** only. Splits are temporal (no random
 
 | Goal | Detail |
 | ---- | ------ |
-| Task | Regression: predict continuous `Rel_Forward_2w` (fallback `Forward_Return_2w`) |
-| Models | Vanilla `XGBRegressor` + `LGBMRegressor` side-by-side |
-| Why | Rank which coil geometries historically realized stronger forward alpha; inform score/geometry research |
+| Task | Binary classification at 10d / 21d / 42d |
+| Models | Logistic Regression baseline + separate `XGBClassifier` models |
+| Why | Rank valid new-coil setups by horizon-specific expansion probability |
 | Not for | Live order routing, options P&L, or replacing the rubric score |
+
+> Sections below that discuss the former regression baseline are historical.
+> The executable contract is the multi-horizon trainer and per-horizon metadata.
 
 ---
 

@@ -20,7 +20,12 @@ import pandas as pd
 from finance_vibe import config
 from finance_vibe.lab.analysis_engine import build_features, score_last_row
 from finance_vibe.lab.swing_scanner import detect_setup_at_bar
-from finance_vibe.market import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
+from finance_vibe.market import (
+    load_benchmark_frame,
+    load_ohlc_csv,
+    select_raw_paths,
+    ticker_from_filename,
+)
 from finance_vibe.trade_planner import calculate_stock_levels
 
 
@@ -568,40 +573,6 @@ def load_ticker_filter(
     return None
 
 
-def _period_rank(path: str) -> int:
-    """Prefer longer lookbacks when multiple CSVs exist for one ticker (5y > 2y)."""
-    parts = os.path.basename(path).replace(".csv", "").split("_")
-    if len(parts) < 2:
-        return 0
-    token = parts[1].lower()
-    if token.endswith("y") and token[:-1].isdigit():
-        return int(token[:-1]) * 365
-    if token.endswith("mo") and token[:-2].isdigit():
-        return int(token[:-2]) * 30
-    if token.endswith("d") and token[:-1].isdigit():
-        return int(token[:-1])
-    return 0
-
-
-def select_raw_paths(raw_dir: str, ticker_filter: Optional[set[str]]) -> list[str]:
-    """List raw CSVs, optionally filtered, de-duped to one file per symbol."""
-    paths = sorted(
-        os.path.join(raw_dir, f)
-        for f in os.listdir(raw_dir)
-        if f.lower().endswith(".csv")
-    )
-    best: dict[str, tuple[int, str]] = {}
-    for path in paths:
-        symbol = ticker_from_filename(path)
-        if ticker_filter and symbol not in ticker_filter:
-            continue
-        rank = _period_rank(path)
-        prev = best.get(symbol)
-        if prev is None or rank > prev[0]:
-            best[symbol] = (rank, path)
-    return [best[s][1] for s in sorted(best)]
-
-
 def _wilson_interval(wins: int, n: int, z: float = 1.96) -> tuple[float, float]:
     """95% Wilson confidence interval for a win-rate proportion (as percents)."""
     if n == 0:
@@ -720,7 +691,7 @@ def run_backtest(
         print(f"No raw directory: {raw_dir}")
         return pd.DataFrame()
 
-    paths = select_raw_paths(raw_dir, ticker_filter)
+    paths = select_raw_paths(raw_dir, ticker_filter, cfg=mode_cfg)
 
     benchmark_df = None
     if swing.get("benchmark"):
@@ -749,7 +720,7 @@ def run_backtest(
         f"cooldown={cooldown_bars} entry_valid={entry_valid} max_hold={max_hold}"
     )
     print(f"Execution: slippage={config.BACKTEST_SLIPPAGE_PCT*100:.2f}% | {exec_desc}")
-    print(f"Raw dir: {raw_dir}")
+    print(f"Raw dir: {raw_dir}  ({mode_cfg['period']} {mode_cfg['interval']})")
     print(f"Tickers: {len(paths)}\n")
 
     for path in paths:

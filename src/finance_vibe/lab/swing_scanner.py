@@ -14,7 +14,12 @@ import pandas_ta as ta
 
 from finance_vibe import config
 from finance_vibe.lab.analysis_engine import build_features, score_last_row
-from finance_vibe.market import load_benchmark_frame, market_regime_ok, relative_strength
+from finance_vibe.market import (
+    load_benchmark_frame,
+    market_regime_ok,
+    relative_strength,
+    select_raw_paths,
+)
 
 # =========================
 # PROFILE CONFIGURATION
@@ -414,12 +419,16 @@ def run_scanner():
     active_tickers = set(pd.read_csv(ACTIVE_TICKERS_PATH)["Ticker"].str.upper())
     logger.info(f"Loaded {len(active_tickers)} active tickers")
 
-    if not os.path.exists(RAW_DATA_DIR):
-        logger.warning(f"Target raw directory empty or non-existent: {RAW_DATA_DIR}")
+    mode_cfg = config.get_mode_config(_data_mode)
+    if not os.path.exists(mode_cfg["raw_dir"]):
+        logger.warning(f"Target raw directory empty or non-existent: {mode_cfg['raw_dir']}")
         return
 
-    raw_files = [f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")]
-    logger.info(f"Found {len(raw_files)} raw data files in target silo")
+    raw_files = [os.path.basename(p) for p in select_raw_paths(mode_cfg["raw_dir"], cfg=mode_cfg)]
+    logger.info(
+        f"Found {len(raw_files)} {mode_cfg['period']} {mode_cfg['interval']} file(s) "
+        f"in {mode_cfg['raw_dir']}"
+    )
 
     sp = config.get_swing_params(mode)
     benchmark_df = get_benchmark_frame(sp, _data_mode)
@@ -439,7 +448,7 @@ def run_scanner():
                 "inactive_ticker", 0) + 1
             continue
 
-        path = os.path.join(RAW_DATA_DIR, file)
+        path = os.path.join(mode_cfg["raw_dir"], file)
         df = pd.read_csv(path)
 
         try:

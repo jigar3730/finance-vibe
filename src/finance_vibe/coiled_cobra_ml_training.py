@@ -1,16 +1,20 @@
-"""Coiled Cobra ML baseline: LightGBM + XGBoost on new-coil expansion vs QQQ.
+"""Coiled Cobra ML: separate XGBClassifier models for 10d / 21d / 42d hit targets.
 
 Standalone training script. Looks for coiled_cobra_backtest_trades_*.csv,
 keeps ``Is_New_Coil`` rows, isolates pre-signal pillar + raw geometry features,
-applies a dynamic relative temporal split, and trains MAE-objective
-XGBRegressor / LGBMRegressor baselines for ``Rel_Forward_42d`` (daily) or
-``Rel_Forward_13w`` (weekly). Score/Grade are filters and live baselines, not tree features.
+runs chronological walk-forward with an embargo, and trains one binary
+XGBoost model per horizon. Score/Grade are filters and live baselines, not
+tree features. Future prices are used only to build targets.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.metadata
 import json
+import platform
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +52,7 @@ FEATURE_COLS = [
     "Distance_To_Pivot_Pct",
     "MACD_Crossed",
 ]
+
 PREFERRED_TARGET_COL = "Rel_Forward_42d"
 FALLBACK_TARGET_COL = "Forward_Return_2w"
 DAILY_TARGET_PREFERENCE = (
@@ -63,15 +68,24 @@ WEEKLY_TARGET_PREFERENCE = (
 TARGET_COL = PREFERRED_TARGET_COL
 TARGET_HORIZON_WEEKS = 9
 DATE_COL = "Signal Date"
+SYMBOL_COL = "Symbol"
 WEIGHT_COL = "ATR_Pct"
-# Experiment switch:
-# False = every training row has equal influence.
-# True  = quieter stocks receive more influence through inverse ATR weighting.
 USE_INVERSE_ATR_WEIGHTS = False
 NEW_COIL_COL = "Is_New_Coil"
+SCORE_COL = "Score"
 MODEL_METADATA_FILENAME = "coiled_cobra_ml_model_metadata.json"
 EMBARGO_WEEKS = TARGET_HORIZON_WEEKS
 EARLY_STOPPING_ROUNDS = 40
+WALK_FORWARD_TEST_WEEKS = 26
+WALK_FORWARD_VAL_WEEKS = 26
+MIN_TRAIN_ROWS = 80
+MIN_VAL_ROWS = 25
+MIN_TEST_ROWS = 25
+TOP_N_PER_DATE = 10
+SELECTION_FRACTIONS = (1.0, 0.50, 0.25, 0.10, 0.05)
+TOP_N_PER_DATE_LEVELS = (20, 10, 5)
+RANDOM_SEED = 42
+PROMOTION_FOLD_PASS_RATE = 0.60
 
 LEAKAGE_COLS = [
     "Stock Entry",
@@ -85,28 +99,145 @@ LEAKAGE_COLS = [
     "Target_Label",
     "Target_R_Mult",
 ]
+LEAKAGE_PREFIXES = (
+    "Forward_Return_",
+    "Rel_Forward_",
+    "MAE_",
+    "Max_Return_",
+    "Held_Coil_Low_",
+    "Win_",
+    "Hit_",
+    "ML_Prob_",
+    "ML_Pred_",
+    "ML_Rank",
+)
 
 SOURCE_FILENAME = "coiled_cobra_backtest_trades_2026-07-17.csv"
 
-# Regularization: shallow trees, slow learning, row/feature bagging.
-# LightGBM only applies subsample when bagging_freq > 0.
 MODEL_PARAMS = {
     "max_depth": 4,
     "learning_rate": 0.01,
     "n_estimators": 400,
     "subsample": 0.8,
     "colsample_bytree": 0.8,
-    "bagging_freq": 1,
+    "min_child_weight": 16,
+    "reg_lambda": 2.0,
 }
 
+HORIZON_SPECS = (
+    {
+        "key": "10d",
+        "target": "+10%",
+        "forward_col": "Forward_Return_10d",
+        "max_col": "Max_Return_10d",
+        "win_col": "Win_10d",
+        "hit_col": "Hit_10Pct_10d",
+        "prob_col": "ML_Prob_10Pct_10d",
+        "logistic_prob_col": "_Logistic_Prob_10Pct_10d",
+        "threshold": 0.10,
+        "embargo_weeks": 2,
+        "bars": 10,
+        "model_filename": "coiled_cobra_xgb_10d.json",
+        "metadata_filename": "coiled_cobra_ml_metadata_10d.json",
+        "research_targets": ("Hit_15Pct_10d",),
+        "all_hits": (("Hit_10Pct_10d", 0.10), ("Hit_15Pct_10d", 0.15)),
+        "legacy_forward": "Forward_Return_2w",
+        "legacy_max": "Max_Return_2w",
+    },
+    {
+        "key": "21d",
+        "target": "+15%",
+        "forward_col": "Forward_Return_21d",
+        "max_col": "Max_Return_21d",
+        "win_col": "Win_21d",
+        "hit_col": "Hit_15Pct_21d",
+        "prob_col": "ML_Prob_15Pct_21d",
+        "logistic_prob_col": "_Logistic_Prob_15Pct_21d",
+        "threshold": 0.15,
+        "embargo_weeks": 5,
+        "bars": 21,
+        "model_filename": "coiled_cobra_xgb_21d.json",
+        "metadata_filename": "coiled_cobra_ml_metadata_21d.json",
+        "research_targets": ("Hit_20Pct_21d",),
+        "all_hits": (
+            ("Hit_10Pct_21d", 0.10),
+            ("Hit_15Pct_21d", 0.15),
+            ("Hit_20Pct_21d", 0.20),
+        ),
+        "legacy_forward": None,
+        "legacy_max": None,
+    },
+    {
+        "key": "42d",
+        "target": "+25%",
+        "forward_col": "Forward_Return_42d",
+        "max_col": "Max_Return_42d",
+        "win_col": "Win_42d",
+        "hit_col": "Hit_25Pct_42d",
+        "prob_col": "ML_Prob_25Pct_42d",
+        "logistic_prob_col": "_Logistic_Prob_25Pct_42d",
+        "threshold": 0.25,
+        "embargo_weeks": 9,
+        "bars": 42,
+        "model_filename": "coiled_cobra_xgb_42d.json",
+        "metadata_filename": "coiled_cobra_ml_metadata_42d.json",
+        "research_targets": ("Hit_50Pct_42d",),
+        "all_hits": (
+            ("Hit_10Pct_42d", 0.10),
+            ("Hit_25Pct_42d", 0.25),
+            ("Hit_50Pct_42d", 0.50),
+        ),
+        "legacy_forward": None,
+        "legacy_max": None,
+    },
+)
 
-_LOG_SILOS = ("daily", "weekly")  # project primary first; weekly is opt-in confirmation
+FEATURE_DECISIONS = {
+    "Volume_Shelf": "KEEP",
+    "MACD_Compression": "KEEP",
+    "Structure": "KEEP",
+    "RS_Score": "KEEP",
+    "Coil_Width": "KEEP",
+    "Proximity_Highs": "KEEP",
+    "Volume_Contraction_Ratio": "KEEP",
+    "MACD_Spread_ATR": "KEEP",
+    "Coil_Width_ATR": "KEEP",
+    "Coil_Width_Pctile": "KEEP",
+    "Dist_High_63_Pct": "KEEP",
+    "Dist_High_63_ATR": "KEEP",
+    "Dist_High_126_Pct": "KEEP",
+    "Dist_High_126_ATR": "KEEP",
+    "Dist_High_252_Pct": "KEEP",
+    "Dist_High_252_ATR": "KEEP",
+    "OBV_Coil_Slope": "KEEP",
+    "Up_Volume_Ratio": "KEEP",
+    "Volume_Trend_Ratio": "KEEP",
+    "RSI": "KEEP",
+    "RSI_Healthy": "EXPERIMENTAL",
+    "Pct_From_EMA20": "KEEP",
+    "Pct_From_EMA50": "KEEP",
+    "ATR_Pct": "KEEP",
+    "Distance_To_Pivot_Pct": "KEEP",
+    "MACD_Crossed": "EXPERIMENTAL",
+}
+
+BUCKET_FEATURES = (
+    "ATR_Pct",
+    "Distance_To_Pivot_Pct",
+    "MACD_Compression",
+    "RSI",
+    "Up_Volume_Ratio",
+    "Dist_High_126_Pct",
+    "Dist_High_252_Pct",
+)
+
+_LOG_SILOS = ("daily", "weekly")
 
 
 def _mode_log_dirs() -> list[Path]:
     """Candidate log silos: daily first, then weekly, across cwd / repo / container mounts."""
     here = Path(__file__).resolve().parent
-    project_root = here.parents[1]  # src/finance_vibe -> repo root
+    project_root = here.parents[1]
     cwd = Path.cwd()
     dirs: list[Path] = []
     for silo in _LOG_SILOS:
@@ -141,7 +272,6 @@ def resolve_source_csv(explicit: str | None = None) -> Path:
         if path.is_file():
             return path
 
-    # Prefer the newest file in the first silo that has any trades CSV (daily, then weekly).
     seen: set[Path] = set()
     for root in _mode_log_dirs():
         resolved = root.resolve() if root.exists() else root
@@ -171,8 +301,15 @@ def embargo_weeks_for_target(target_col: str) -> int:
     mapping = {
         "Rel_Forward_42d": 9,
         "Forward_Return_42d": 9,
+        "Hit_25Pct_42d": 9,
+        "Max_Return_42d": 9,
         "Rel_Forward_21d": 5,
         "Forward_Return_21d": 5,
+        "Hit_15Pct_21d": 5,
+        "Max_Return_21d": 5,
+        "Forward_Return_10d": 2,
+        "Hit_10Pct_10d": 2,
+        "Max_Return_10d": 2,
         "Rel_Forward_26w": 26,
         "Rel_Forward_13w": 13,
         "Rel_Forward_8w": 8,
@@ -210,8 +347,170 @@ def _is_new_coil_mask(series: pd.Series) -> pd.Series:
     return (numeric == 1) | text.isin({"true", "1", "yes"})
 
 
+def assert_features_have_no_leakage(feature_names: list[str] | None = None) -> None:
+    names = list(feature_names or FEATURE_COLS)
+    leaked = [c for c in names if c in LEAKAGE_COLS or c == SCORE_COL or c == "Grade"]
+    for c in names:
+        if any(c.startswith(p) or c == p for p in LEAKAGE_PREFIXES):
+            leaked.append(c)
+    if leaked:
+        raise ValueError(f"Feature list includes leakage / future columns: {leaked}")
+
+
+def drop_duplicate_signals(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove exact duplicate episodes and abort on conflicting duplicates."""
+    if SYMBOL_COL not in df.columns or DATE_COL not in df.columns:
+        raise ValueError(
+            f"Cannot check duplicate signals: missing {SYMBOL_COL} or {DATE_COL}"
+        )
+    keys = [SYMBOL_COL, DATE_COL]
+    dup_mask = df.duplicated(subset=keys, keep=False)
+    n_dup_rows = int(dup_mask.sum())
+    n_extra = int(df.duplicated(subset=keys, keep="first").sum())
+    if not n_dup_rows:
+        print("Duplicate count: 0  removed: 0  conflicting: 0")
+        return df
+
+    compare_cols = [c for c in df.columns if c not in keys]
+    conflicts: list[tuple[str, str]] = []
+    for key, group in df.loc[dup_mask].groupby(keys, dropna=False, sort=False):
+        if not compare_cols:
+            continue
+        normalized = group[compare_cols].copy()
+        for col in compare_cols:
+            normalized[col] = normalized[col].map(
+                lambda value: "<NA>" if pd.isna(value) else str(value)
+            )
+        if len(normalized.drop_duplicates()) > 1:
+            conflicts.append((str(key[0]), str(key[1])))
+
+    print(
+        f"Duplicate count: {n_dup_rows}  removed: {n_extra}  "
+        f"conflicting: {len(conflicts)}"
+    )
+    if conflicts:
+        sample = ", ".join(f"{s}@{d}" for s, d in conflicts[:5])
+        raise ValueError(
+            f"Conflicting duplicate {SYMBOL_COL}+{DATE_COL} records: "
+            f"{len(conflicts)} group(s); sample: {sample}"
+        )
+    return df.drop_duplicates(subset=keys, keep="first").copy()
+
+
+def _ensure_horizon_targets(df: pd.DataFrame) -> pd.DataFrame:
+    """Fill Forward/Max/Win/Hit columns from aliases when a fresh backtest is missing."""
+    out = df.copy()
+    for spec in HORIZON_SPECS:
+        fwd = spec["forward_col"]
+        mx = spec["max_col"]
+        if fwd not in out.columns and spec.get("legacy_forward") and spec["legacy_forward"] in out.columns:
+            out[fwd] = pd.to_numeric(out[spec["legacy_forward"]], errors="coerce")
+            print(f"Derived {fwd} from {spec['legacy_forward']}")
+        if mx not in out.columns and spec.get("legacy_max") and spec["legacy_max"] in out.columns:
+            out[mx] = pd.to_numeric(out[spec["legacy_max"]], errors="coerce")
+        if fwd in out.columns:
+            fwd_num = pd.to_numeric(out[fwd], errors="coerce")
+            if spec["win_col"] not in out.columns:
+                out[spec["win_col"]] = np.where(fwd_num.isna(), np.nan, (fwd_num > 0).astype(float))
+        if mx in out.columns:
+            mx_num = pd.to_numeric(out[mx], errors="coerce")
+            for hit_col, threshold in spec["all_hits"]:
+                if hit_col not in out.columns:
+                    out[hit_col] = np.where(
+                        mx_num.isna(),
+                        np.nan,
+                        (mx_num >= threshold).astype(float),
+                    )
+        elif fwd in out.columns:
+            fwd_num = pd.to_numeric(out[fwd], errors="coerce")
+            for hit_col, threshold in spec["all_hits"]:
+                if hit_col in out.columns:
+                    continue
+                print(
+                    f"Warning: {mx} missing — {hit_col} falls back to "
+                    f"{fwd} >= {threshold:.0%} (understates intra-horizon hits)."
+                )
+                out[hit_col] = np.where(
+                    fwd_num.isna(),
+                    np.nan,
+                    (fwd_num >= threshold).astype(float),
+                )
+    return out
+
+
+def analyze_feature_quality(df: pd.DataFrame) -> dict:
+    """Missingness, variance, outliers, redundancy, and time stability."""
+    rows: list[dict] = []
+    numeric = _feature_matrix(df)
+    midpoint = df[DATE_COL].min() + (df[DATE_COL].max() - df[DATE_COL].min()) / 2
+    early = numeric.loc[df[DATE_COL] < midpoint]
+    late = numeric.loc[df[DATE_COL] >= midpoint]
+    for col in FEATURE_COLS:
+        s = numeric[col]
+        non_null = s.dropna()
+        dominant = float(non_null.value_counts(normalize=True).iloc[0]) if len(non_null) else 1.0
+        q1, q3 = non_null.quantile([0.25, 0.75]) if len(non_null) else (np.nan, np.nan)
+        iqr = q3 - q1
+        if pd.notna(iqr) and iqr > 0:
+            outlier_rate = float(((non_null < q1 - 3 * iqr) | (non_null > q3 + 3 * iqr)).mean())
+        else:
+            outlier_rate = 0.0
+        early_med = float(early[col].median()) if early[col].notna().any() else np.nan
+        late_med = float(late[col].median()) if late[col].notna().any() else np.nan
+        scale = max(abs(early_med), float(non_null.std()) if len(non_null) > 1 else 0.0, 1e-9)
+        rows.append(
+            {
+                "feature": col,
+                "decision": FEATURE_DECISIONS[col],
+                "missing_count": int(s.isna().sum()),
+                "missing_rate": float(s.isna().mean()),
+                "unique_count": int(non_null.nunique()),
+                "dominant_rate": dominant,
+                "constant": bool(non_null.nunique() <= 1),
+                "near_constant": bool(dominant >= 0.995),
+                "outlier_rate_3iqr": outlier_rate,
+                "early_median": early_med,
+                "late_median": late_med,
+                "median_shift_scaled": float(abs(late_med - early_med) / scale)
+                if np.isfinite(early_med) and np.isfinite(late_med)
+                else np.nan,
+            }
+        )
+
+    corr = numeric.corr(method="spearman", min_periods=30).abs()
+    correlated: list[dict] = []
+    for i, left in enumerate(FEATURE_COLS):
+        for right in FEATURE_COLS[i + 1 :]:
+            value = corr.loc[left, right]
+            if pd.notna(value) and value >= 0.90:
+                correlated.append(
+                    {"left": left, "right": right, "abs_spearman": float(value)}
+                )
+    return {"features": rows, "high_correlation_pairs": correlated}
+
+
+def report_feature_quality(df: pd.DataFrame) -> dict:
+    print("\n=== Feature quality (new-coil training pool) ===")
+    quality = analyze_feature_quality(df)
+    for row in quality["features"]:
+        print(
+            f"  {row['feature']:<24} {row['decision']:<12} "
+            f"missing={row['missing_rate']:5.1%} unique={row['unique_count']:5d} "
+            f"dominant={row['dominant_rate']:5.1%} "
+            f"outliers={row['outlier_rate_3iqr']:5.1%}"
+        )
+    if quality["high_correlation_pairs"]:
+        print("  High-correlation pairs (|Spearman| >= 0.90):")
+        for pair in quality["high_correlation_pairs"]:
+            print(
+                f"    {pair['left']} ~ {pair['right']}: "
+                f"{pair['abs_spearman']:.3f}"
+            )
+    return quality
+
+
 def load_and_prepare(csv_path: Path) -> pd.DataFrame:
-    """Load CSV, keep new coils, drop leakage cols, drop NaN targets."""
+    """Load CSV, keep new coils, drop leakage cols, drop duplicate episodes."""
     global TARGET_COL, EMBARGO_WEEKS, TARGET_HORIZON_WEEKS
     df = pd.read_csv(csv_path)
     print(f"Loaded source: {csv_path}")
@@ -226,10 +525,13 @@ def load_and_prepare(csv_path: Path) -> pd.DataFrame:
     if DATE_COL not in df.columns:
         raise ValueError(f"Missing date column: {DATE_COL}")
 
-    TARGET_COL = select_target_col(df)
-    EMBARGO_WEEKS = embargo_weeks_for_target(TARGET_COL)
-    TARGET_HORIZON_WEEKS = EMBARGO_WEEKS
-    print(f"Target column: {TARGET_COL} (embargo={EMBARGO_WEEKS}w)")
+    assert_features_have_no_leakage(FEATURE_COLS)
+
+    if any(c in df.columns for c in DAILY_TARGET_PREFERENCE) or FALLBACK_TARGET_COL in df.columns:
+        TARGET_COL = select_target_col(df)
+        EMBARGO_WEEKS = embargo_weeks_for_target(TARGET_COL)
+        TARGET_HORIZON_WEEKS = EMBARGO_WEEKS
+        print(f"Legacy regression target (reference only): {TARGET_COL}")
 
     if NEW_COIL_COL in df.columns:
         before_coil = len(df)
@@ -250,24 +552,31 @@ def load_and_prepare(csv_path: Path) -> pd.DataFrame:
         n_bad = int(df[DATE_COL].isna().sum())
         raise ValueError(f"{DATE_COL} has {n_bad} unparseable value(s)")
 
-    before = len(df)
-    df = df[df[TARGET_COL].notna()].copy()
-    print(
-        f"Dropped {before - len(df)} row(s) with NaN/None {TARGET_COL}"
+    df = drop_duplicate_signals(df)
+    df = _ensure_horizon_targets(df)
+    need_mfe = any(
+        spec["max_col"] not in df.columns or pd.to_numeric(df[spec["max_col"]], errors="coerce").isna().all()
+        for spec in HORIZON_SPECS
     )
+    if need_mfe:
+        print("Max_Return_* missing — enriching hit labels from raw OHLC (targets only).")
+        from finance_vibe.coiled_cobra_backtest import enrich_mfe_targets
+
+        df = enrich_mfe_targets(df, mode=_infer_frame_mode(df))
+        df = _ensure_horizon_targets(df)
+    report_feature_quality(df)
     print(f"Training pool shape: {df.shape[0]} rows")
     return df.sort_values(DATE_COL).reset_index(drop=True)
 
 
-def temporal_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
-    """Date split with an embargo so train labels do not overlap val/test.
-
-    ``Rel_Forward_2w`` uses the next two bars. Without an embargo, a train
-    signal in the last two weeks of the train window has a target that lands
-    in validation.
-    """
+def temporal_split(
+    df: pd.DataFrame,
+    embargo_weeks: int | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    """Date split with an embargo so train labels do not overlap val/test."""
+    weeks = EMBARGO_WEEKS if embargo_weeks is None else embargo_weeks
     max_date = df[DATE_COL].max()
-    embargo = pd.Timedelta(weeks=EMBARGO_WEEKS)
+    embargo = pd.Timedelta(weeks=weeks)
 
     test_start = max_date - pd.Timedelta(weeks=26)
     val_start = test_start - pd.Timedelta(weeks=26)
@@ -280,97 +589,784 @@ def temporal_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Dat
         "max_date": max_date,
         "val_start": val_start,
         "test_start": test_start,
-        "embargo_weeks": EMBARGO_WEEKS,
+        "embargo_weeks": weeks,
     }
     return train, val, test, bounds
 
 
-def build_matrices(
-    train: pd.DataFrame,
-    val: pd.DataFrame,
-    test: pd.DataFrame,
-) -> dict:
-    """Build X / y / sample_weight arrays for each temporal partition."""
-    parts = {}
-    for name, frame in (("train", train), ("val", val), ("test", test)):
-        X = frame[FEATURE_COLS].copy()
-        y = frame[TARGET_COL].astype(float).to_numpy()
-        # Inverse ATR: high-vol names already have noisier Rel_Forward. Weighting
-        # *by* ATR_Pct would amplify them; 1/ATR_Pct equalizes return-space MAE.
-        if USE_INVERSE_ATR_WEIGHTS:
-            # Optional legacy behavior: quieter stocks receive more weight.
-            atr = frame[WEIGHT_COL].astype(float).to_numpy()
-            w = np.where(
-                np.isfinite(atr) & (atr > 0),
-                1.0 / atr,
-                np.nan,
+def walk_forward_folds(
+    df: pd.DataFrame,
+    embargo_weeks: int,
+    test_weeks: int = WALK_FORWARD_TEST_WEEKS,
+    val_weeks: int = WALK_FORWARD_VAL_WEEKS,
+    min_train_rows: int = MIN_TRAIN_ROWS,
+    min_val_rows: int = MIN_VAL_ROWS,
+    min_test_rows: int = MIN_TEST_ROWS,
+) -> list[dict]:
+    """Expanding-window folds walking backward from max date, then reversed.
+
+    Test windows do not overlap. Train ends embargo weeks before val; val ends
+    embargo weeks before test. No random shuffling.
+    """
+    if df.empty:
+        return []
+    min_date = df[DATE_COL].min()
+    max_date = df[DATE_COL].max()
+    embargo = pd.Timedelta(weeks=embargo_weeks)
+    folds: list[dict] = []
+    test_end = max_date
+
+    while True:
+        test_start = test_end - pd.Timedelta(weeks=test_weeks)
+        if test_start <= min_date:
+            break
+        val_end = test_start - embargo
+        val_start = val_end - pd.Timedelta(weeks=val_weeks)
+        train_end = val_start - embargo
+        train = df[df[DATE_COL] < train_end]
+        val = df[(df[DATE_COL] >= val_start) & (df[DATE_COL] < val_end)]
+        test = df[(df[DATE_COL] >= test_start) & (df[DATE_COL] <= test_end)]
+        if len(train) < min_train_rows:
+            break
+        if len(val) >= min_val_rows and len(test) >= min_test_rows:
+            folds.append(
+                {
+                    "train": train,
+                    "val": val,
+                    "test": test,
+                    "train_end": train_end,
+                    "val_start": val_start,
+                    "val_end": val_end,
+                    "test_start": test_start,
+                    "test_end": test_end,
+                    "embargo_weeks": embargo_weeks,
+                }
             )
-        else:
-            # Default experiment: every setup has equal influence.
-             w = np.ones(len(frame), dtype=float)
+        test_end = test_start - pd.Timedelta(days=1)
 
-        parts[name] = {
-            "X": X,
-            "y": y,
-            "w": w,
-            "n": len(frame),
+    folds.reverse()
+    return folds
+
+
+def horizon_frame(df: pd.DataFrame, spec: dict) -> pd.DataFrame:
+    """Rows with a defined hit label for one horizon (features may still be NaN)."""
+    hit = spec["hit_col"]
+    if hit not in df.columns:
+        raise ValueError(f"Missing hit target {hit}. Re-run daily --backtest.")
+    out = df[pd.to_numeric(df[hit], errors="coerce").notna()].copy()
+    out[hit] = pd.to_numeric(out[hit], errors="coerce").astype(int)
+    if spec["forward_col"] in out.columns:
+        out[spec["forward_col"]] = pd.to_numeric(out[spec["forward_col"]], errors="coerce")
+    if spec["win_col"] in out.columns:
+        out[spec["win_col"]] = pd.to_numeric(out[spec["win_col"]], errors="coerce")
+    return out
+
+
+def _feature_matrix(frame: pd.DataFrame) -> pd.DataFrame:
+    X = frame.reindex(columns=FEATURE_COLS)
+    for col in FEATURE_COLS:
+        X[col] = pd.to_numeric(X[col], errors="coerce")
+    return X
+
+
+def _top_frac_mean(y_true: np.ndarray, rank_score: np.ndarray, frac: float) -> float:
+    mask = np.isfinite(y_true) & np.isfinite(rank_score)
+    y = y_true[mask]
+    s = rank_score[mask]
+    if len(y) == 0:
+        return float("nan")
+    n = max(1, int(np.ceil(len(y) * frac)))
+    order = np.argsort(s)[::-1][:n]
+    return float(np.mean(y[order]))
+
+
+def top_n_per_date(
+    frame: pd.DataFrame,
+    rank_col: str,
+    n: int = TOP_N_PER_DATE,
+) -> pd.DataFrame:
+    if frame.empty or rank_col not in frame.columns:
+        return frame.iloc[0:0].copy()
+    ranked = frame.copy()
+    ranked["_rank"] = pd.to_numeric(ranked[rank_col], errors="coerce")
+    ranked = ranked[ranked["_rank"].notna()]
+    if ranked.empty:
+        return ranked
+    parts = []
+    for _, g in ranked.groupby(DATE_COL, sort=True):
+        take = min(n, len(g))
+        parts.append(g.nlargest(take, "_rank", keep="first"))
+    return pd.concat(parts, ignore_index=True) if parts else ranked.iloc[0:0].copy()
+
+
+def summarize_selection(
+    selected: pd.DataFrame,
+    forward_col: str,
+    hit_col: str,
+    win_col: str,
+) -> dict:
+    if selected.empty or forward_col not in selected.columns:
+        return {
+            "n": 0,
+            "avg_fwd": float("nan"),
+            "med_fwd": float("nan"),
+            "win_rate": float("nan"),
+            "hit_rate": float("nan"),
         }
-        
-    med = np.nanmedian(parts["train"]["w"])
-    if not np.isfinite(med) or med <= 0:
-        med = 1.0
-    for name in parts:
-        w = parts[name]["w"]
-        parts[name]["w"] = np.where(np.isfinite(w) & (w > 0), w, med)
-    return parts
-
-
-def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    from sklearn.metrics import mean_squared_error
-    return float(np.sqrt(mean_squared_error(y_true, y_pred)))
-
-
-def ndcg_at_k(y_true: np.ndarray, y_pred: np.ndarray, k: int = 10) -> float:
-    from sklearn.metrics import ndcg_score
-
-    if len(y_true) < 2:
-        return 0.0
-    k = min(k, len(y_true))
-    # Shift labels so NDCG can handle negatives (rank-only).
-    shifted = y_true - float(np.min(y_true)) + 1e-9
-    try:
-        return float(ndcg_score(shifted.reshape(1, -1), y_pred.reshape(1, -1), k=k))
-    except Exception:
-        return 0.0
-
-
-def top_decile_mean(y_true: np.ndarray, y_pred: np.ndarray) -> float:
-    if len(y_true) == 0:
-        return 0.0
-    n = max(1, len(y_true) // 10)
-    order = np.argsort(y_pred)[::-1][:n]
-    return float(np.mean(y_true[order]))
-
-
-def evaluate(model, X: pd.DataFrame, y: np.ndarray, label: str) -> dict:
-    from sklearn.metrics import mean_absolute_error
-    pred = model.predict(X)
-    ic = float(pd.Series(pred).corr(pd.Series(y), method="spearman"))
-    if not np.isfinite(ic):
-        ic = 0.0
-    metrics = {
-        "mae": float(mean_absolute_error(y, pred)),
-        "rmse": rmse(y, pred),
-        "spearman": ic,
-        "ndcg10": ndcg_at_k(y, pred, k=10),
-        "top_decile_mean": top_decile_mean(y, pred),
+    fwd = pd.to_numeric(selected[forward_col], errors="coerce")
+    valid = selected.loc[fwd.notna()].copy()
+    fwd = pd.to_numeric(valid[forward_col], errors="coerce")
+    hit = pd.to_numeric(valid[hit_col], errors="coerce") if hit_col in valid.columns else pd.Series(dtype=float)
+    win = pd.to_numeric(valid[win_col], errors="coerce") if win_col in valid.columns else (fwd > 0).astype(float)
+    return {
+        "n": int(len(valid)),
+        "avg_fwd": float(fwd.mean()) if len(valid) else float("nan"),
+        "med_fwd": float(fwd.median()) if len(valid) else float("nan"),
+        "win_rate": float(win.mean()) if len(valid) and win.notna().any() else float("nan"),
+        "hit_rate": float(hit.mean()) if len(valid) and hit.notna().any() else float("nan"),
     }
-    print(
-        f"  {label}: MAE={metrics['mae']:.6f}  RMSE={metrics['rmse']:.6f}  "
-        f"Spearman={metrics['spearman']:.4f}  NDCG@10={metrics['ndcg10']:.4f}  "
-        f"TopDecileRel={metrics['top_decile_mean']:.4f}"
+
+
+def top_fraction(frame: pd.DataFrame, rank_col: str, fraction: float) -> pd.DataFrame:
+    """Highest-ranked fraction across the OOS population."""
+    ranked = frame.copy()
+    ranked["_rank"] = pd.to_numeric(ranked.get(rank_col), errors="coerce")
+    ranked = ranked[ranked["_rank"].notna()]
+    if ranked.empty:
+        return ranked
+    n = len(ranked) if fraction >= 1 else max(1, int(np.ceil(len(ranked) * fraction)))
+    return ranked.nlargest(n, "_rank", keep="first")
+
+
+def classification_metrics(y_true: pd.Series, probabilities: pd.Series) -> dict:
+    """Standard classifier diagnostics at a fixed 0.5 probability threshold."""
+    from sklearn.metrics import (
+        average_precision_score,
+        brier_score_loss,
+        f1_score,
+        precision_score,
+        recall_score,
+        roc_auc_score,
     )
-    return metrics
+
+    y = pd.to_numeric(y_true, errors="coerce")
+    p = pd.to_numeric(probabilities, errors="coerce")
+    mask = y.notna() & p.notna()
+    y = y[mask].astype(int).to_numpy()
+    p = p[mask].clip(0, 1).to_numpy()
+    if len(y) == 0:
+        return {k: np.nan for k in ("precision", "recall", "f1", "pr_auc", "roc_auc", "brier")}
+    pred = (p >= 0.5).astype(int)
+    two_classes = len(np.unique(y)) == 2
+    return {
+        "precision": float(precision_score(y, pred, zero_division=0)),
+        "recall": float(recall_score(y, pred, zero_division=0)),
+        "f1": float(f1_score(y, pred, zero_division=0)),
+        "pr_auc": float(average_precision_score(y, p)) if two_classes else np.nan,
+        "roc_auc": float(roc_auc_score(y, p)) if two_classes else np.nan,
+        "brier": float(brier_score_loss(y, p)),
+    }
+
+
+def evaluate_ranker(
+    oos: pd.DataFrame,
+    spec: dict,
+    rank_col: str,
+    model_name: str,
+) -> dict:
+    """Trading outcomes for population/fractions and per-date top-N selections."""
+    forward_col = spec["forward_col"]
+    hit_col = spec["hit_col"]
+    win_col = spec["win_col"]
+    fwd = pd.to_numeric(oos[forward_col], errors="coerce") if forward_col in oos.columns else pd.Series(dtype=float)
+    usable = oos.loc[fwd.notna()].copy()
+    selections: dict[str, dict] = {}
+    for fraction in SELECTION_FRACTIONS:
+        label = "population" if fraction >= 1 else f"top_{int(fraction * 100)}pct"
+        selected = usable if fraction >= 1 else top_fraction(usable, rank_col, fraction)
+        selections[label] = summarize_selection(
+            selected, forward_col, hit_col, win_col
+        )
+    for n in TOP_N_PER_DATE_LEVELS:
+        selections[f"top_{n}_per_date"] = summarize_selection(
+            top_n_per_date(usable, rank_col, n),
+            forward_col,
+            hit_col,
+            win_col,
+        )
+    return {
+        "model": model_name,
+        "rank_column": rank_col,
+        "selections": selections,
+    }
+
+
+def compare_rankers(oos: pd.DataFrame, spec: dict) -> dict:
+    """Compare Score, Logistic, XGB, and deterministic random OOS ranks."""
+    rankers = {
+        "score": SCORE_COL,
+        "logistic": spec["logistic_prob_col"],
+        "xgb": spec["prob_col"],
+        "random": "_Random_Rank",
+    }
+    models = {
+        name: evaluate_ranker(oos, spec, rank_col, name)
+        for name, rank_col in rankers.items()
+        if rank_col in oos.columns
+    }
+    score_top = models["score"]["selections"]["top_10pct"]
+    xgb_top = models["xgb"]["selections"]["top_10pct"]
+    base_hit = float(pd.to_numeric(oos[spec["hit_col"]], errors="coerce").mean())
+    promote = (
+        xgb_top["n"] > 0
+        and xgb_top["avg_fwd"] > score_top["avg_fwd"]
+        and xgb_top["win_rate"] > score_top["win_rate"]
+        and xgb_top["hit_rate"] > score_top["hit_rate"]
+    )
+    # Compatibility aliases retained for older tests and report consumers.
+    return {
+        "horizon": spec["key"],
+        "target": spec["target"],
+        "base_hit_rate": base_hit,
+        "n_oos": int(len(oos)),
+        "models": models,
+        "score_top10": models["score"]["selections"]["top_10_per_date"],
+        "ml_top10": models["xgb"]["selections"]["top_10_per_date"],
+        "score_top10pct_avg": score_top["avg_fwd"],
+        "score_top5pct_avg": models["score"]["selections"]["top_5pct"]["avg_fwd"],
+        "ml_top10pct_avg": xgb_top["avg_fwd"],
+        "ml_top5pct_avg": models["xgb"]["selections"]["top_5pct"]["avg_fwd"],
+        "promote": promote,
+    }
+
+
+def _fit_xgb_classifier(
+    X_train: pd.DataFrame,
+    y_train: np.ndarray,
+    X_val: pd.DataFrame,
+    y_val: np.ndarray,
+    params: dict | None = None,
+):
+    from xgboost import XGBClassifier
+
+    cfg = {**MODEL_PARAMS, **(params or {})}
+    model = XGBClassifier(
+        max_depth=cfg["max_depth"],
+        learning_rate=cfg["learning_rate"],
+        n_estimators=cfg["n_estimators"],
+        subsample=cfg["subsample"],
+        colsample_bytree=cfg["colsample_bytree"],
+        min_child_weight=cfg["min_child_weight"],
+        reg_lambda=cfg["reg_lambda"],
+        objective="binary:logistic",
+        eval_metric="auc",
+        tree_method="hist",
+        early_stopping_rounds=EARLY_STOPPING_ROUNDS,
+        # Baseline uses standard weighting. Imbalance experiments must earn
+        # their place OOS instead of being enabled automatically.
+        scale_pos_weight=float(cfg.get("scale_pos_weight", 1.0)),
+        n_jobs=-1,
+        random_state=42,
+        missing=np.nan,
+    )
+    model.fit(
+        X_train,
+        y_train,
+        eval_set=[(X_val, y_val)],
+        verbose=False,
+    )
+    return model
+
+
+def _fit_logistic_classifier(X_train: pd.DataFrame, y_train: np.ndarray):
+    """Simple, deterministic linear baseline with train-only median imputation."""
+    from sklearn.impute import SimpleImputer
+    from sklearn.linear_model import LogisticRegression
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import StandardScaler
+
+    model = make_pipeline(
+        SimpleImputer(strategy="median"),
+        StandardScaler(),
+        LogisticRegression(
+            max_iter=1000,
+            class_weight=None,
+            random_state=RANDOM_SEED,
+        ),
+    )
+    model.fit(X_train, y_train)
+    return model
+
+
+def class_balance(series: pd.Series) -> dict:
+    y = pd.to_numeric(series, errors="coerce").dropna().astype(int)
+    positive = int((y == 1).sum())
+    negative = int((y == 0).sum())
+    total = positive + negative
+    return {
+        "positive": positive,
+        "negative": negative,
+        "positive_rate": positive / total if total else np.nan,
+    }
+
+
+def report_all_target_balances(df: pd.DataFrame) -> dict[str, dict]:
+    """Print class balance for every generated binary horizon target."""
+    balances: dict[str, dict] = {}
+    print("\n=== Binary target class balance ===")
+    for spec in HORIZON_SPECS:
+        for target, _ in spec["all_hits"]:
+            if target not in df.columns:
+                continue
+            balance = class_balance(df[target])
+            balances[target] = balance
+            print(
+                f"  {target:<20} positive={balance['positive']:6d} "
+                f"negative={balance['negative']:6d} "
+                f"positive_rate={balance['positive_rate']:.2%}"
+            )
+    return balances
+
+
+def _best_iteration(model) -> int:
+    best = getattr(model, "best_iteration", None)
+    if best is None:
+        booster = model.get_booster()
+        best = getattr(booster, "best_iteration", None)
+    if best is None:
+        best = int(model.n_estimators) - 1
+    return int(best)
+
+
+def _predict_proba(model, X: pd.DataFrame) -> np.ndarray:
+    best = _best_iteration(model)
+    return model.predict_proba(X, iteration_range=(0, best + 1))[:, 1]
+
+
+def evaluate_research_targets(
+    labeled: pd.DataFrame,
+    folds: list[dict],
+    spec: dict,
+    xgb_params: dict | None,
+) -> dict:
+    """Walk-forward XGB checks for optional stricter hit thresholds."""
+    results: dict[str, dict] = {}
+    for target in spec.get("research_targets", ()):
+        if target not in labeled.columns:
+            continue
+        prob_col = f"_Research_Prob_{target}"
+        parts: list[pd.DataFrame] = []
+        for i, fold in enumerate(folds, start=1):
+            train = fold["train"].dropna(subset=[target])
+            val = fold["val"].dropna(subset=[target])
+            test = fold["test"].dropna(subset=[target])
+            if min(len(train), len(val), len(test)) == 0:
+                continue
+            y_train = train[target].astype(int).to_numpy()
+            y_val = val[target].astype(int).to_numpy()
+            if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
+                continue
+            model = _fit_xgb_classifier(
+                _feature_matrix(train),
+                y_train,
+                _feature_matrix(val),
+                y_val,
+                xgb_params,
+            )
+            out = test.copy()
+            out[prob_col] = _predict_proba(model, _feature_matrix(test))
+            out["_Random_Rank"] = np.random.default_rng(
+                RANDOM_SEED + 1000 + i
+            ).random(len(out))
+            parts.append(out)
+        if not parts:
+            continue
+        oos = pd.concat(parts, ignore_index=True)
+        research_spec = {
+            **spec,
+            "hit_col": target,
+            "prob_col": prob_col,
+            "logistic_prob_col": "_unused",
+        }
+        xgb = evaluate_ranker(oos, research_spec, prob_col, "xgb")
+        score = evaluate_ranker(oos, research_spec, SCORE_COL, "score")
+        results[target] = {
+            "class_balance": class_balance(labeled[target]),
+            "classification": classification_metrics(oos[target], oos[prob_col]),
+            "score_top_10pct": score["selections"]["top_10pct"],
+            "xgb_top_10pct": xgb["selections"]["top_10pct"],
+        }
+    return results
+
+
+def feature_bucket_analysis(df: pd.DataFrame) -> dict:
+    """Quintile buckets showing horizon-specific feature behavior."""
+    analysis: dict[str, list[dict]] = {}
+    for feature in BUCKET_FEATURES:
+        values = pd.to_numeric(df[feature], errors="coerce")
+        valid = values.notna()
+        if valid.sum() < 20 or values[valid].nunique() < 2:
+            continue
+        try:
+            buckets = pd.qcut(values[valid], q=5, duplicates="drop")
+        except ValueError:
+            continue
+        rows: list[dict] = []
+        for bucket, index in buckets.groupby(buckets, observed=True).groups.items():
+            group = df.loc[index]
+            row = {"bucket": str(bucket), "count": int(len(group))}
+            for spec in HORIZON_SPECS:
+                hit = (
+                    pd.to_numeric(group[spec["hit_col"]], errors="coerce")
+                    if spec["hit_col"] in group.columns
+                    else pd.Series(dtype=float)
+                )
+                fwd = (
+                    pd.to_numeric(group[spec["forward_col"]], errors="coerce")
+                    if spec["forward_col"] in group.columns
+                    else pd.Series(dtype=float)
+                )
+                row[f"{spec['key']}_hit_rate"] = (
+                    float(hit.mean()) if len(hit) else np.nan
+                )
+                row[f"{spec['key']}_avg_return"] = (
+                    float(fwd.mean()) if len(fwd) else np.nan
+                )
+            rows.append(row)
+        analysis[feature] = rows
+    return analysis
+
+
+def normalized_xgb_gain(model) -> dict[str, float]:
+    raw = model.get_booster().get_score(importance_type="gain")
+    values = {name: float(raw.get(name, 0.0)) for name in FEATURE_COLS}
+    total = sum(values.values())
+    return {
+        name: (value / total if total > 0 else 0.0)
+        for name, value in values.items()
+    }
+
+
+def sha256_file(path: Path | None) -> str | None:
+    if path is None or not path.is_file():
+        return None
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def library_versions() -> dict:
+    versions = {"python": platform.python_version()}
+    for name in ("pandas", "numpy", "scikit-learn", "xgboost", "lightgbm"):
+        try:
+            versions[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            versions[name] = None
+    return versions
+
+
+def train_horizon(
+    df: pd.DataFrame,
+    spec: dict,
+    art_dir: Path,
+    *,
+    xgb_params: dict | None = None,
+    source_csv: Path | None = None,
+) -> dict:
+    """Walk-forward train one XGBClassifier; refit on all pre-final-test data for artifacts."""
+    labeled = horizon_frame(df, spec)
+    balance = class_balance(labeled[spec["hit_col"]])
+    print(f"\n======== Horizon {spec['key']}  target={spec['hit_col']}  embargo={spec['embargo_weeks']}w ========")
+    print(
+        f"Class balance: positive={balance['positive']} "
+        f"negative={balance['negative']} "
+        f"positive_rate={balance['positive_rate']:.2%}"
+    )
+
+    folds = walk_forward_folds(labeled, spec["embargo_weeks"])
+    if not folds:
+        train, val, test, bounds = temporal_split(labeled, spec["embargo_weeks"])
+        if len(train) == 0 or len(val) == 0 or len(test) == 0:
+            raise RuntimeError(
+                f"{spec['key']}: empty partition(s) train={len(train)} val={len(val)} test={len(test)}"
+            )
+        folds = [
+            {
+                "train": train,
+                "val": val,
+                "test": test,
+                "train_end": bounds["val_start"] - pd.Timedelta(weeks=spec["embargo_weeks"]),
+                "val_start": bounds["val_start"],
+                "val_end": bounds["test_start"] - pd.Timedelta(weeks=spec["embargo_weeks"]),
+                "test_start": bounds["test_start"],
+                "test_end": bounds["max_date"],
+                "embargo_weeks": spec["embargo_weeks"],
+            }
+        ]
+        print("Walk-forward produced no folds; using single chronological split.")
+
+    print(f"Walk-forward folds: {len(folds)}")
+    oos_parts: list[pd.DataFrame] = []
+    fold_rows: list[dict] = []
+
+    for i, fold in enumerate(folds, start=1):
+        train, val, test = fold["train"], fold["val"], fold["test"]
+        y_train = train[spec["hit_col"]].to_numpy()
+        y_val = val[spec["hit_col"]].to_numpy()
+        if y_train.sum() == 0 or (y_train == 0).sum() == 0:
+            print(f"  Fold {i}: skipped (single-class train)")
+            continue
+        model = _fit_xgb_classifier(
+            _feature_matrix(train),
+            y_train,
+            _feature_matrix(val),
+            y_val,
+            xgb_params,
+        )
+        logistic = _fit_logistic_classifier(_feature_matrix(train), y_train)
+        test_out = test.copy()
+        test_out[spec["prob_col"]] = _predict_proba(model, _feature_matrix(test))
+        test_out[spec["logistic_prob_col"]] = logistic.predict_proba(
+            _feature_matrix(test)
+        )[:, 1]
+        fold_rng = np.random.default_rng(RANDOM_SEED + i)
+        test_out["_Random_Rank"] = fold_rng.random(len(test_out))
+        fold_cmp = compare_rankers(test_out, spec)
+        score_decile = fold_cmp["models"]["score"]["selections"]["top_10pct"]
+        xgb_decile = fold_cmp["models"]["xgb"]["selections"]["top_10pct"]
+        fold_pass = (
+            xgb_decile["avg_fwd"] > score_decile["avg_fwd"]
+            and xgb_decile["win_rate"] > score_decile["win_rate"]
+            and xgb_decile["hit_rate"] > score_decile["hit_rate"]
+        )
+        fold_rows.append(
+            {
+                "fold": i,
+                "test_start": pd.Timestamp(fold["test_start"]).strftime("%Y-%m-%d"),
+                "test_end": pd.Timestamp(fold["test_end"]).strftime("%Y-%m-%d"),
+                "n_train": len(train),
+                "n_val": len(val),
+                "n_test": len(test),
+                "best_iteration": _best_iteration(model),
+                "class_balance": class_balance(train[spec["hit_col"]]),
+                "classification": {
+                    "xgb": classification_metrics(
+                        test_out[spec["hit_col"]], test_out[spec["prob_col"]]
+                    ),
+                    "logistic": classification_metrics(
+                        test_out[spec["hit_col"]],
+                        test_out[spec["logistic_prob_col"]],
+                    ),
+                },
+                "trading": fold_cmp["models"],
+                "promotion_pass": fold_pass,
+            }
+        )
+        print(
+            f"  Fold {i}: test {fold_rows[-1]['test_start']}..{fold_rows[-1]['test_end']} "
+            f"n={len(test)}  ScoreTop10%Avg={score_decile['avg_fwd']:.4f}  "
+            f"XGBTop10%Avg={xgb_decile['avg_fwd']:.4f}  "
+            f"ScoreWR={score_decile['win_rate']:.3f}  "
+            f"XGBWR={xgb_decile['win_rate']:.3f} pass={fold_pass}"
+        )
+        oos_parts.append(test_out)
+
+    if not oos_parts:
+        raise RuntimeError(f"{spec['key']}: no walk-forward OOS predictions")
+
+    oos = pd.concat(oos_parts, ignore_index=True)
+    pooled = compare_rankers(oos, spec)
+    fold_pass_rate = float(
+        np.mean([row["promotion_pass"] for row in fold_rows])
+    )
+    pooled["fold_pass_rate"] = fold_pass_rate
+    pooled["promote"] = bool(
+        pooled["promote"] and fold_pass_rate >= PROMOTION_FOLD_PASS_RATE
+    )
+    pooled["classification"] = {
+        "xgb": classification_metrics(oos[spec["hit_col"]], oos[spec["prob_col"]]),
+        "logistic": classification_metrics(
+            oos[spec["hit_col"]], oos[spec["logistic_prob_col"]]
+        ),
+    }
+    score_decile = pooled["models"]["score"]["selections"]["top_10pct"]
+    xgb_decile = pooled["models"]["xgb"]["selections"]["top_10pct"]
+    print(
+        f"Pooled OOS n={pooled['n_oos']}  base_hit={pooled['base_hit_rate']:.4f}  "
+        f"ScoreTop10%Avg={score_decile['avg_fwd']:.4f}  "
+        f"XGBTop10%Avg={xgb_decile['avg_fwd']:.4f}  "
+        f"fold_pass_rate={fold_pass_rate:.1%} promote={pooled['promote']}"
+    )
+    print(
+        f"  Score top10%/5% avg fwd={pooled['score_top10pct_avg']:.4f}/{pooled['score_top5pct_avg']:.4f}  "
+        f"ML top10%/5% avg fwd={pooled['ml_top10pct_avg']:.4f}/{pooled['ml_top5pct_avg']:.4f}"
+    )
+    research_results = evaluate_research_targets(
+        labeled, folds, spec, xgb_params
+    )
+    for target, result in research_results.items():
+        print(
+            f"  Research {target}: "
+            f"ScoreTop10%={result['score_top_10pct']['avg_fwd']:.4f} "
+            f"XGBTop10%={result['xgb_top_10pct']['avg_fwd']:.4f}"
+        )
+
+    # Final artifact: train on all rows before the last fold's test window (plus val).
+    last = folds[-1]
+    final_train = labeled[labeled[DATE_COL] < last["val_start"]]
+    final_val = labeled[
+        (labeled[DATE_COL] >= last["val_start"]) & (labeled[DATE_COL] < last["val_end"])
+    ]
+    if len(final_train) < MIN_TRAIN_ROWS or len(final_val) < MIN_VAL_ROWS:
+        final_train = last["train"]
+        final_val = last["val"]
+    y_tr = final_train[spec["hit_col"]].to_numpy()
+    y_va = final_val[spec["hit_col"]].to_numpy()
+    final_model = _fit_xgb_classifier(
+        _feature_matrix(final_train),
+        y_tr,
+        _feature_matrix(final_val),
+        y_va,
+        xgb_params,
+    )
+    best_iter = _best_iteration(final_model)
+
+    art_dir.mkdir(parents=True, exist_ok=True)
+    model_path = art_dir / spec["model_filename"]
+    final_model.get_booster().save_model(str(model_path))
+    print(f"[SAVED] {spec['key']} XGBoost classifier: {model_path}  best_iteration={best_iter}")
+
+    gain = normalized_xgb_gain(final_model)
+    xgb_imp = np.asarray([gain[name] for name in FEATURE_COLS], dtype=float)
+    print_ascii_importance(FEATURE_COLS, xgb_imp, f"XGBoost gain ({spec['key']})")
+
+    production_model = "xgb" if pooled["promote"] else "none"
+    source_hash = sha256_file(source_csv)
+    feature_quality = analyze_feature_quality(labeled)
+    metadata = {
+        "schema_version": 2,
+        "task": "binary",
+        "model_type": "XGBClassifier",
+        "horizon": spec["key"],
+        "horizon_bars": spec["bars"],
+        "target_column": spec["hit_col"],
+        "forward_column": spec["forward_col"],
+        "max_column": spec["max_col"],
+        "win_column": spec["win_col"],
+        "prob_column": spec["prob_col"],
+        "hit_threshold": spec["threshold"],
+        "embargo_weeks": spec["embargo_weeks"],
+        "feature_columns": list(FEATURE_COLS),
+        "feature_count": len(FEATURE_COLS),
+        "feature_decisions": FEATURE_DECISIONS,
+        "feature_quality": feature_quality,
+        "feature_bucket_analysis": feature_bucket_analysis(labeled),
+        "normalized_xgb_gain": gain,
+        "best_iteration": best_iter,
+        "sample_weight": "uniform",
+        "scale_pos_weight": float((xgb_params or {}).get("scale_pos_weight", 1.0)),
+        "promoted": bool(pooled["promote"]),
+        "production_model": production_model,
+        "promotion_rule": (
+            "Promote only when walk-forward OOS top-decile average forward "
+            "return, win rate, and hit rate beat Score, and at least 60% of "
+            "walk-forward folds pass all three tests."
+        ),
+        "source_csv": str(source_csv) if source_csv else None,
+        "source_csv_sha256": source_hash,
+        "training_timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "library_versions": library_versions(),
+        "training_rows": int(len(final_train)),
+        "validation_rows": int(len(final_val)),
+        "oos_rows": int(len(oos)),
+        "class_balance": balance,
+        "date_ranges": {
+            "all": [
+                labeled[DATE_COL].min().strftime("%Y-%m-%d"),
+                labeled[DATE_COL].max().strftime("%Y-%m-%d"),
+            ],
+            "final_train": [
+                final_train[DATE_COL].min().strftime("%Y-%m-%d"),
+                final_train[DATE_COL].max().strftime("%Y-%m-%d"),
+            ],
+            "final_validation": [
+                final_val[DATE_COL].min().strftime("%Y-%m-%d"),
+                final_val[DATE_COL].max().strftime("%Y-%m-%d"),
+            ],
+        },
+        "do_not_average_with_lightgbm": True,
+        "artifacts": {"xgb_model": model_path.name},
+        "classification_metrics": pooled["classification"],
+        "research_targets": research_results,
+        "score_baseline": pooled["models"]["score"],
+        "model_metrics": {
+            "xgb": pooled["models"]["xgb"],
+            "logistic": pooled["models"].get("logistic"),
+            "random": pooled["models"].get("random"),
+        },
+        "walk_forward": {
+            "n_folds": len(fold_rows),
+            "n_oos": pooled["n_oos"],
+            "folds": fold_rows,
+            "pooled": {
+                "base_hit_rate": pooled["base_hit_rate"],
+                "score_top10_avg_return": pooled["score_top10"]["avg_fwd"],
+                "ml_top10_avg_return": pooled["ml_top10"]["avg_fwd"],
+                "score_top10_median_return": pooled["score_top10"]["med_fwd"],
+                "ml_top10_median_return": pooled["ml_top10"]["med_fwd"],
+                "score_win_rate": score_decile["win_rate"],
+                "ml_win_rate": xgb_decile["win_rate"],
+                "score_hit_rate": score_decile["hit_rate"],
+                "ml_hit_rate": xgb_decile["hit_rate"],
+                "score_top10pct_avg": pooled["score_top10pct_avg"],
+                "score_top5pct_avg": pooled["score_top5pct_avg"],
+                "ml_top10pct_avg": pooled["ml_top10pct_avg"],
+                "ml_top5pct_avg": pooled["ml_top5pct_avg"],
+                "fold_pass_rate": fold_pass_rate,
+                "models": pooled["models"],
+                "promote": pooled["promote"],
+            },
+        },
+        "decision_guidance": {
+            "use_as": "soft ranking signal for setup selection (only if promoted)",
+            "combine_with": [
+                "macro regime score",
+                "risk management rules",
+                "market context",
+            ],
+            "do_not_use_as": [
+                "hard entry/exit gate",
+                "position sizing rule",
+                "blend of 10d/21d/42d models",
+                "average of XGBoost and LightGBM",
+            ],
+        },
+    }
+    meta_path = art_dir / spec["metadata_filename"]
+    meta_path.write_text(json.dumps(_jsonable(metadata), indent=2), encoding="utf-8")
+    print(f"[SAVED] {spec['key']} metadata: {meta_path}")
+    pooled["metadata"] = metadata
+    pooled["model_path"] = str(model_path)
+    pooled["metadata_path"] = str(meta_path)
+    pooled["folds"] = fold_rows
+    return pooled
+
+
+def _jsonable(obj):
+    if isinstance(obj, dict):
+        return {k: _jsonable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_jsonable(v) for v in obj]
+    if isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    if isinstance(obj, (np.floating, float)):
+        x = float(obj)
+        return None if not np.isfinite(x) else x
+    if isinstance(obj, (np.integer, int)):
+        return int(obj)
+    return obj
 
 
 def print_ascii_importance(names: list[str], importances: np.ndarray, title: str) -> None:
@@ -382,219 +1378,60 @@ def print_ascii_importance(names: list[str], importances: np.ndarray, title: str
     for idx in order:
         bar_len = int(30 * float(importances[idx]) / max_imp)
         bar = "#" * bar_len
-        print(f"  {names[idx]:<18} {importances[idx]:8.4f}  {bar}")
+        print(f"  {names[idx]:<24} {importances[idx]:8.4f}  {bar}")
 
 
-def save_importance_plot(
-    feature_names: list[str],
-    xgb_imp: np.ndarray,
-    lgb_imp: np.ndarray,
-    out_path: Path,
-) -> None:
-    """Side-by-side gain/split importance bar chart."""
-    import matplotlib.pyplot as plt
+def print_promotion_table(results: list[dict]) -> None:
+    print("\n=== ML vs Score (walk-forward OOS, top 10%) ===")
+    hdr = (
+        f"{'Horizon':<8} {'Target':<8} {'BaseHit':>10} {'ScoreTop10':>12} "
+        f"{'MLTop10':>12} {'ScoreWR':>10} {'MLWR':>10} {'Promote':>8}"
+    )
+    print(hdr)
+    print("-" * len(hdr))
+    for r in results:
+        score = r["models"]["score"]["selections"]["top_10pct"]
+        xgb = r["models"]["xgb"]["selections"]["top_10pct"]
+        print(
+            f"{r['horizon']:<8} {r['target']:<8} "
+            f"{r['base_hit_rate']:>10.4f} "
+            f"{score['avg_fwd']:>12.4f} "
+            f"{xgb['avg_fwd']:>12.4f} "
+            f"{score['win_rate']:>10.4f} "
+            f"{xgb['win_rate']:>10.4f} "
+            f"{'YES' if r['promote'] else 'NO':>8}"
+        )
 
-    order = np.argsort(xgb_imp)[::-1]
-    names = [feature_names[i] for i in order]
-    xgb_sorted = xgb_imp[order]
-    lgb_sorted = lgb_imp[order]
 
-    y_pos = np.arange(len(names))
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
-    fig.suptitle(f"Coiled Cobra ML — Feature Importances ({TARGET_COL})")
-
-    axes[0].barh(y_pos, xgb_sorted, color="#2c5f7c")
-    axes[0].set_yticks(y_pos)
-    axes[0].set_yticklabels(names)
-    axes[0].invert_yaxis()
-    axes[0].set_xlabel("Importance (gain)")
-    axes[0].set_title("XGBoost")
-
-    axes[1].barh(y_pos, lgb_sorted, color="#3d7a5a")
-    axes[1].set_xlabel("Importance (split/gain)")
-    axes[1].set_title("LightGBM")
-
-    fig.tight_layout()
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(out_path, dpi=140, bbox_inches="tight")
-    plt.close(fig)
-    print(f"\nSaved feature importance plot: {out_path}")
-
-def save_model_metadata(
-    art_dir: Path,
-    feature_names: list[str],
-    xgb_val_metrics: dict,
-    xgb_test_metrics: dict,
-    lgb_val_metrics: dict,
-    lgb_test_metrics: dict,
-    xgb_model_path: Path,
-    lgb_model_path: Path,
-    plot_path: Path,
-) -> None:
-    """Persist a JSON summary that downstream tooling can consume."""
-    metadata = {
-        "target_column": TARGET_COL,
-        "target_horizon_weeks": TARGET_HORIZON_WEEKS,
-        "embargo_weeks": EMBARGO_WEEKS,
-        "sample_weight": (
-            "inverse_ATR_Pct"
-            if USE_INVERSE_ATR_WEIGHTS
-            else "uniform"
-        ),
-        "feature_columns": feature_names,
-        "decision_guidance": {
-            "use_as": "soft ranking signal for setup selection",
-            "combine_with": [
-                "macro regime score",
-                "risk management rules",
-                "market context",
-                "liquidity and options constraints",
-            ],
-            "do_not_use_as": [
-                "hard entry/exit gate",
-                "position sizing rule",
-                "standalone trading system",
-            ],
-        },
-        "artifacts": {
-            "xgb_model": xgb_model_path.name,
-            "lgb_model": lgb_model_path.name,
-            "importance_plot": plot_path.name,
-        },
-        "metrics": {
-            "xgb": {
-                "val_mae": xgb_val_metrics["mae"],
-                "val_rmse": xgb_val_metrics["rmse"],
-                "val_spearman": xgb_val_metrics["spearman"],
-                "val_ndcg10": xgb_val_metrics.get("ndcg10"),
-                "val_top_decile_mean": xgb_val_metrics.get("top_decile_mean"),
-                "test_mae": xgb_test_metrics["mae"],
-                "test_rmse": xgb_test_metrics["rmse"],
-                "test_spearman": xgb_test_metrics["spearman"],
-                "test_ndcg10": xgb_test_metrics.get("ndcg10"),
-                "test_top_decile_mean": xgb_test_metrics.get("top_decile_mean"),
-            },
-            "lgb": {
-                "val_mae": lgb_val_metrics["mae"],
-                "val_rmse": lgb_val_metrics["rmse"],
-                "val_spearman": lgb_val_metrics["spearman"],
-                "val_ndcg10": lgb_val_metrics.get("ndcg10"),
-                "val_top_decile_mean": lgb_val_metrics.get("top_decile_mean"),
-                "test_mae": lgb_test_metrics["mae"],
-                "test_rmse": lgb_test_metrics["rmse"],
-                "test_spearman": lgb_test_metrics["spearman"],
-                "test_ndcg10": lgb_test_metrics.get("ndcg10"),
-                "test_top_decile_mean": lgb_test_metrics.get("top_decile_mean"),
-            },
-        },
+def write_index_metadata(art_dir: Path, results: list[dict]) -> None:
+    """Pointer file so inference can discover the three horizon artifacts."""
+    payload = {
+        "task": "binary_horizons",
+        "do_not_average_with_lightgbm": True,
+        "do_not_combine_horizons": True,
+        "feature_columns": list(FEATURE_COLS),
+        "horizons": [
+            {
+                "key": r["horizon"],
+                "promoted": r["promote"],
+                "production_model": "xgb" if r["promote"] else "none",
+                "metadata_file": Path(r["metadata_path"]).name,
+                "xgb_model": Path(r["model_path"]).name,
+                "prob_column": next(
+                    s["prob_col"] for s in HORIZON_SPECS if s["key"] == r["horizon"]
+                ),
+            }
+            for r in results
+        ],
     }
-    metadata_path = art_dir / MODEL_METADATA_FILENAME
-    metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-    print(f"\n[SAVED] ML metadata summary: {metadata_path}")
+    path = art_dir / MODEL_METADATA_FILENAME
+    path.write_text(json.dumps(_jsonable(payload), indent=2), encoding="utf-8")
+    print(f"\n[SAVED] horizon index: {path}")
 
 
-def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
-    from lightgbm import LGBMRegressor, early_stopping, log_evaluation
-    from xgboost import XGBRegressor
-
-    X_train, y_train, w_train = parts["train"]["X"], parts["train"]["y"], parts["train"]["w"]
-    X_val, y_val = parts["val"]["X"], parts["val"]["y"]
-    X_test, y_test = parts["test"]["X"], parts["test"]["y"]
-
-    print("\n=== Dataset Shape Integrity ===")
-    print(f"  X_train: {X_train.shape[0]} rows x {X_train.shape[1]} cols")
-    print(f"  X_val:   {X_val.shape[0]} rows x {X_val.shape[1]} cols")
-    print(f"  X_test:  {X_test.shape[0]} rows x {X_test.shape[1]} cols")
-    print(f"  Features: {list(X_train.columns)}")
-
-    print("\n=== Training XGBRegressor (reg:absoluteerror) ===")
-    xgb = XGBRegressor(
-        max_depth=MODEL_PARAMS["max_depth"],
-        learning_rate=MODEL_PARAMS["learning_rate"],
-        n_estimators=MODEL_PARAMS["n_estimators"],
-        subsample=MODEL_PARAMS["subsample"],
-        colsample_bytree=MODEL_PARAMS["colsample_bytree"],
-        objective="reg:absoluteerror",
-        tree_method="hist",
-        early_stopping_rounds=EARLY_STOPPING_ROUNDS,
-        n_jobs=-1,
-        random_state=42,
-    )
-    xgb.fit(
-        X_train,
-        y_train,
-        sample_weight=w_train,
-        eval_set=[(X_val, y_val)],
-        verbose=False,
-    )
-
-    print("XGBoost validation / OOS scores:")
-    xgb_val_metrics = evaluate(xgb, X_val, y_val, f"Val ({labels['val']})")
-    xgb_test_metrics = evaluate(xgb, X_test, y_test, f"Test OOS ({labels['test']})")
-
-    print("\n=== Training LGBMRegressor (regression_l1 / MAE) ===")
-    lgb = LGBMRegressor(
-        max_depth=MODEL_PARAMS["max_depth"],
-        learning_rate=MODEL_PARAMS["learning_rate"],
-        n_estimators=MODEL_PARAMS["n_estimators"],
-        subsample=MODEL_PARAMS["subsample"],
-        colsample_bytree=MODEL_PARAMS["colsample_bytree"],
-        bagging_freq=MODEL_PARAMS["bagging_freq"],
-        objective="regression_l1",
-        n_jobs=-1,
-        random_state=42,
-        verbose=-1,
-    )
-    lgb.fit(
-        X_train,
-        y_train,
-        sample_weight=w_train,
-        eval_set=[(X_val, y_val)],
-        callbacks=[early_stopping(EARLY_STOPPING_ROUNDS, verbose=False), log_evaluation(0)],
-    )
-
-    print("LightGBM validation / OOS scores:")
-    lgb_val_metrics = evaluate(lgb, X_val, y_val, f"Val ({labels['val']})")
-    lgb_test_metrics = evaluate(lgb, X_test, y_test, f"Test OOS ({labels['test']})")
-
-    # --- NEW: Serialize Model Weights for Review and Pega Ingestion ---
-    art_dir.mkdir(parents=True, exist_ok=True)
-    
-    # 1. Save XGBoost Weights (Standard JSON format, highly readable/parseable)
-    xgb_model_path = art_dir / "coiled_cobra_xgb_model.json"
-    xgb.get_booster().save_model(str(xgb_model_path))
-    print(f"\n[SAVED] XGBoost model weights exported to: {xgb_model_path}")
-
-    # 2. Save LightGBM Weights (Standard text model structure)
-    lgb_model_path = art_dir / "coiled_cobra_lgb_model.txt"
-    lgb.booster_.save_model(str(lgb_model_path))
-    print(f"[SAVED] LightGBM model weights exported to: {lgb_model_path}")
-    # ------------------------------------------------------------------
-
-    feature_names = list(X_train.columns)
-    xgb_imp = np.asarray(xgb.feature_importances_, dtype=float)
-    lgb_imp = np.asarray(lgb.feature_importances_, dtype=float)
-
-    print_ascii_importance(feature_names, xgb_imp, "XGBoost feature importance")
-    print_ascii_importance(feature_names, lgb_imp, "LightGBM feature importance")
-
-    plot_path = art_dir / "coiled_cobra_ml_feature_importance.png"
-    save_importance_plot(feature_names, xgb_imp, lgb_imp, plot_path)
-    save_model_metadata(
-        art_dir,
-        feature_names,
-        xgb_val_metrics,
-        xgb_test_metrics,
-        lgb_val_metrics,
-        lgb_test_metrics,
-        xgb_model_path,
-        lgb_model_path,
-        plot_path,
-    )
-    
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Coiled Cobra ML baseline (XGBoost + LightGBM) with Dynamic Windows"
+        description="Coiled Cobra ML hit classifiers (10d / 21d / 42d) with walk-forward"
     )
     parser.add_argument(
         "--csv",
@@ -604,46 +1441,38 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--artifacts-dir",
         default=None,
-        help="Directory for plots (default: same directory as the CSV, typically data/logs/daily)",
+        help="Directory for models/metadata (default: same directory as the CSV)",
+    )
+    parser.add_argument(
+        "--horizons",
+        default="10d,21d,42d",
+        help="Comma-separated horizons to train (default: 10d,21d,42d)",
     )
     args = parser.parse_args(argv)
 
     csv_path = resolve_source_csv(args.csv)
-    if args.artifacts_dir:
-        art_dir = Path(args.artifacts_dir)
-    else:
-        art_dir = csv_path.parent if csv_path.parent.is_dir() else Path.cwd()
+    art_dir = Path(args.artifacts_dir) if args.artifacts_dir else (
+        csv_path.parent if csv_path.parent.is_dir() else Path.cwd()
+    )
+
+    wanted = {h.strip() for h in args.horizons.split(",") if h.strip()}
+    specs = [s for s in HORIZON_SPECS if s["key"] in wanted]
+    if not specs:
+        raise ValueError(f"No matching horizons in {wanted}")
 
     df = load_and_prepare(csv_path)
-    train, val, test, bounds = temporal_split(df)
-
-    v_str = f"{bounds['val_start'].strftime('%Y-%m-%d')} .. {bounds['test_start'].strftime('%Y-%m-%d')}"
-    t_str = f"{bounds['test_start'].strftime('%Y-%m-%d')} .. {bounds['max_date'].strftime('%Y-%m-%d')}"
-
-    print("\n=== Temporal Split Bounds (Dynamic Rolling Windows) ===")
-    print(f"  Train:  Signal Date < {bounds['val_start'].strftime('%Y-%m-%d')} minus {bounds['embargo_weeks']}w embargo -> {len(train)} rows")
-    print(f"  Val:    {v_str} -> {len(val)} rows")
-    print(f"  Test:   {t_str} -> {len(test)} rows")
-
-    if len(train) == 0 or len(val) == 0 or len(test) == 0:
+    if _infer_frame_mode(df) == "weekly":
         raise RuntimeError(
-            f"Empty partition(s): train={len(train)} val={len(val)} test={len(test)}"
+            "This trainer is for 10y daily (1D) hit models. Pass a daily backtest CSV."
         )
+    report_all_target_balances(df)
 
-    if "Score" in test.columns:
-        score = pd.to_numeric(test["Score"], errors="coerce")
-        y = test[TARGET_COL].astype(float)
-        mask = score.notna() & y.notna()
-        if mask.sum() >= 5:
-            ic = float(score[mask].corr(y[mask], method="spearman"))
-            print(
-                f"\nScore-only ranking baseline on test: Spearman={ic:.4f} "
-                f"TopDecileRel={top_decile_mean(y[mask].to_numpy(), score[mask].to_numpy()):.4f}"
-            )
+    results = []
+    for spec in specs:
+        results.append(train_horizon(df, spec, art_dir, source_csv=csv_path))
 
-    parts = build_matrices(train, val, test)
-    labels = {"val": v_str, "test": t_str}
-    train_and_report(parts, art_dir, labels)
+    print_promotion_table(results)
+    write_index_metadata(art_dir, results)
     print("\nDone.")
     return 0
 

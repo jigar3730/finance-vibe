@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 import finance_vibe.pipeline_backtest as pb
+from finance_vibe import config
 from finance_vibe.pipeline_backtest import (
     passes_macro_gate,
     simulate_trade,
@@ -236,7 +237,7 @@ def _write_flat_csv(tmp_path, n=120, low=95.0, high=105.0):
         "Open": [100.0] * n, "High": [high] * n, "Low": [low] * n,
         "Close": [100.0] * n, "Volume": [1_000_000] * n,
     })
-    path = tmp_path / "XYZ_5y_1d.csv"
+    path = tmp_path / config.get_raw_filename("XYZ", config.get_mode_config("daily"))
     df.to_csv(path, index=False)
     return str(path)
 

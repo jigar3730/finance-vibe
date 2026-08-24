@@ -63,10 +63,16 @@ def test_rel_forward_subtracts_qqq_on_or_before_date():
 def test_forward_horizon_bars_are_calendar_equivalent():
     assert forward_horizon_bars("weekly") == (2, 4, 5, 8, 13, 26)
     assert forward_horizon_bars("daily") == (10, 21, 25, 42, 63, 126)
-    from finance_vibe.coiled_cobra_backtest import forward_label_specs, mae_at, held_coil_low_at
+    from finance_vibe.coiled_cobra_backtest import (
+        forward_label_specs,
+        held_coil_low_at,
+        mae_at,
+        max_return_at,
+        future_max_return_series,
+    )
 
     daily_suffixes = [s for _, s in forward_label_specs("daily")]
-    assert "21d" in daily_suffixes and "42d" in daily_suffixes
+    assert "10d" in daily_suffixes and "21d" in daily_suffixes and "42d" in daily_suffixes
     weekly_suffixes = [s for _, s in forward_label_specs("weekly")]
     assert "4w" in weekly_suffixes and "8w" in weekly_suffixes
 
@@ -74,12 +80,19 @@ def test_forward_horizon_bars_are_calendar_equivalent():
     df = pd.DataFrame({
         "Date": dates,
         "Close": [100.0] * 10,
+        "High": [100.0, 100.0, 115.0, 110.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
         "Low": [100.0, 100.0, 90.0, 95.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0],
     })
     assert mae_at(df, 0, 3, 100.0) == pytest.approx(0.10)
+    assert max_return_at(df, 0, 3, 100.0) == pytest.approx(0.15)
+    assert max_return_at(df, 0, 20, 100.0) is None
+    assert mae_at(df, 0, 20, 100.0) is None
+    mfe = future_max_return_series(df, 3)
+    assert mfe.iloc[0] == pytest.approx(0.15)
     df["Close"] = [100.0, 101.0, 102.0, 99.0, 100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
     assert held_coil_low_at(df, 0, 3, 100.0) == 0
     assert held_coil_low_at(df, 0, 2, 100.0) == 1
+    assert held_coil_low_at(df, 0, 20, 100.0) is None
 
 
 def _fake_setup(symbol: str) -> dict:
@@ -120,7 +133,7 @@ def test_coiled_cobra_backtest_ticker_records_expansion(tmp_path, monkeypatch):
     cobra.configure_mode("daily")
     try:
         symbol = "TEST"
-        path = tmp_path / f"{symbol}_5y_1d.csv"
+        path = tmp_path / f"{symbol}_{config.TIMEFRAME_PROFILES['daily']['period']}_{config.TIMEFRAME_PROFILES['daily']['interval']}.csv"
 
         dates = pd.date_range("2024-01-01", periods=180, freq="B")
         df = pd.DataFrame({
@@ -158,6 +171,17 @@ def test_coiled_cobra_backtest_ticker_records_expansion(tmp_path, monkeypatch):
         assert trades[0]["Is_New_Coil"] is True
         assert trades[0]["Coil_Age_Bars"] == 1
         assert trades[0]["Forward_Return_2w"] == 0.0
+        assert trades[0]["Forward_Return_10d"] == 0.0
+        assert trades[0]["Max_Return_10d"] == pytest.approx(0.10)
+        assert trades[0]["Hit_10Pct_10d"] == 1
+        assert trades[0]["Hit_15Pct_10d"] == 0
+        assert trades[0]["Win_10d"] == 0
+        assert trades[0]["Hit_10Pct_21d"] == 1
+        assert trades[0]["Hit_15Pct_21d"] == 0
+        assert trades[0]["Hit_20Pct_21d"] == 0
+        assert trades[0]["Hit_10Pct_42d"] is None
+        assert trades[0]["Hit_25Pct_42d"] is None
+        assert trades[0]["Hit_50Pct_42d"] is None
         assert "Rel_Forward_2w" in trades[0]
         assert "Rel_Forward_42d" in trades[0]
         assert "MAE_2w" in trades[0]

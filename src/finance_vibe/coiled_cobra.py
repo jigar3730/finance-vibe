@@ -22,7 +22,7 @@ import pandas_ta as ta
 
 # --- PACKAGE IMPORT ---
 from finance_vibe import config
-from finance_vibe.market import load_benchmark_frame, relative_strength
+from finance_vibe.market import load_benchmark_frame, relative_strength, select_raw_paths
 
 # =========================
 # PROFILE CONFIGURATION
@@ -994,16 +994,16 @@ def run_scanner():
     active_tickers = set(pd.read_csv(ACTIVE_TICKERS_PATH)["Ticker"].str.upper())
     logger.info(f"Loaded {len(active_tickers)} active tickers.")
 
-    if not os.path.exists(RAW_DATA_DIR):
-        logger.warning(f"Target raw directory empty or non-existent: {RAW_DATA_DIR}")
+    cfg = config.get_mode_config(mode)
+    if not os.path.exists(cfg["raw_dir"]):
+        logger.warning(f"Target raw directory empty or non-existent: {cfg['raw_dir']}")
         return
 
-    raw_files = sorted(
-        os.path.join(RAW_DATA_DIR, f)
-        for f in os.listdir(RAW_DATA_DIR)
-        if f.endswith(".csv")
+    raw_files = select_raw_paths(cfg["raw_dir"], cfg=cfg)
+    logger.info(
+        f"Found {len(raw_files)} {cfg['period']} {cfg['interval']} file(s) "
+        f"(one per ticker) in {cfg['raw_dir']}"
     )
-    logger.info(f"Found {len(raw_files)} historical files to analyze.")
 
     if load_benchmark_frame(BENCHMARK, mode) is None:
         logger.warning(
@@ -1056,6 +1056,9 @@ def run_scanner():
             "MACD_Crossed",
             "Weekly_Coil_Pass",
             "Weekly_Score",
+            "ML_Prob_10Pct_10d",
+            "ML_Prob_15Pct_21d",
+            "ML_Prob_25Pct_42d",
         ]
         output_columns = list(config.SETUP_ROW_COLUMNS) + [
             c for c in cobra_extra_columns if c not in config.SETUP_ROW_COLUMNS

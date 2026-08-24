@@ -7,6 +7,7 @@ monkeypatched with deterministic values so CI stays hermetic.
 import numpy as np
 import pandas as pd
 import pytest
+from pathlib import Path
 
 from finance_vibe import ml_ranker
 from finance_vibe.ml_ranker import (
@@ -64,6 +65,9 @@ def test_attach_ml_ranks_sorts_best_first(monkeypatch):
         return pd.Series([0.01 if s == "LOW" else 0.09 for s in frame["Symbol"]], index=frame.index)
 
     monkeypatch.setattr(ml_ranker, "predict_returns", fake_predict)
+    monkeypatch.setattr(
+        ml_ranker, "attach_horizon_probabilities", lambda frame, mode=None: frame
+    )
     out = attach_ml_ranks(df, "weekly")
 
     assert list(out["Symbol"]) == ["HIGH", "LOW"]
@@ -82,6 +86,9 @@ def test_attach_ml_ranks_no_model_falls_back_null(monkeypatch):
         return pd.Series(np.nan, index=frame.index, dtype="float64")
 
     monkeypatch.setattr(ml_ranker, "predict_returns", no_model)
+    monkeypatch.setattr(
+        ml_ranker, "attach_horizon_probabilities", lambda frame, mode=None: frame
+    )
     out = attach_ml_ranks(df, "weekly")
 
     assert out[ML_PRED_COL].isna().all()
@@ -109,6 +116,9 @@ def test_attach_ml_ranks_defaults_to_daily_mode(monkeypatch):
         return pd.Series([0.05], index=frame.index)
 
     monkeypatch.setattr(ml_ranker, "predict_returns", fake_predict)
+    monkeypatch.setattr(
+        ml_ranker, "attach_horizon_probabilities", lambda frame, mode=None: frame
+    )
     attach_ml_ranks(df)
     assert captured_mode == [None]
 
@@ -162,3 +172,101 @@ def test_priority_boosts_tight_coil_width_not_every_cobra_row():
     ranked = rank_by_expected_value(df)
     assert list(ranked["Symbol"]) == ["TIGHT", "WIDE"]
     assert ranked.iloc[0]["Priority"] == pytest.approx(80 * 1.25)
+
+
+def test_metadata_feature_schema_is_used():
+    from finance_vibe.ml_ranker import feature_columns_from_metadata, _iteration_range
+
+    meta = {"feature_columns": ["RSI", "ATR_Pct"], "best_iteration": 12}
+    assert feature_columns_from_metadata(meta) == ["RSI", "ATR_Pct"]
+    assert _iteration_range(meta) == (0, 13)
+    with pytest.raises(ValueError, match="feature_columns"):
+        feature_columns_from_metadata({})
+
+
+def test_predict_returns_does_not_average_lgb_when_unpromoted(monkeypatch):
+    df = pd.DataFrame([{"Symbol": "A", "Score": 80, "RSI": 55.0}])
+    monkeypatch.setattr(ml_ranker, "_promoted_spec", lambda mode=None: None)
+    out = ml_ranker.predict_returns(df, "daily")
+    assert out.isna().all()
+
+
+def test_horizon_predict_passes_best_iteration(monkeypatch):
+    from finance_vibe.coiled_cobra_ml_training import HORIZON_SPECS
+
+    spec = HORIZON_SPECS[0]
+    captured = {}
+
+    class FakeBooster:
+        feature_names = list(FEATURE_COLS)
+
+        def save_config(self):
+            return '{"learner":{"objective":{"name":"binary:logistic"}}}'
+
+        def predict(self, dmat, iteration_range=None):
+            captured["iteration_range"] = iteration_range
+            return np.array([0.42])
+
+    df = pd.DataFrame([{col: 0.1 for col in FEATURE_COLS}])
+    monkeypatch.setattr(
+        ml_ranker,
+        "load_horizon_artifact",
+        lambda mode, s: (
+            Path("unused.json"),
+            {
+                "task": "binary",
+                "model_type": "XGBClassifier",
+                "horizon": spec["key"],
+                "target_column": spec["hit_col"],
+                "prob_column": spec["prob_col"],
+                "feature_columns": list(FEATURE_COLS),
+                "feature_count": len(FEATURE_COLS),
+                "best_iteration": 7,
+                "production_model": "xgb",
+            },
+        ),
+    )
+    monkeypatch.setattr(ml_ranker, "_load_xgb", lambda path: FakeBooster())
+    probs = ml_ranker.predict_horizon_proba(df, spec, "daily")
+    assert captured["iteration_range"] == (0, 8)
+    assert probs.iloc[0] == pytest.approx(0.42)
+
+
+def test_horizon_metadata_mismatch_fails_loudly():
+    from finance_vibe.coiled_cobra_ml_training import HORIZON_SPECS
+    from finance_vibe.ml_ranker import validate_artifact_metadata
+
+    spec = HORIZON_SPECS[0]
+    bad = {
+        "task": "binary",
+        "model_type": "XGBClassifier",
+        "horizon": "42d",
+        "target_column": spec["hit_col"],
+        "prob_column": spec["prob_col"],
+        "feature_columns": list(FEATURE_COLS),
+        "feature_count": len(FEATURE_COLS),
+        "best_iteration": 1,
+        "production_model": "xgb",
+    }
+    with pytest.raises(ValueError, match="horizon"):
+        validate_artifact_metadata(bad, spec)
+
+
+def test_horizon_target_mismatch_fails_loudly():
+    from finance_vibe.coiled_cobra_ml_training import HORIZON_SPECS
+    from finance_vibe.ml_ranker import validate_artifact_metadata
+
+    spec = HORIZON_SPECS[1]
+    bad = {
+        "task": "binary",
+        "model_type": "XGBClassifier",
+        "horizon": spec["key"],
+        "target_column": "Hit_25Pct_42d",
+        "prob_column": spec["prob_col"],
+        "feature_columns": list(FEATURE_COLS),
+        "feature_count": len(FEATURE_COLS),
+        "best_iteration": 1,
+        "production_model": "none",
+    }
+    with pytest.raises(ValueError, match="target_column"):
+        validate_artifact_metadata(bad, spec)

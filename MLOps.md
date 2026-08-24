@@ -22,22 +22,25 @@
 
 ### What you are building
 
-A **supervised ranking model** for Coiled Cobra setups:
+A **multi-horizon supervised ranking layer** for Coiled Cobra setups:
 
 1. Look at a coil **on the signal bar** (pillars + EMA/ATR geometry).
-2. Predict the **next ~2 calendar weeks of return versus QQQ**.
-3. Sort today’s passing coils so the strongest predicted relative expansion is rank 1.
+2. Estimate separate probabilities for +10%/10d, +15%/21d, and +25%/42d.
+3. Compare each horizon against Score on genuinely unseen chronological folds.
 
-That prediction is attached as `ML_Pred_Return` and `ML_Rank`. The trade plan helper then sorts by predicted return (with a small boost for genuinely tight coils). The **rubric Score is still the quality gate**. ML is a tie-breaker among coils that already passed.
+The probabilities remain separate. A horizon is enabled only when top-decile
+average return, win rate, hit rate, and fold consistency beat Score. The
+**rubric Score remains the quality gate and fallback**.
 
 ### What you are not building
 
 - Not a live order router
 - Not options / LEAPS P&L
-- Not a hard “trade / don’t trade” classifier
+- Not a hard “trade / don’t trade” gate
 - Not a full ML platform (no MLflow registry, no Airflow DAG, no auto-retrain)
 
-If Spearman correlation on the test window is near zero, the model is noise. Fall back to Score. That is a successful *ops* outcome, not a failed product.
+If trading outcomes do not beat Score, metadata records
+`production_model: none` and live probabilities remain null.
 
 ### Two horizons, two models
 

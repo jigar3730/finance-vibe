@@ -22,8 +22,20 @@ def iter_raw_csv_paths(raw_dir: str) -> Iterable[str]:
 
 
 def ticker_from_filename(path: str) -> str:
+    ticker, _, _ = parse_raw_filename(path)
+    return ticker
+
+
+def parse_raw_filename(path: str) -> tuple[str, str | None, str | None]:
+    """Split ``AAPL_10y_1d.csv`` into ``(ticker, period, interval)``."""
     base = os.path.basename(path)
-    return base.split("_")[0].upper()
+    if base.lower().endswith(".csv"):
+        base = base[:-4]
+    parts = base.split("_")
+    ticker = parts[0].upper() if parts else ""
+    period = parts[1].lower() if len(parts) > 1 else None
+    interval = parts[2].lower() if len(parts) > 2 else None
+    return ticker, period, interval
 
 
 def ema(s: pd.Series, span: int) -> pd.Series:
@@ -56,10 +68,9 @@ def load_ohlc_csv(path: str) -> pd.DataFrame:
 
 
 def _period_rank(name: str) -> int:
-    parts = name.replace(".csv", "").split("_")
-    if len(parts) < 2:
+    _, tok, _ = parse_raw_filename(name)
+    if not tok:
         return 0
-    tok = parts[1].lower()
     if tok.endswith("y") and tok[:-1].isdigit():
         return int(tok[:-1]) * 365
     if tok.endswith("mo") and tok[:-2].isdigit():
@@ -69,22 +80,60 @@ def _period_rank(name: str) -> int:
     return 0
 
 
-def select_benchmark_path(benchmark: str, data_mode: str) -> Optional[str]:
-    """Find the longest-history raw CSV for *benchmark* in the mode's raw dir."""
-    cfg = config.get_mode_config(data_mode)
-    raw_dir = cfg["raw_dir"]
+def select_raw_paths(
+    raw_dir: str,
+    ticker_filter: Optional[set[str]] = None,
+    *,
+    cfg: dict | None = None,
+    mode: str | None = None,
+) -> list[str]:
+    """One raw CSV per ticker, preferring ``TIMEFRAME_PROFILES`` period/interval.
+
+    Daily config is ``10y`` × ``1d``. If both ``AAPL_5y_1d.csv`` and
+    ``AAPL_10y_1d.csv`` exist, only the configured 10y file is scanned.
+    """
     if not os.path.isdir(raw_dir):
-        return None
-    bench = benchmark.upper()
-    candidates = [
-        f
-        for f in os.listdir(raw_dir)
-        if f.lower().endswith(".csv") and f.split("_")[0].upper() == bench
-    ]
-    if not candidates:
-        return None
-    best = max(candidates, key=_period_rank)
-    return os.path.join(raw_dir, best)
+        return []
+    cfg = cfg if cfg is not None else config.get_mode_config(mode)
+    want_period = str(cfg.get("period", "")).strip().lower()
+    want_interval = str(cfg.get("interval", "")).strip().lower()
+    want_tickers = {t.strip().upper() for t in ticker_filter} if ticker_filter else None
+
+    best: dict[str, tuple[int, str]] = {}
+    for name in os.listdir(raw_dir):
+        if not name.lower().endswith(".csv"):
+            continue
+        path = os.path.join(raw_dir, name)
+        ticker, period, interval = parse_raw_filename(name)
+        if not ticker:
+            continue
+        if want_tickers is not None and ticker not in want_tickers:
+            continue
+        rank = _period_rank(name)
+        if want_period and period == want_period and want_interval and interval == want_interval:
+            rank += 1_000_000
+        elif want_interval and interval == want_interval:
+            rank += 10_000
+        prev = best.get(ticker)
+        if prev is None or rank > prev[0]:
+            best[ticker] = (rank, path)
+    return [best[s][1] for s in sorted(best)]
+
+
+def resolve_raw_path(ticker: str, cfg: dict | None = None, mode: str | None = None) -> Optional[str]:
+    """Configured ``{TICKER}_{period}_{interval}.csv``, else longest matching fallback."""
+    cfg = cfg if cfg is not None else config.get_mode_config(mode)
+    exact = config.get_raw_path(ticker, cfg)
+    if os.path.isfile(exact):
+        return exact
+    paths = select_raw_paths(cfg["raw_dir"], {ticker.upper()}, cfg=cfg)
+    return paths[0] if paths else None
+
+
+def select_benchmark_path(benchmark: str, data_mode: str) -> Optional[str]:
+    """Find the configured-period (else longest) raw CSV for *benchmark*."""
+    cfg = config.get_mode_config(data_mode)
+    return resolve_raw_path(benchmark, cfg)
 
 
 def load_benchmark_frame(benchmark: str, data_mode: str) -> Optional[pd.DataFrame]:
