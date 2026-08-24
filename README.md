@@ -12,7 +12,7 @@ The orchestrator is `src/finance_vibe/run_vibe.py` (ingest → coil scan → exp
 | ----- | ------ | ------ |
 | **Coiled Cobra (live)** | `coiled_cobra.py` | `data/logs/{mode}/coiled_cobra_setups_<date>.csv` |
 | **Expansion plan** | `trade_planner.py` | `trade_plan_<date>.csv` (levels + rank) |
-| **Cobra history / ML** | `coiled_cobra_backtest.py` / `coiled_cobra_ml_training.py` | backfill, expansion trades, XGB/LGB ranks |
+| **Cobra history / ML** | `coiled_cobra_backtest.py` / `coiled_cobra_ml_training.py` | backfill, expansion trades, horizon XGB (not live until promoted) |
 | **Offline lab (not in `run_vibe`)** | `lab/swing_scanner.py` / `lab/pipeline_backtest.py` | `swing_setups_<date>.csv`, swing backtests |
 
 Hard gates: MACD compression ≥ 5, structure ≥ 8, relative strength vs QQQ ≥ 12. Grades: **A ≥ 85**, **B ≥ 70**.
@@ -170,8 +170,10 @@ Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI: **`BacktestA
 - `LearnTA.md` / `LearnML.md` — **beginner primers**
 - `Coiled Cobra Rubric .MD` — **live scorecard (source of truth)**
 - `BacktestAndBackfill.md` — **data backfill, signal backfill, and walk-forward backtests**
+- `docs/CoiledCobraML-Handoff.md` — **resume here after a break (ML status, decisions, next work)**
+- `CodeReview.MD` — **ML audit log (what was fixed 2026-08-24, what is still open)**
 - `MLOps.md` — **Docker-first train / evaluate / deploy runbook + ML concepts**
-- `CoiledCobraML.md` — **Coiled Cobra ML baseline (feature contract, metrics)**
+- `CoiledCobraML.md` — **Coiled Cobra ML feature/label contract**
 - `OperationManual.md` — operations and troubleshooting
 - `swing_setup_readme.md` — offline tactical scanner reference
 - `src/finance_vibe/pipeline_backtest.py` — offline quality-swing validation

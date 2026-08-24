@@ -217,7 +217,7 @@ def test_horizon_predict_passes_best_iteration(monkeypatch):
                 "task": "binary",
                 "model_type": "XGBClassifier",
                 "horizon": spec["key"],
-                "target_column": spec["hit_col"],
+                "target_column": spec["label_col"],
                 "prob_column": spec["prob_col"],
                 "feature_columns": list(FEATURE_COLS),
                 "feature_count": len(FEATURE_COLS),
@@ -230,6 +230,26 @@ def test_horizon_predict_passes_best_iteration(monkeypatch):
     probs = ml_ranker.predict_horizon_proba(df, spec, "daily")
     assert captured["iteration_range"] == (0, 8)
     assert probs.iloc[0] == pytest.approx(0.42)
+
+
+def test_horizon_metadata_rejects_degenerate_best_iteration():
+    from finance_vibe.coiled_cobra_ml_training import HORIZON_SPECS
+    from finance_vibe.ml_ranker import validate_artifact_metadata
+
+    spec = HORIZON_SPECS[1]
+    degenerate = {
+        "task": "binary",
+        "model_type": "XGBClassifier",
+        "horizon": spec["key"],
+        "target_column": spec["label_col"],
+        "prob_column": spec["prob_col"],
+        "feature_columns": list(FEATURE_COLS),
+        "feature_count": len(FEATURE_COLS),
+        "best_iteration": 2,
+        "production_model": "none",
+    }
+    with pytest.raises(ValueError, match="degenerate"):
+        validate_artifact_metadata(degenerate, spec)
 
 
 def test_horizon_metadata_mismatch_fails_loudly():
@@ -245,7 +265,7 @@ def test_horizon_metadata_mismatch_fails_loudly():
         "prob_column": spec["prob_col"],
         "feature_columns": list(FEATURE_COLS),
         "feature_count": len(FEATURE_COLS),
-        "best_iteration": 1,
+        "best_iteration": 12,
         "production_model": "xgb",
     }
     with pytest.raises(ValueError, match="horizon"):
@@ -265,7 +285,7 @@ def test_horizon_target_mismatch_fails_loudly():
         "prob_column": spec["prob_col"],
         "feature_columns": list(FEATURE_COLS),
         "feature_count": len(FEATURE_COLS),
-        "best_iteration": 1,
+        "best_iteration": 12,
         "production_model": "none",
     }
     with pytest.raises(ValueError, match="target_column"):

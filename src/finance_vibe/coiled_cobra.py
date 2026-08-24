@@ -1056,9 +1056,9 @@ def run_scanner():
             "MACD_Crossed",
             "Weekly_Coil_Pass",
             "Weekly_Score",
-            "ML_Prob_10Pct_10d",
-            "ML_Prob_15Pct_21d",
-            "ML_Prob_25Pct_42d",
+            "ML_Prob_Win_10d",
+            "ML_Prob_Win_21d",
+            "ML_Prob_Win_42d",
         ]
         output_columns = list(config.SETUP_ROW_COLUMNS) + [
             c for c in cobra_extra_columns if c not in config.SETUP_ROW_COLUMNS

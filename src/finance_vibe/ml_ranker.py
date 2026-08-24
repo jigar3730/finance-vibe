@@ -1,8 +1,8 @@
 """Offline-model inference for ranking Coiled Cobra scan results.
 
 Loads per-horizon XGBClassifier boosters produced by
-``coiled_cobra_ml_training.py`` and attaches hit probabilities
-(``ML_Prob_*``). ``ML_Pred_Return`` / ``ML_Rank`` are filled only from a
+``coiled_cobra_ml_training.py`` and attaches win probabilities
+(``ML_Prob_Win_*``). ``ML_Pred_Return`` / ``ML_Rank`` are filled only from a
 **promoted** horizon (walk-forward beat Score on avg return AND win rate).
 Horizons are never blended; LightGBM is not averaged in.
 """
@@ -17,12 +17,26 @@ import pandas as pd
 
 try:
     from finance_vibe import config
-    from finance_vibe.coiled_cobra_ml_training import FEATURE_COLS, HORIZON_SPECS, MODEL_METADATA_FILENAME
+    from finance_vibe.coiled_cobra_ml_training import (
+        FEATURE_COLS,
+        HORIZON_SPECS,
+        MIN_BEST_ITERATION,
+        MODEL_METADATA_FILENAME,
+        booster_is_degenerate,
+        label_col,
+    )
 except ImportError:  # pragma: no cover - local direct execution
     import sys
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from finance_vibe import config
-    from finance_vibe.coiled_cobra_ml_training import FEATURE_COLS, HORIZON_SPECS, MODEL_METADATA_FILENAME
+    from finance_vibe.coiled_cobra_ml_training import (
+        FEATURE_COLS,
+        HORIZON_SPECS,
+        MIN_BEST_ITERATION,
+        MODEL_METADATA_FILENAME,
+        booster_is_degenerate,
+        label_col,
+    )
 
 XGB_MODEL_FILENAME = "coiled_cobra_xgb_model.json"
 LGB_MODEL_FILENAME = "coiled_cobra_lgb_model.txt"
@@ -132,7 +146,7 @@ def validate_artifact_metadata(meta: dict, spec: dict) -> None:
         "task": "binary",
         "model_type": "XGBClassifier",
         "horizon": spec["key"],
-        "target_column": spec["hit_col"],
+        "target_column": label_col(spec),
         "prob_column": spec["prob_col"],
     }
     mismatches = [
@@ -154,6 +168,11 @@ def validate_artifact_metadata(meta: dict, spec: dict) -> None:
         )
     if _iteration_range(meta) is None:
         mismatches.append("best_iteration missing/invalid")
+    elif booster_is_degenerate(meta.get("best_iteration")):
+        mismatches.append(
+            f"best_iteration={meta.get('best_iteration')!r} is degenerate "
+            f"(need >= {MIN_BEST_ITERATION})"
+        )
     if mismatches:
         raise ValueError(
             f"{spec['key']} artifact metadata mismatch: " + "; ".join(mismatches)

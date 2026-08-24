@@ -1,3 +1,11 @@
+# ML training notes (queries / scratch)
+
+**Canonical pickup:** [`CoiledCobraML-Handoff.md`](CoiledCobraML-Handoff.md). Audit: `CodeReview.MD`.
+
+This file is **scratch SQL/python** from an earlier 1,832-row slice. The current native pool is **21,961 new coils** in `coiled_cobra_backtest_trades_2026-08-24.csv`. Do not use the 1,832-row averages below as the ML baseline.
+
+---
+
 ##Query Backtest Average Return
 
 docker exec -it finance_vibe python -c '

@@ -69,6 +69,9 @@ TARGET_COL = PREFERRED_TARGET_COL
 TARGET_HORIZON_WEEKS = 9
 DATE_COL = "Signal Date"
 SYMBOL_COL = "Symbol"
+# Walk-forward fold id stamped on OOS rows. Each fold has its own model, so
+# probabilities are only comparable inside a fold — selections are cut per fold.
+FOLD_COL = "_Fold"
 WEIGHT_COL = "ATR_Pct"
 USE_INVERSE_ATR_WEIGHTS = False
 NEW_COIL_COL = "Is_New_Coil"
@@ -78,14 +81,31 @@ EMBARGO_WEEKS = TARGET_HORIZON_WEEKS
 EARLY_STOPPING_ROUNDS = 40
 WALK_FORWARD_TEST_WEEKS = 26
 WALK_FORWARD_VAL_WEEKS = 26
-MIN_TRAIN_ROWS = 80
+# Expanding-window fold 1 on 10y daily historically has ~250-500 train rows
+# and those models stop at a single tree. Keep the floor above that band.
+MIN_TRAIN_ROWS = 1000
 MIN_VAL_ROWS = 25
 MIN_TEST_ROWS = 25
-TOP_N_PER_DATE = 10
+# XGBoost best_iteration is 0-indexed. 0/1/2 trees at lr=0.01 is a near-
+# constant equal to the base rate; those predictions must not be pooled or
+# shipped. Require at least four trees (best_iteration >= 3).
+MIN_BEST_ITERATION = 3
 SELECTION_FRACTIONS = (1.0, 0.50, 0.25, 0.10, 0.05)
-TOP_N_PER_DATE_LEVELS = (20, 10, 5)
+# The daily pool averages ~9 new coils per signal date (median 8), so a
+# "top 20 per date" cut would hand back almost the whole population and
+# measure nothing. Keep these well under the typical per-date breadth.
+TOP_N_PER_DATE_LEVELS = (5, 3, 1)
+# Headline per-date cut used in the promotion table and metadata summary.
+TOP_N_PER_DATE = TOP_N_PER_DATE_LEVELS[0]
+# Selection cut the promotion gate is judged on.
+PROMOTION_SELECTION = "top_10pct"
+# A promoted model must win on all of these against every baseline. Hit rate is
+# deliberately absent: it is the classifier's own training objective, so beating
+# Score on it is guaranteed and says nothing about trading outcomes.
+PROMOTION_METRICS = ("avg_fwd", "med_fwd", "win_rate")
 RANDOM_SEED = 42
 PROMOTION_FOLD_PASS_RATE = 0.60
+OOS_PREDICTIONS_TEMPLATE = "coiled_cobra_ml_oos_{key}.csv"
 
 LEAKAGE_COLS = [
     "Stock Entry",
@@ -127,38 +147,40 @@ MODEL_PARAMS = {
 HORIZON_SPECS = (
     {
         "key": "10d",
-        "target": "+10%",
+        "target": "Win",
         "forward_col": "Forward_Return_10d",
         "max_col": "Max_Return_10d",
         "win_col": "Win_10d",
+        "label_col": "Win_10d",
         "hit_col": "Hit_10Pct_10d",
-        "prob_col": "ML_Prob_10Pct_10d",
-        "logistic_prob_col": "_Logistic_Prob_10Pct_10d",
-        "threshold": 0.10,
+        "prob_col": "ML_Prob_Win_10d",
+        "logistic_prob_col": "_Logistic_Prob_Win_10d",
+        "threshold": 0.0,
         "embargo_weeks": 2,
         "bars": 10,
         "model_filename": "coiled_cobra_xgb_10d.json",
         "metadata_filename": "coiled_cobra_ml_metadata_10d.json",
-        "research_targets": ("Hit_15Pct_10d",),
+        "research_targets": ("Hit_10Pct_10d", "Hit_15Pct_10d"),
         "all_hits": (("Hit_10Pct_10d", 0.10), ("Hit_15Pct_10d", 0.15)),
         "legacy_forward": "Forward_Return_2w",
         "legacy_max": "Max_Return_2w",
     },
     {
         "key": "21d",
-        "target": "+15%",
+        "target": "Win",
         "forward_col": "Forward_Return_21d",
         "max_col": "Max_Return_21d",
         "win_col": "Win_21d",
+        "label_col": "Win_21d",
         "hit_col": "Hit_15Pct_21d",
-        "prob_col": "ML_Prob_15Pct_21d",
-        "logistic_prob_col": "_Logistic_Prob_15Pct_21d",
-        "threshold": 0.15,
+        "prob_col": "ML_Prob_Win_21d",
+        "logistic_prob_col": "_Logistic_Prob_Win_21d",
+        "threshold": 0.0,
         "embargo_weeks": 5,
         "bars": 21,
         "model_filename": "coiled_cobra_xgb_21d.json",
         "metadata_filename": "coiled_cobra_ml_metadata_21d.json",
-        "research_targets": ("Hit_20Pct_21d",),
+        "research_targets": ("Hit_15Pct_21d", "Hit_20Pct_21d"),
         "all_hits": (
             ("Hit_10Pct_21d", 0.10),
             ("Hit_15Pct_21d", 0.15),
@@ -169,19 +191,20 @@ HORIZON_SPECS = (
     },
     {
         "key": "42d",
-        "target": "+25%",
+        "target": "Win",
         "forward_col": "Forward_Return_42d",
         "max_col": "Max_Return_42d",
         "win_col": "Win_42d",
+        "label_col": "Win_42d",
         "hit_col": "Hit_25Pct_42d",
-        "prob_col": "ML_Prob_25Pct_42d",
-        "logistic_prob_col": "_Logistic_Prob_25Pct_42d",
-        "threshold": 0.25,
+        "prob_col": "ML_Prob_Win_42d",
+        "logistic_prob_col": "_Logistic_Prob_Win_42d",
+        "threshold": 0.0,
         "embargo_weeks": 9,
         "bars": 42,
         "model_filename": "coiled_cobra_xgb_42d.json",
         "metadata_filename": "coiled_cobra_ml_metadata_42d.json",
-        "research_targets": ("Hit_50Pct_42d",),
+        "research_targets": ("Hit_25Pct_42d", "Hit_50Pct_42d"),
         "all_hits": (
             ("Hit_10Pct_42d", 0.10),
             ("Hit_25Pct_42d", 0.25),
@@ -191,6 +214,12 @@ HORIZON_SPECS = (
         "legacy_max": None,
     },
 )
+
+
+def label_col(spec: dict) -> str:
+    """Binary training target. MFE ``hit_col`` is kept for research reporting."""
+    return spec.get("label_col") or spec["hit_col"]
+
 
 FEATURE_DECISIONS = {
     "Volume_Shelf": "KEEP",
@@ -303,13 +332,16 @@ def embargo_weeks_for_target(target_col: str) -> int:
         "Forward_Return_42d": 9,
         "Hit_25Pct_42d": 9,
         "Max_Return_42d": 9,
+        "Win_42d": 9,
         "Rel_Forward_21d": 5,
         "Forward_Return_21d": 5,
         "Hit_15Pct_21d": 5,
         "Max_Return_21d": 5,
+        "Win_21d": 5,
         "Forward_Return_10d": 2,
         "Hit_10Pct_10d": 2,
         "Max_Return_10d": 2,
+        "Win_10d": 2,
         "Rel_Forward_26w": 26,
         "Rel_Forward_13w": 13,
         "Rel_Forward_8w": 8,
@@ -397,8 +429,14 @@ def drop_duplicate_signals(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop_duplicates(subset=keys, keep="first").copy()
 
 
-def _ensure_horizon_targets(df: pd.DataFrame) -> pd.DataFrame:
-    """Fill Forward/Max/Win/Hit columns from aliases when a fresh backtest is missing."""
+def _ensure_horizon_targets(df: pd.DataFrame, require_max: bool = True) -> pd.DataFrame:
+    """Fill Forward/Max/Win/Hit columns from aliases when a fresh backtest is missing.
+
+    ``Hit_*`` is only ever derived from ``Max_Return_*`` (intra-horizon high). There
+    is no close-based fallback: mixing "close >= X%" and "any high >= X%" rows in one
+    training pool silently trains on two different questions. With ``require_max``
+    a horizon that cannot supply ``Max_Return_*`` raises instead.
+    """
     out = df.copy()
     for spec in HORIZON_SPECS:
         fwd = spec["forward_col"]
@@ -421,19 +459,15 @@ def _ensure_horizon_targets(df: pd.DataFrame) -> pd.DataFrame:
                         np.nan,
                         (mx_num >= threshold).astype(float),
                     )
-        elif fwd in out.columns:
-            fwd_num = pd.to_numeric(out[fwd], errors="coerce")
-            for hit_col, threshold in spec["all_hits"]:
-                if hit_col in out.columns:
-                    continue
-                print(
-                    f"Warning: {mx} missing — {hit_col} falls back to "
-                    f"{fwd} >= {threshold:.0%} (understates intra-horizon hits)."
-                )
-                out[hit_col] = np.where(
-                    fwd_num.isna(),
-                    np.nan,
-                    (fwd_num >= threshold).astype(float),
+        else:
+            absent = [h for h, _ in spec["all_hits"] if h not in out.columns]
+            if absent and require_max:
+                raise ValueError(
+                    f"{mx} is missing, so {absent} cannot be labelled. Hit labels "
+                    "require the intra-horizon high and must never be approximated "
+                    "from the horizon close. Re-run the backtest "
+                    "(`python -m finance_vibe.coiled_cobra_backtest daily --backtest`) "
+                    "so the source CSV carries native Max_Return_*/Hit_* columns."
                 )
     return out
 
@@ -553,7 +587,7 @@ def load_and_prepare(csv_path: Path) -> pd.DataFrame:
         raise ValueError(f"{DATE_COL} has {n_bad} unparseable value(s)")
 
     df = drop_duplicate_signals(df)
-    df = _ensure_horizon_targets(df)
+    df = _ensure_horizon_targets(df, require_max=False)
     need_mfe = any(
         spec["max_col"] not in df.columns or pd.to_numeric(df[spec["max_col"]], errors="coerce").isna().all()
         for spec in HORIZON_SPECS
@@ -562,8 +596,8 @@ def load_and_prepare(csv_path: Path) -> pd.DataFrame:
         print("Max_Return_* missing — enriching hit labels from raw OHLC (targets only).")
         from finance_vibe.coiled_cobra_backtest import enrich_mfe_targets
 
-        df = enrich_mfe_targets(df, mode=_infer_frame_mode(df))
-        df = _ensure_horizon_targets(df)
+        df = enrich_mfe_targets(df, mode=_infer_frame_mode(df), strict=True)
+    df = _ensure_horizon_targets(df, require_max=True)
     report_feature_quality(df)
     print(f"Training pool shape: {df.shape[0]} rows")
     return df.sort_values(DATE_COL).reset_index(drop=True)
@@ -649,16 +683,18 @@ def walk_forward_folds(
 
 
 def horizon_frame(df: pd.DataFrame, spec: dict) -> pd.DataFrame:
-    """Rows with a defined hit label for one horizon (features may still be NaN)."""
-    hit = spec["hit_col"]
-    if hit not in df.columns:
-        raise ValueError(f"Missing hit target {hit}. Re-run daily --backtest.")
-    out = df[pd.to_numeric(df[hit], errors="coerce").notna()].copy()
-    out[hit] = pd.to_numeric(out[hit], errors="coerce").astype(int)
+    """Rows with a defined training label for one horizon (features may still be NaN)."""
+    target = label_col(spec)
+    if target not in df.columns:
+        raise ValueError(f"Missing training target {target}. Re-run daily --backtest.")
+    out = df[pd.to_numeric(df[target], errors="coerce").notna()].copy()
+    out[target] = pd.to_numeric(out[target], errors="coerce").astype(int)
     if spec["forward_col"] in out.columns:
         out[spec["forward_col"]] = pd.to_numeric(out[spec["forward_col"]], errors="coerce")
     if spec["win_col"] in out.columns:
         out[spec["win_col"]] = pd.to_numeric(out[spec["win_col"]], errors="coerce")
+    if spec["hit_col"] in out.columns:
+        out[spec["hit_col"]] = pd.to_numeric(out[spec["hit_col"]], errors="coerce")
     return out
 
 
@@ -667,17 +703,6 @@ def _feature_matrix(frame: pd.DataFrame) -> pd.DataFrame:
     for col in FEATURE_COLS:
         X[col] = pd.to_numeric(X[col], errors="coerce")
     return X
-
-
-def _top_frac_mean(y_true: np.ndarray, rank_score: np.ndarray, frac: float) -> float:
-    mask = np.isfinite(y_true) & np.isfinite(rank_score)
-    y = y_true[mask]
-    s = rank_score[mask]
-    if len(y) == 0:
-        return float("nan")
-    n = max(1, int(np.ceil(len(y) * frac)))
-    order = np.argsort(s)[::-1][:n]
-    return float(np.mean(y[order]))
 
 
 def top_n_per_date(
@@ -727,15 +752,40 @@ def summarize_selection(
     }
 
 
-def top_fraction(frame: pd.DataFrame, rank_col: str, fraction: float) -> pd.DataFrame:
-    """Highest-ranked fraction across the OOS population."""
+def top_fraction(
+    frame: pd.DataFrame,
+    rank_col: str,
+    fraction: float,
+    group_col: str | None = FOLD_COL,
+) -> pd.DataFrame:
+    """Highest-ranked fraction, cut separately inside each ``group_col`` block.
+
+    Every walk-forward fold is scored by its own model, so a 0.60 probability in
+    one fold is not the same conviction as a 0.60 in another. Ranking the pooled
+    frame would let whichever folds emit systematically higher probabilities
+    monopolize the top decile, turning a period effect into apparent skill. The
+    fraction is therefore taken per fold and the picks are pooled afterwards, so
+    each fold contributes its own share. Pass ``group_col=None`` to rank a frame
+    that already comes from a single model.
+    """
     ranked = frame.copy()
     ranked["_rank"] = pd.to_numeric(ranked.get(rank_col), errors="coerce")
     ranked = ranked[ranked["_rank"].notna()]
     if ranked.empty:
         return ranked
-    n = len(ranked) if fraction >= 1 else max(1, int(np.ceil(len(ranked) * fraction)))
-    return ranked.nlargest(n, "_rank", keep="first")
+    if fraction >= 1:
+        return ranked
+    if group_col and group_col in ranked.columns:
+        parts = [
+            group.nlargest(
+                max(1, int(np.ceil(len(group) * fraction))), "_rank", keep="first"
+            )
+            for _, group in ranked.groupby(group_col, sort=True)
+        ]
+        return pd.concat(parts, ignore_index=True) if parts else ranked.iloc[0:0].copy()
+    return ranked.nlargest(
+        max(1, int(np.ceil(len(ranked) * fraction))), "_rank", keep="first"
+    )
 
 
 def classification_metrics(y_true: pd.Series, probabilities: pd.Series) -> dict:
@@ -774,12 +824,17 @@ def evaluate_ranker(
     rank_col: str,
     model_name: str,
 ) -> dict:
-    """Trading outcomes for population/fractions and per-date top-N selections."""
+    """Trading outcomes for population/fractions and per-date top-N selections.
+
+    Fraction cuts are per walk-forward fold and per-date cuts are per signal
+    date, so no selection ever compares scores from two different models.
+    """
     forward_col = spec["forward_col"]
     hit_col = spec["hit_col"]
     win_col = spec["win_col"]
     fwd = pd.to_numeric(oos[forward_col], errors="coerce") if forward_col in oos.columns else pd.Series(dtype=float)
     usable = oos.loc[fwd.notna()].copy()
+    n_folds = int(usable[FOLD_COL].nunique()) if FOLD_COL in usable.columns else 1
     selections: dict[str, dict] = {}
     for fraction in SELECTION_FRACTIONS:
         label = "population" if fraction >= 1 else f"top_{int(fraction * 100)}pct"
@@ -794,10 +849,53 @@ def evaluate_ranker(
             hit_col,
             win_col,
         )
+    # A cut that keeps most of the population cannot demonstrate selection
+    # skill, so record how much each one actually discards.
+    population_n = selections["population"]["n"]
+    for summary in selections.values():
+        summary["selected_fraction"] = (
+            summary["n"] / population_n if population_n else float("nan")
+        )
     return {
         "model": model_name,
         "rank_column": rank_col,
+        "selection_scope": "per_fold" if n_folds > 1 else "single_model",
+        "n_selection_groups": n_folds,
         "selections": selections,
+    }
+
+
+def _finite(value) -> bool:
+    return value is not None and np.isfinite(float(value))
+
+
+def evaluate_promotion(candidate: dict, baselines: dict[str, dict]) -> dict:
+    """Check one selection against every baseline on the promotion metrics.
+
+    Beating ``Score`` alone is far too weak a bar: on this pool Score's own top
+    decile is statistically indistinguishable from a random cut, and at 42d it
+    trails the population it draws from. A model therefore has to beat Score,
+    a random ranker, and the untouched population before it can be promoted.
+    """
+    per_metric: dict[str, dict] = {}
+    for metric in PROMOTION_METRICS:
+        value = candidate.get(metric)
+        beats = {
+            name: bool(_finite(value) and _finite(base.get(metric)) and value > base[metric])
+            for name, base in baselines.items()
+        }
+        per_metric[metric] = {
+            "value": float(value) if _finite(value) else None,
+            "beats": beats,
+            "passed": bool(beats) and all(beats.values()),
+        }
+    failed = [metric for metric, r in per_metric.items() if not r["passed"]]
+    return {
+        "selection": PROMOTION_SELECTION,
+        "baselines": sorted(baselines),
+        "metrics": per_metric,
+        "failed_metrics": failed,
+        "passed": bool(candidate.get("n", 0) > 0 and not failed),
     }
 
 
@@ -814,29 +912,36 @@ def compare_rankers(oos: pd.DataFrame, spec: dict) -> dict:
         for name, rank_col in rankers.items()
         if rank_col in oos.columns
     }
-    score_top = models["score"]["selections"]["top_10pct"]
-    xgb_top = models["xgb"]["selections"]["top_10pct"]
-    base_hit = float(pd.to_numeric(oos[spec["hit_col"]], errors="coerce").mean())
-    promote = (
-        xgb_top["n"] > 0
-        and xgb_top["avg_fwd"] > score_top["avg_fwd"]
-        and xgb_top["win_rate"] > score_top["win_rate"]
-        and xgb_top["hit_rate"] > score_top["hit_rate"]
-    )
-    # Compatibility aliases retained for older tests and report consumers.
+    per_date_key = f"top_{TOP_N_PER_DATE}_per_date"
+    score_top = models["score"]["selections"][PROMOTION_SELECTION]
+    xgb_top = models["xgb"]["selections"][PROMOTION_SELECTION]
+    base_hit = float(pd.to_numeric(oos[label_col(spec)], errors="coerce").mean())
+
+    baselines = {
+        "score": score_top,
+        # Same rows for every ranker, so this is the "did selecting help at all"
+        # test rather than a rival model.
+        "population": models["xgb"]["selections"]["population"],
+    }
+    if "random" in models:
+        baselines["random"] = models["random"]["selections"][PROMOTION_SELECTION]
+    promotion = evaluate_promotion(xgb_top, baselines)
+
     return {
         "horizon": spec["key"],
         "target": spec["target"],
         "base_hit_rate": base_hit,
         "n_oos": int(len(oos)),
         "models": models,
-        "score_top10": models["score"]["selections"]["top_10_per_date"],
-        "ml_top10": models["xgb"]["selections"]["top_10_per_date"],
+        "per_date_n": TOP_N_PER_DATE,
+        "score_per_date": models["score"]["selections"][per_date_key],
+        "ml_per_date": models["xgb"]["selections"][per_date_key],
         "score_top10pct_avg": score_top["avg_fwd"],
         "score_top5pct_avg": models["score"]["selections"]["top_5pct"]["avg_fwd"],
         "ml_top10pct_avg": xgb_top["avg_fwd"],
         "ml_top5pct_avg": models["xgb"]["selections"]["top_5pct"]["avg_fwd"],
-        "promote": promote,
+        "promotion": promotion,
+        "promote": promotion["passed"],
     }
 
 
@@ -915,7 +1020,7 @@ def report_all_target_balances(df: pd.DataFrame) -> dict[str, dict]:
     balances: dict[str, dict] = {}
     print("\n=== Binary target class balance ===")
     for spec in HORIZON_SPECS:
-        for target, _ in spec["all_hits"]:
+        for target in (spec["win_col"], *(name for name, _ in spec["all_hits"])):
             if target not in df.columns:
                 continue
             balance = class_balance(df[target])
@@ -936,6 +1041,33 @@ def _best_iteration(model) -> int:
     if best is None:
         best = int(model.n_estimators) - 1
     return int(best)
+
+
+def booster_is_degenerate(best_iteration: int | None) -> bool:
+    """True when the booster is a stump / near-constant at the training lr."""
+    if best_iteration is None:
+        return True
+    try:
+        best = int(best_iteration)
+    except (TypeError, ValueError):
+        return True
+    return best < MIN_BEST_ITERATION
+
+
+def save_xgb_artifact(model, path: Path, best_iteration: int) -> bool:
+    """Write the booster only if it is more than a near-constant stump.
+
+    Returns True if saved. A degenerate leftover from a previous run is deleted
+    so inference cannot load it.
+    """
+    path = Path(path)
+    if booster_is_degenerate(best_iteration):
+        if path.is_file():
+            path.unlink()
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    model.get_booster().save_model(str(path))
+    return True
 
 
 def _predict_proba(model, X: pd.DataFrame) -> np.ndarray:
@@ -973,11 +1105,14 @@ def evaluate_research_targets(
                 y_val,
                 xgb_params,
             )
+            if booster_is_degenerate(_best_iteration(model)):
+                continue
             out = test.copy()
             out[prob_col] = _predict_proba(model, _feature_matrix(test))
             out["_Random_Rank"] = np.random.default_rng(
                 RANDOM_SEED + 1000 + i
             ).random(len(out))
+            out[FOLD_COL] = i
             parts.append(out)
         if not parts:
             continue
@@ -1067,6 +1202,66 @@ def library_versions() -> dict:
     return versions
 
 
+def write_oos_predictions(oos: pd.DataFrame, spec: dict, art_dir: Path) -> Path:
+    """Persist one row per walk-forward OOS signal with its ranks and outcomes.
+
+    Keeping the raw predictions on disk means a later change to how selections
+    are measured can be re-scored offline and diffed against this run, instead
+    of being tangled up with a retrain that also moved the predictions.
+    """
+    columns = [
+        SYMBOL_COL,
+        DATE_COL,
+        FOLD_COL,
+        SCORE_COL,
+        spec["prob_col"],
+        spec["logistic_prob_col"],
+        "_Random_Rank",
+        spec["forward_col"],
+        spec["max_col"],
+        spec["win_col"],
+        *[hit for hit, _ in spec["all_hits"]],
+    ]
+    present = [c for c in dict.fromkeys(columns) if c in oos.columns]
+    out = oos[present].sort_values([FOLD_COL, DATE_COL, SYMBOL_COL])
+    art_dir.mkdir(parents=True, exist_ok=True)
+    path = art_dir / OOS_PREDICTIONS_TEMPLATE.format(key=spec["key"])
+    out.to_csv(path, index=False)
+    print(f"[SAVED] {spec['key']} OOS predictions: {path}  rows={len(out)}")
+    return path
+
+
+def print_selection_comparison(pooled: dict, spec: dict) -> None:
+    """Per-cut ML vs Score vs random, with median and win rate alongside mean.
+
+    The mean alone is easy to win with a handful of fat-tailed outliers, so the
+    median and win rate are printed next to it rather than buried in metadata.
+    """
+    models = pooled["models"]
+    order = ["population", *(f"top_{int(f * 100)}pct" for f in SELECTION_FRACTIONS if f < 1)]
+    order += [f"top_{n}_per_date" for n in TOP_N_PER_DATE_LEVELS]
+    header = (
+        f"  {'Selection':<16}{'N':>7}{'Keep':>7} | "
+        f"{'ML avg':>9}{'Score':>9}{'Rand':>9} | "
+        f"{'ML med':>9}{'Score':>9} | {'ML wr':>7}{'Score':>7}"
+    )
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+    for label in order:
+        xgb = models["xgb"]["selections"].get(label)
+        if not xgb:
+            continue
+        score = models["score"]["selections"][label]
+        rand = models.get("random", {}).get("selections", {}).get(label, {})
+        rand_avg = rand.get("avg_fwd", float("nan"))
+        print(
+            f"  {label:<16}{xgb['n']:>7}{xgb['selected_fraction']:>7.1%} | "
+            f"{xgb['avg_fwd']:>+9.4f}{score['avg_fwd']:>+9.4f}{rand_avg:>+9.4f} | "
+            f"{xgb['med_fwd']:>+9.4f}{score['med_fwd']:>+9.4f} | "
+            f"{xgb['win_rate']:>7.3f}{score['win_rate']:>7.3f}"
+        )
+
+
 def train_horizon(
     df: pd.DataFrame,
     spec: dict,
@@ -1077,15 +1272,22 @@ def train_horizon(
 ) -> dict:
     """Walk-forward train one XGBClassifier; refit on all pre-final-test data for artifacts."""
     labeled = horizon_frame(df, spec)
-    balance = class_balance(labeled[spec["hit_col"]])
-    print(f"\n======== Horizon {spec['key']}  target={spec['hit_col']}  embargo={spec['embargo_weeks']}w ========")
+    target = label_col(spec)
+    balance = class_balance(labeled[target])
+    print(f"\n======== Horizon {spec['key']}  target={target}  embargo={spec['embargo_weeks']}w ========")
     print(
         f"Class balance: positive={balance['positive']} "
         f"negative={balance['negative']} "
         f"positive_rate={balance['positive_rate']:.2%}"
     )
 
-    folds = walk_forward_folds(labeled, spec["embargo_weeks"])
+    folds = walk_forward_folds(
+        labeled,
+        spec["embargo_weeks"],
+        min_train_rows=MIN_TRAIN_ROWS,
+        min_val_rows=MIN_VAL_ROWS,
+        min_test_rows=MIN_TEST_ROWS,
+    )
     if not folds:
         train, val, test, bounds = temporal_split(labeled, spec["embargo_weeks"])
         if len(train) == 0 or len(val) == 0 or len(test) == 0:
@@ -1113,9 +1315,20 @@ def train_horizon(
 
     for i, fold in enumerate(folds, start=1):
         train, val, test = fold["train"], fold["val"], fold["test"]
-        y_train = train[spec["hit_col"]].to_numpy()
-        y_val = val[spec["hit_col"]].to_numpy()
+        y_train = train[target].to_numpy()
+        y_val = val[target].to_numpy()
         if y_train.sum() == 0 or (y_train == 0).sum() == 0:
+            fold_rows.append(
+                {
+                    "fold": i,
+                    "n_train": len(train),
+                    "n_val": len(val),
+                    "n_test": len(test),
+                    "skipped": True,
+                    "skip_reason": "single-class train",
+                    "promotion_pass": False,
+                }
+            )
             print(f"  Fold {i}: skipped (single-class train)")
             continue
         model = _fit_xgb_classifier(
@@ -1125,6 +1338,29 @@ def train_horizon(
             y_val,
             xgb_params,
         )
+        best = _best_iteration(model)
+        if booster_is_degenerate(best):
+            fold_rows.append(
+                {
+                    "fold": i,
+                    "test_start": pd.Timestamp(fold["test_start"]).strftime("%Y-%m-%d"),
+                    "test_end": pd.Timestamp(fold["test_end"]).strftime("%Y-%m-%d"),
+                    "n_train": len(train),
+                    "n_val": len(val),
+                    "n_test": len(test),
+                    "best_iteration": best,
+                    "skipped": True,
+                    "skip_reason": (
+                        f"best_iteration={best} < {MIN_BEST_ITERATION}"
+                    ),
+                    "promotion_pass": False,
+                }
+            )
+            print(
+                f"  Fold {i}: skipped (best_iteration={best} < {MIN_BEST_ITERATION}, "
+                f"n_train={len(train)})"
+            )
+            continue
         logistic = _fit_logistic_classifier(_feature_matrix(train), y_train)
         test_out = test.copy()
         test_out[spec["prob_col"]] = _predict_proba(model, _feature_matrix(test))
@@ -1133,14 +1369,13 @@ def train_horizon(
         )[:, 1]
         fold_rng = np.random.default_rng(RANDOM_SEED + i)
         test_out["_Random_Rank"] = fold_rng.random(len(test_out))
+        test_out[FOLD_COL] = i
         fold_cmp = compare_rankers(test_out, spec)
-        score_decile = fold_cmp["models"]["score"]["selections"]["top_10pct"]
-        xgb_decile = fold_cmp["models"]["xgb"]["selections"]["top_10pct"]
-        fold_pass = (
-            xgb_decile["avg_fwd"] > score_decile["avg_fwd"]
-            and xgb_decile["win_rate"] > score_decile["win_rate"]
-            and xgb_decile["hit_rate"] > score_decile["hit_rate"]
-        )
+        score_decile = fold_cmp["models"]["score"]["selections"][PROMOTION_SELECTION]
+        xgb_decile = fold_cmp["models"]["xgb"]["selections"][PROMOTION_SELECTION]
+        # Folds and the pooled result share one gate so the pass rate means
+        # exactly what the headline promotion decision means.
+        fold_pass = fold_cmp["promote"]
         fold_rows.append(
             {
                 "fold": i,
@@ -1149,60 +1384,70 @@ def train_horizon(
                 "n_train": len(train),
                 "n_val": len(val),
                 "n_test": len(test),
-                "best_iteration": _best_iteration(model),
-                "class_balance": class_balance(train[spec["hit_col"]]),
+                "best_iteration": best,
+                "skipped": False,
+                "class_balance": class_balance(train[target]),
                 "classification": {
                     "xgb": classification_metrics(
-                        test_out[spec["hit_col"]], test_out[spec["prob_col"]]
+                        test_out[target], test_out[spec["prob_col"]]
                     ),
                     "logistic": classification_metrics(
-                        test_out[spec["hit_col"]],
+                        test_out[target],
                         test_out[spec["logistic_prob_col"]],
                     ),
                 },
                 "trading": fold_cmp["models"],
+                "promotion": fold_cmp["promotion"],
                 "promotion_pass": fold_pass,
             }
         )
+        blocked = ",".join(fold_cmp["promotion"]["failed_metrics"]) or "-"
         print(
             f"  Fold {i}: test {fold_rows[-1]['test_start']}..{fold_rows[-1]['test_end']} "
-            f"n={len(test)}  ScoreTop10%Avg={score_decile['avg_fwd']:.4f}  "
-            f"XGBTop10%Avg={xgb_decile['avg_fwd']:.4f}  "
-            f"ScoreWR={score_decile['win_rate']:.3f}  "
-            f"XGBWR={xgb_decile['win_rate']:.3f} pass={fold_pass}"
+            f"n={len(test)}  avg ML/Score={xgb_decile['avg_fwd']:+.4f}/{score_decile['avg_fwd']:+.4f}  "
+            f"med={xgb_decile['med_fwd']:+.4f}/{score_decile['med_fwd']:+.4f}  "
+            f"wr={xgb_decile['win_rate']:.3f}/{score_decile['win_rate']:.3f}  "
+            f"pass={fold_pass} blocked_by={blocked}"
         )
         oos_parts.append(test_out)
 
     if not oos_parts:
-        raise RuntimeError(f"{spec['key']}: no walk-forward OOS predictions")
+        raise RuntimeError(
+            f"{spec['key']}: no walk-forward OOS predictions "
+            f"(every fold was skipped as single-class or degenerate)"
+        )
 
     oos = pd.concat(oos_parts, ignore_index=True)
     pooled = compare_rankers(oos, spec)
+    contributing = [row for row in fold_rows if not row.get("skipped")]
     fold_pass_rate = float(
-        np.mean([row["promotion_pass"] for row in fold_rows])
+        np.mean([row["promotion_pass"] for row in contributing])
     )
     pooled["fold_pass_rate"] = fold_pass_rate
     pooled["promote"] = bool(
         pooled["promote"] and fold_pass_rate >= PROMOTION_FOLD_PASS_RATE
     )
     pooled["classification"] = {
-        "xgb": classification_metrics(oos[spec["hit_col"]], oos[spec["prob_col"]]),
+        "xgb": classification_metrics(oos[target], oos[spec["prob_col"]]),
         "logistic": classification_metrics(
-            oos[spec["hit_col"]], oos[spec["logistic_prob_col"]]
+            oos[target], oos[spec["logistic_prob_col"]]
         ),
     }
-    score_decile = pooled["models"]["score"]["selections"]["top_10pct"]
-    xgb_decile = pooled["models"]["xgb"]["selections"]["top_10pct"]
+    score_decile = pooled["models"]["score"]["selections"][PROMOTION_SELECTION]
+    xgb_decile = pooled["models"]["xgb"]["selections"][PROMOTION_SELECTION]
+    population = pooled["models"]["xgb"]["selections"]["population"]
     print(
         f"Pooled OOS n={pooled['n_oos']}  base_hit={pooled['base_hit_rate']:.4f}  "
-        f"ScoreTop10%Avg={score_decile['avg_fwd']:.4f}  "
-        f"XGBTop10%Avg={xgb_decile['avg_fwd']:.4f}  "
         f"fold_pass_rate={fold_pass_rate:.1%} promote={pooled['promote']}"
     )
+    print_selection_comparison(pooled, spec)
     print(
-        f"  Score top10%/5% avg fwd={pooled['score_top10pct_avg']:.4f}/{pooled['score_top5pct_avg']:.4f}  "
-        f"ML top10%/5% avg fwd={pooled['ml_top10pct_avg']:.4f}/{pooled['ml_top5pct_avg']:.4f}"
+        f"  Population baseline: avg={population['avg_fwd']:+.4f} "
+        f"med={population['med_fwd']:+.4f} wr={population['win_rate']:.3f}"
     )
+    blocked = ", ".join(pooled["promotion"]["failed_metrics"]) or "none"
+    print(f"  Promotion blocked by: {blocked}")
+    oos_path = write_oos_predictions(oos, spec, art_dir)
     research_results = evaluate_research_targets(
         labeled, folds, spec, xgb_params
     )
@@ -1222,8 +1467,8 @@ def train_horizon(
     if len(final_train) < MIN_TRAIN_ROWS or len(final_val) < MIN_VAL_ROWS:
         final_train = last["train"]
         final_val = last["val"]
-    y_tr = final_train[spec["hit_col"]].to_numpy()
-    y_va = final_val[spec["hit_col"]].to_numpy()
+    y_tr = final_train[target].to_numpy()
+    y_va = final_val[target].to_numpy()
     final_model = _fit_xgb_classifier(
         _feature_matrix(final_train),
         y_tr,
@@ -1235,8 +1480,18 @@ def train_horizon(
 
     art_dir.mkdir(parents=True, exist_ok=True)
     model_path = art_dir / spec["model_filename"]
-    final_model.get_booster().save_model(str(model_path))
-    print(f"[SAVED] {spec['key']} XGBoost classifier: {model_path}  best_iteration={best_iter}")
+    model_saved = save_xgb_artifact(final_model, model_path, best_iter)
+    if model_saved:
+        print(
+            f"[SAVED] {spec['key']} XGBoost classifier: {model_path}  "
+            f"best_iteration={best_iter}"
+        )
+    else:
+        print(
+            f"[SKIPPED] {spec['key']} artifact not saved: "
+            f"best_iteration={best_iter} < {MIN_BEST_ITERATION}"
+        )
+        pooled["promote"] = False
 
     gain = normalized_xgb_gain(final_model)
     xgb_imp = np.asarray([gain[name] for name in FEATURE_COLS], dtype=float)
@@ -1246,12 +1501,13 @@ def train_horizon(
     source_hash = sha256_file(source_csv)
     feature_quality = analyze_feature_quality(labeled)
     metadata = {
-        "schema_version": 2,
+        "schema_version": 5,
         "task": "binary",
         "model_type": "XGBClassifier",
         "horizon": spec["key"],
         "horizon_bars": spec["bars"],
-        "target_column": spec["hit_col"],
+        "target_column": target,
+        "mfe_hit_column": spec["hit_col"],
         "forward_column": spec["forward_col"],
         "max_column": spec["max_col"],
         "win_column": spec["win_col"],
@@ -1265,14 +1521,28 @@ def train_horizon(
         "feature_bucket_analysis": feature_bucket_analysis(labeled),
         "normalized_xgb_gain": gain,
         "best_iteration": best_iter,
+        "min_best_iteration": MIN_BEST_ITERATION,
+        "min_train_rows": MIN_TRAIN_ROWS,
+        "model_saved": bool(model_saved),
         "sample_weight": "uniform",
         "scale_pos_weight": float((xgb_params or {}).get("scale_pos_weight", 1.0)),
         "promoted": bool(pooled["promote"]),
         "production_model": production_model,
         "promotion_rule": (
-            "Promote only when walk-forward OOS top-decile average forward "
-            "return, win rate, and hit rate beat Score, and at least 60% of "
-            "walk-forward folds pass all three tests."
+            "Promote only when the walk-forward OOS top-decile beats Score, a "
+            "random ranker, and the untouched population on average forward "
+            "return, median forward return, and win rate, and at least 60% of "
+            "walk-forward folds pass the same test. MFE hit rate is excluded: "
+            "it is a volatility-loaded research label, not a trading outcome."
+        ),
+        "promotion_selection": PROMOTION_SELECTION,
+        "promotion_metrics": list(PROMOTION_METRICS),
+        "promotion_checks": pooled["promotion"],
+        "selection_scope": (
+            "Fraction cuts (top_50pct .. top_5pct) are taken within each "
+            "walk-forward fold and pooled afterwards; probabilities from "
+            "different fold models are never ranked against each other. "
+            "Per-date cuts are inherently single-fold."
         ),
         "source_csv": str(source_csv) if source_csv else None,
         "source_csv_sha256": source_hash,
@@ -1297,7 +1567,10 @@ def train_horizon(
             ],
         },
         "do_not_average_with_lightgbm": True,
-        "artifacts": {"xgb_model": model_path.name},
+        "artifacts": {
+            "xgb_model": model_path.name if model_saved else None,
+            "oos_predictions": oos_path.name,
+        },
         "classification_metrics": pooled["classification"],
         "research_targets": research_results,
         "score_baseline": pooled["models"]["score"],
@@ -1307,25 +1580,32 @@ def train_horizon(
             "random": pooled["models"].get("random"),
         },
         "walk_forward": {
-            "n_folds": len(fold_rows),
+            "n_folds": len(contributing),
+            "n_skipped": int(sum(1 for row in fold_rows if row.get("skipped"))),
             "n_oos": pooled["n_oos"],
             "folds": fold_rows,
             "pooled": {
                 "base_hit_rate": pooled["base_hit_rate"],
-                "score_top10_avg_return": pooled["score_top10"]["avg_fwd"],
-                "ml_top10_avg_return": pooled["ml_top10"]["avg_fwd"],
-                "score_top10_median_return": pooled["score_top10"]["med_fwd"],
-                "ml_top10_median_return": pooled["ml_top10"]["med_fwd"],
+                "per_date_n": pooled["per_date_n"],
+                "score_per_date_avg_return": pooled["score_per_date"]["avg_fwd"],
+                "ml_per_date_avg_return": pooled["ml_per_date"]["avg_fwd"],
+                "score_per_date_median_return": pooled["score_per_date"]["med_fwd"],
+                "ml_per_date_median_return": pooled["ml_per_date"]["med_fwd"],
+                "score_per_date_selected_fraction": pooled["score_per_date"]["selected_fraction"],
                 "score_win_rate": score_decile["win_rate"],
                 "ml_win_rate": xgb_decile["win_rate"],
+                "population_win_rate": population["win_rate"],
                 "score_hit_rate": score_decile["hit_rate"],
                 "ml_hit_rate": xgb_decile["hit_rate"],
                 "score_top10pct_avg": pooled["score_top10pct_avg"],
                 "score_top5pct_avg": pooled["score_top5pct_avg"],
                 "ml_top10pct_avg": pooled["ml_top10pct_avg"],
                 "ml_top5pct_avg": pooled["ml_top5pct_avg"],
+                "population_avg": population["avg_fwd"],
+                "population_median": population["med_fwd"],
                 "fold_pass_rate": fold_pass_rate,
                 "models": pooled["models"],
+                "promotion_checks": pooled["promotion"],
                 "promote": pooled["promote"],
             },
         },
@@ -1348,7 +1628,8 @@ def train_horizon(
     meta_path.write_text(json.dumps(_jsonable(metadata), indent=2), encoding="utf-8")
     print(f"[SAVED] {spec['key']} metadata: {meta_path}")
     pooled["metadata"] = metadata
-    pooled["model_path"] = str(model_path)
+    pooled["model_path"] = str(model_path) if model_saved else None
+    pooled["model_saved"] = bool(model_saved)
     pooled["metadata_path"] = str(meta_path)
     pooled["folds"] = fold_rows
     return pooled
@@ -1382,24 +1663,34 @@ def print_ascii_importance(names: list[str], importances: np.ndarray, title: str
 
 
 def print_promotion_table(results: list[dict]) -> None:
-    print("\n=== ML vs Score (walk-forward OOS, top 10%) ===")
+    print(
+        f"\n=== ML vs baselines (walk-forward OOS, {PROMOTION_SELECTION} within fold) ==="
+    )
     hdr = (
-        f"{'Horizon':<8} {'Target':<8} {'BaseHit':>10} {'ScoreTop10':>12} "
-        f"{'MLTop10':>12} {'ScoreWR':>10} {'MLWR':>10} {'Promote':>8}"
+        f"{'Horizon':<8}{'Target':<8}{'MLAvg':>9}{'ScoreAvg':>9}{'RandAvg':>9}{'PopAvg':>9}"
+        f"{'MLMed':>9}{'ScoreMed':>9}{'MLWR':>8}{'ScoreWR':>8}{'PopWR':>8}"
+        f"{'FoldPass':>10}{'Promote':>9}  {'Blocked by'}"
     )
     print(hdr)
-    print("-" * len(hdr))
+    print("-" * (len(hdr) + 12))
     for r in results:
-        score = r["models"]["score"]["selections"]["top_10pct"]
-        xgb = r["models"]["xgb"]["selections"]["top_10pct"]
+        score = r["models"]["score"]["selections"][PROMOTION_SELECTION]
+        xgb = r["models"]["xgb"]["selections"][PROMOTION_SELECTION]
+        pop = r["models"]["xgb"]["selections"]["population"]
+        rand = r["models"].get("random", {}).get("selections", {}).get(
+            PROMOTION_SELECTION, {}
+        )
+        blocked = ",".join(r["promotion"]["failed_metrics"]) or "-"
+        if r["promotion"]["passed"] and not r["promote"]:
+            blocked = f"fold_pass_rate({r.get('fold_pass_rate', float('nan')):.0%})"
         print(
-            f"{r['horizon']:<8} {r['target']:<8} "
-            f"{r['base_hit_rate']:>10.4f} "
-            f"{score['avg_fwd']:>12.4f} "
-            f"{xgb['avg_fwd']:>12.4f} "
-            f"{score['win_rate']:>10.4f} "
-            f"{xgb['win_rate']:>10.4f} "
-            f"{'YES' if r['promote'] else 'NO':>8}"
+            f"{r['horizon']:<8}{r['target']:<8}"
+            f"{xgb['avg_fwd']:>+9.4f}{score['avg_fwd']:>+9.4f}"
+            f"{rand.get('avg_fwd', float('nan')):>+9.4f}{pop['avg_fwd']:>+9.4f}"
+            f"{xgb['med_fwd']:>+9.4f}{score['med_fwd']:>+9.4f}"
+            f"{xgb['win_rate']:>8.3f}{score['win_rate']:>8.3f}{pop['win_rate']:>8.3f}"
+            f"{r.get('fold_pass_rate', float('nan')):>10.1%}"
+            f"{'YES' if r['promote'] else 'NO':>9}  {blocked}"
         )
 
 
@@ -1416,7 +1707,9 @@ def write_index_metadata(art_dir: Path, results: list[dict]) -> None:
                 "promoted": r["promote"],
                 "production_model": "xgb" if r["promote"] else "none",
                 "metadata_file": Path(r["metadata_path"]).name,
-                "xgb_model": Path(r["model_path"]).name,
+                "xgb_model": (
+                    Path(r["model_path"]).name if r.get("model_path") else None
+                ),
                 "prob_column": next(
                     s["prob_col"] for s in HORIZON_SPECS if s["key"] == r["horizon"]
                 ),

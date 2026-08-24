@@ -1,18 +1,24 @@
 # Coiled Cobra ML Baseline
 
-**Train, evaluate, and deploy in Docker:** **`MLOps.md`** (runbook + concepts). This file is the **feature/metric contract**.
+**Resume after a break:** **`docs/CoiledCobraML-Handoff.md`**. Audit: **`CodeReview.MD`**. Docker runbook: **`MLOps.md`**. This file is the **feature / label / artifact contract**.
 
 **Module:** `src/finance_vibe/coiled_cobra_ml_training.py`
 
-Standalone daily trainer for three independent hit-probability models:
-`Hit_10Pct_10d`, `Hit_15Pct_21d`, and `Hit_25Pct_42d`. Each uses the same 26
-signal-time features and its matching realized forward return for trading
-evaluation. `Rel_Forward_42d` remains research-only.
+Standalone daily trainer for **three independent** XGBoost classifiers:
 
-Training rows are **`Is_New_Coil == True`** only. Splits are expanding,
-chronological walk-forward folds with 2/5/9-week embargoes. Score, Logistic
-Regression, XGBoost, and deterministic random selection are compared. No
-XGBoost/LightGBM averaging is performed.
+| Horizon | Train label | Live column (if promoted) | Embargo |
+| ------- | ----------- | ------------------------- | ------- |
+| 10d | `Win_10d` (`Forward_Return_10d > 0`) | `ML_Prob_Win_10d` | 2 weeks |
+| 21d | `Win_21d` | `ML_Prob_Win_21d` | 5 weeks |
+| 42d | `Win_42d` | `ML_Prob_Win_42d` | 9 weeks |
+
+`Hit_*` (MFE vs signal close) is **research-only**. It is not the promotion objective. `Rel_Forward_*` is unused as a train target.
+
+Training rows are **`Is_New_Coil == True` only**. Splits are expanding chronological walk-forward folds. Score, logistic, XGBoost, and deterministic random are compared. **No XGBoost/LightGBM averaging. No blending of 10d/21d/42d.**
+
+**As of 2026-08-24:** `schema_version` 5, all horizons `production_model: none`. Do not serve these models live. Do not retrain the same 26 features on Win expecting a different gate result.
+
+> Everything from **“Historical: MAE regression baseline”** downward is the old 6-feature `Forward_Return_2w` / Rel_Forward trainer. It is not executable contract.
 
 ---
 
@@ -20,68 +26,178 @@ XGBoost/LightGBM averaging is performed.
 
 | Goal | Detail |
 | ---- | ------ |
-| Task | Binary classification at 10d / 21d / 42d |
-| Models | Logistic Regression baseline + separate `XGBClassifier` models |
-| Why | Rank valid new-coil setups by horizon-specific expansion probability |
-| Not for | Live order routing, options P&L, or replacing the rubric score |
-
-> Sections below that discuss the former regression baseline are historical.
-> The executable contract is the multi-horizon trainer and per-horizon metadata.
+| Task | Binary **Win** classification at 10d / 21d / 42d |
+| Models | Logistic baseline + one `XGBClassifier` per horizon |
+| Why | Rank new-coil setups by P(close up) at that horizon |
+| Promote only if | Walk-forward top 10% **within fold** beats Score, random, **and** population on avg forward, median forward, and win rate, and ≥60% of folds pass |
+| Not for | Live order routing, options P&L, replacing the rubric score, or Hit-rate optimization |
 
 ---
 
 ## Prerequisites
 
-1. **Dependencies** (already in `requirements.txt`):
+1. **Dependencies** (already in `requirements.txt`): pandas, numpy, scikit-learn, xgboost, lightgbm, matplotlib.
 
-   ```
-   pandas, numpy, scikit-learn, xgboost, lightgbm, matplotlib
-   ```
-
-2. **Source data:** a Coiled Cobra walk-forward trades CSV produced by:
+2. **Source data:** native Coiled Cobra walk-forward CSV from:
 
    ```bash
-   python src/finance_vibe/coiled_cobra_backtest.py --backtest
+   python -m finance_vibe.coiled_cobra_backtest daily --backtest
    ```
 
-   Typical path:
+   **Pinned file:** `data/logs/daily/coiled_cobra_backtest_trades_2026-08-24.csv` (21,961 new coils, 114 columns with native `Forward_Return_*` / `Max_Return_*` / `Win_*` / `Hit_*`). Always pass `--csv`. Auto-discover still prefers a missing `..._2026-07-17.csv` then newest mtime and can pick stale `_Large.csv`.
 
-   ```
-   data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv
-   ```
-
-   Default preferred filename in the script: `coiled_cobra_backtest_trades_2026-07-17.csv`. If that exact file is missing, the script falls back to the newest `coiled_cobra_backtest_trades_*.csv` under `data/logs/daily/` first, then `data/logs/weekly/`.
-
-3. **Environment:** run from the repo / container with `PYTHONPATH` including the project (Docker image already sets `PYTHONPATH=/app`).
+3. **Environment:** Docker image code is baked; `./data` is the volume. After editing `src/`, rebuild or `docker cp`. `PYTHONPATH=/app/src`.
 
 ---
 
 ## How to run
 
-**Preferred (Docker):** follow **`MLOps.md`** §5. One-shot from the host:
-
 ```bash
-docker exec -w /app finance_vibe python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv \
+docker exec finance_vibe python -m finance_vibe.coiled_cobra_ml_training \
+  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_2026-08-24.csv \
   --artifacts-dir /app/data/logs/daily
-```
-
-Local / PYTHONPATH=src (same flags, host paths):
-
-```bash
-python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv \
-  --artifacts-dir data/logs/daily
 ```
 
 | Flag | Meaning |
 | ---- | ------- |
-| `--csv` | Path to trades CSV (optional; auto-search if omitted) |
-| `--artifacts-dir` | Where to write the feature-importance PNG (default: same directory as the CSV) |
+| `--csv` | **Required in practice** — pin the native trades file |
+| `--artifacts-dir` | Writes `coiled_cobra_xgb_{10,21,42}d.json`, `coiled_cobra_ml_metadata_{horizon}.json`, index, OOS CSVs |
+
+Live `ml_ranker.attach_horizon_probabilities` fills `ML_Prob_Win_*` only when that horizon’s metadata has `production_model == "xgb"`. Today that is never.
 
 ---
 
-## Pipeline architecture
+## Pipeline architecture (current)
+
+```
+coiled_cobra_backtest_trades_2026-08-24.csv
+        │
+        ▼
+  load_and_prepare()
+    • keep Is_New_Coil == True
+    • drop leakage cols / prefixes (forwards, MAE, Max, Win, Hit, ML_*)
+    • require Max_Return_* after enrich (no close-based Hit fallback)
+        │
+        ▼
+  walk_forward_folds()  (expanding; embargo 2w/5w/9w)
+    skip n_train < 1000 or best_iteration < 3
+        │
+        ▼
+  X = 26 FEATURE_COLS (no Score / Grade / Fib)
+  y = Win_{10,21,42}d
+        │
+        ├── LogisticRegression (baseline)
+        ├── XGBClassifier (early stop on val AUC)
+        ├── Score ranker (live baseline)
+        └── Random ranker (same seed)
+                │
+                ▼
+        top_fraction WITHIN FOLD, then pool
+        promote on avg_fwd, med_fwd, win_rate vs Score+random+pop
+```
+
+---
+
+## Column isolation (anti-leakage)
+
+### Feature space (X) — 26 pillars + raw (no Score/Grade/Fib)
+
+Pillars: `Volume_Shelf`, `MACD_Compression`, `Structure`, `RS_Score`, `Coil_Width`, `Proximity_Highs`.
+
+Raw: `Volume_Contraction_Ratio`, `MACD_Spread_ATR`, `Coil_Width_ATR`, `Coil_Width_Pctile`, `Dist_High_{63,126,252}_Pct` / `_ATR`, `OBV_Coil_Slope`, `Up_Volume_Ratio`, `Volume_Trend_Ratio`, `RSI`, `RSI_Healthy`, `Pct_From_EMA20`, `Pct_From_EMA50`, `ATR_Pct`, `Distance_To_Pivot_Pct`, `MACD_Crossed`.
+
+**`Score` and `Grade` are excluded from trees.** Score gates the sample (≥70 + hard gates) and is a live ranking baseline, not `FEATURE_COLS`. Tests forbid `Pct_From_Fib618`.
+
+### Target (y)
+
+| Horizon | Train | Trading metrics | Research (not the gate) |
+| ------- | ----- | --------------- | ----------------------- |
+| 10d | `Win_10d` | `Forward_Return_10d` | `Hit_10Pct_10d`, `Hit_15Pct_10d` |
+| 21d | `Win_21d` | `Forward_Return_21d` | `Hit_15Pct_21d`, `Hit_20Pct_21d` |
+| 42d | `Win_42d` | `Forward_Return_42d` | `Hit_25Pct_42d`, `Hit_50Pct_42d` |
+
+Hit was retired as the production label because MFE is monotone in volatility (negative OOS medians as the cut tightens). See `CodeReview.MD` T1.
+
+**Metadata caveat:** on-disk `target_column` currently shows the last research Hit name because of a loop-variable leak (`CodeReview.MD` I5). Training still uses `Win_*`.
+
+### Leakage columns — strictly dropped before training
+
+| Dropped column | Why |
+| -------------- | --- |
+| `Stock Entry`, `Stock Stop`, `Target 1`, `Target 2` | Planned bracket levels |
+| `Outcome`, `Exit Date`, `Exit Price` | Realized trade path |
+| `R Multiple`, `Target_Label`, `Target_R_Mult` | Post-hoc labels |
+| Prefixes `Forward_Return_`, `Rel_Forward_`, `MAE_`, `Max_Return_`, `Held_Coil_Low_`, `Win_`, `Hit_`, `ML_Prob_`, `ML_Pred_`, `ML_Rank` | Outcomes / model outputs |
+
+`Symbol` / `Signal Date` are for splits only.
+
+### Row filtering
+
+| Rule | Behavior |
+| ---- | -------- |
+| `Is_New_Coil == True` | Kept |
+| Target NaN | Dropped (tail of series) |
+| Random shuffle / K-fold | Forbidden |
+
+---
+
+## Temporal split
+
+Walk-forward: expanding train, ~26w val, ~26w test, embargo = horizon weeks. Not a single 2023/2024/2025 cut. Fraction cuts (`top_10pct`, …) are taken **per fold**.
+
+Floors: `MIN_TRAIN_ROWS = 1000`, `MIN_BEST_ITERATION = 3` (need four trees at lr=0.01).
+
+---
+
+## Sample weighting
+
+Uniform (`USE_INVERSE_ATR_WEIGHTS = False`). Inverse ATR is a later experiment, not current.
+
+---
+
+## Model configuration
+
+| Param | Value |
+| ----- | ----- |
+| `max_depth` | 4 |
+| `learning_rate` | 0.01 |
+| `n_estimators` | 400 (early stopping 40 rounds on val AUC) |
+| `subsample` / `colsample_bytree` | 0.8 |
+| `min_child_weight` | 16 |
+| `reg_lambda` | 2.0 |
+| `random_state` | 42 |
+| Objective | XGBoost binary logistic (`XGBClassifier`) |
+
+LightGBM is **not** trained or loaded for live ranks. Logistic is an OOS baseline only. E3: logistic often beats this XGB on top-decile **mean**; both lose the promotion gate. Do not tune lr until features or labels change.
+
+---
+
+## Outputs & diagnostics
+
+| Artifact | Role |
+| -------- | ---- |
+| `coiled_cobra_xgb_{10,21,42}d.json` | Booster (`best_iteration` in metadata) |
+| `coiled_cobra_ml_metadata_{horizon}.json` | Fold table, promotion, gain |
+| `coiled_cobra_ml_model_metadata.json` | Index of three horizons |
+| `coiled_cobra_ml_oos_{horizon}.csv` | Fold-stamped OOS for re-scoring |
+
+Stdout prints the ML vs Score / random / population table (`top_10pct` within fold). Classification P/R at 0.5 is uninformative (E4).
+
+### How to read the promotion table
+
+| Metric | Meaning |
+| ------ | ------- |
+| avg_fwd / med_fwd / win_rate | Close-to-close over the horizon, **not** MFE hit rate |
+| Blocked by | Which of those failed vs Score, random, or population |
+| Fold pass | Share of folds that would promote on their own (≥0.60 required) |
+
+---
+
+## Historical: MAE regression baseline
+
+The sections below describe the **retired** 6-feature `XGBRegressor` / `LGBMRegressor` on `Rel_Forward_*` / `Forward_Return_2w`, including the importance chart that ranks EMA50, ATR, EMA20, Fibs, and Score. That stack is not what `coiled_cobra_ml_training.py` runs today.
+
+### Historical pipeline architecture
 
 ```
 coiled_cobra_backtest_trades_*.csv

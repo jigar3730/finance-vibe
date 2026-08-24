@@ -10,7 +10,9 @@
 | -------- | ---- |
 | `Learn.md` / dashboard `/learn` | Curriculum; after **doc edits rebuild** the image (`docker compose up -d --build`) so `/app` markdown updates — compose mounts data only |
 | `Coiled Cobra Rubric .MD` | Live scorecard — what a coil *is* |
-| `CoiledCobraML.md` | Feature contract, leakage list, hyperparameter table |
+| `CoiledCobraML.md` | Feature / label / artifact contract (current Win models + historical regression) |
+| `docs/CoiledCobraML-Handoff.md` | **Resume here** — decisions, scoreboard, next work (2026-08-24) |
+| `CodeReview.MD` | Independent audit + what was fixed vs still open |
 | `BacktestAndBackfill.md` | How historical labels are produced |
 | This file (`MLOps.md`) | How to **train**, **judge**, and **deploy** models in the container |
 
@@ -24,13 +26,13 @@
 
 A **multi-horizon supervised ranking layer** for Coiled Cobra setups:
 
-1. Look at a coil **on the signal bar** (pillars + EMA/ATR geometry).
-2. Estimate separate probabilities for +10%/10d, +15%/21d, and +25%/42d.
-3. Compare each horizon against Score on genuinely unseen chronological folds.
+1. Look at a coil **on the signal bar** (26 pillars + EMA/ATR geometry; **not** Score or Fib).
+2. Estimate separate probabilities that the **close is up** at 10d / 21d / 42d (`Win_*`). MFE `Hit_*` is research-only.
+3. Compare each horizon against Score, **random**, and the **population** on walk-forward OOS (top 10% **inside each fold**).
 
-The probabilities remain separate. A horizon is enabled only when top-decile
-average return, win rate, hit rate, and fold consistency beat Score. The
-**rubric Score remains the quality gate and fallback**.
+The probabilities remain separate. A horizon is enabled only when metadata records `production_model: xgb`. That requires beating Score, random, and population on average return, median return, and win rate, with ≥60% of folds passing. **Hit rate is not in the gate.** As of 2026-08-24 no horizon is promoted.
+
+The **rubric Score remains the quality gate and fallback**.
 
 ### What you are not building
 
@@ -126,14 +128,14 @@ docker compose up -d --build
      trades CSV         /app/data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv
           │
   [4] Train             coiled_cobra_ml_training.py
-          │               temporal split, XGB + LGB, MAE, Spearman
+          │               walk-forward, 3× XGBClassifier on Win_*, vs Score/random
           ▼
-     artifacts          xgb json, lgb txt, metadata json, importance png
+     artifacts          xgb_{10,21,42}d.json, metadata_*, index, oos_*.csv
           │
   [5] Serve (soft)      coiled_cobra.py  →  ml_ranker.attach_ml_ranks
-          │               live scan reads the same /app/data/logs/daily/ files
+          │               only if production_model == xgb (currently none)
           ▼
-     ML_Rank            trade_planner.py sorts the book by predicted return
+     ML_Prob_Win_*      otherwise null; book stays Score-sorted
 ```
 
 Steps 1–4 are **batch**. Step 5 is **inference** on the next live run. Nothing is uploaded to a registry; “deploy” means “files exist in the daily log silo.”
@@ -281,11 +283,13 @@ Printed for **validation** (tuning / early stop) and **test** (honest holdout).
 
 Test RMSE ≫ val RMSE is common when 2025–2026 contains a handful of violent movers. Compare **MAE and Spearman**, not RMSE alone.
 
-### 4.11 Inference: averaging two boosters
+### 4.11 Inference: no averaging
 
-`ml_ranker.predict_returns` loads XGB and LGB if files exist, **skips** a booster whose feature names are not exactly the 10-column list (stale 6-feature models), then **nan-mean**s their predictions. Rank 1 = highest predicted relative return. Null predictions sort last.
+`predict_returns` uses **one** promoted horizon’s XGB probability. It does **not** load LightGBM and does **not** average 10d/21d/42d. If the index says `production_model: none` for every horizon, `ML_Pred_Return` / `ML_Rank` stay null and the scanner keeps Score order.
 
-The planner (`trade_planner.py`) may apply a **1.25× propensity** when `Coil_Width_ATR ≤ 4` or risk ≤ 3% of close. That is a business rule on top of the model, not part of training.
+`resolve_model_paths` still prefers a legacy `coiled_cobra_xgb_21d.json` filename; it is unused by the attach path — delete before anything calls it (`CodeReview.MD` I3).
+
+The planner (`trade_planner.py`) may still multiply `ML_Pred_Return` as if it were an expected return (I4). Do not enable live ML until that is fixed.
 
 ---
 
@@ -380,39 +384,34 @@ You want **hundreds** of new-coil rows with non-null primary Rel_Forward spannin
 
 ### Step 5 — Train (write artifacts next to the CSV)
 
-Replace the date with the file from Step 4:
+Replace the date with the file from Step 4. **Always pass `--csv`.** Do not omit it: `SOURCE_FILENAME` still names a missing `..._2026-07-17.csv` and newest-mtime can pick `_Large.csv`.
 
 ```bash
-docker exec -w /app finance_vibe python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv \
+docker exec -w /app finance_vibe python -m finance_vibe.coiled_cobra_ml_training \
+  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_2026-08-24.csv \
   --artifacts-dir /app/data/logs/daily
 ```
 
-`--artifacts-dir` defaults to the CSV’s folder, which is what live ranking expects. Passing it explicitly avoids surprises.
-
 **Success on stdout** looks like:
 
-- `Target column: Rel_Forward_2w`
-- Kept new-coil rows only
-- `X_train` / `X_val` / `X_test` all have **10 columns** and non-zero rows
-- Val and Test MAE / RMSE / Spearman for XGB and LGB
-- `[SAVED]` four artifacts
+- New-coil rows only (~21k on the 2026-08-24 native CSV)
+- Per-horizon `Win_*` class balance (~54–57% positive)
+- Walk-forward folds; some skipped as stumps (`best_iteration < 3`)
+- Table: ML vs Score vs random vs population, `top_10pct` within fold
+- `Promote: NO` and `production_model: none` until the gate actually passes
 
 **Success on disk:**
 
 ```bash
-docker exec finance_vibe ls -l /app/data/logs/daily/coiled_cobra_xgb_model.json \
-  /app/data/logs/daily/coiled_cobra_lgb_model.txt \
+docker exec finance_vibe ls -l \
+  /app/data/logs/daily/coiled_cobra_xgb_10d.json \
+  /app/data/logs/daily/coiled_cobra_xgb_21d.json \
+  /app/data/logs/daily/coiled_cobra_xgb_42d.json \
   /app/data/logs/daily/coiled_cobra_ml_model_metadata.json \
-  /app/data/logs/daily/coiled_cobra_ml_feature_importance.png
+  /app/data/logs/daily/coiled_cobra_ml_oos_10d.csv
 ```
 
-Open metadata (host path `/mnt/fast/finance-vibe-data/logs/daily/coiled_cobra_ml_model_metadata.json`):
-
-- `feature_columns` length 10 (not the old Score+Fib six)
-- `sample_weight`: `inverse_ATR_Pct`
-- `embargo_weeks`: 2
-- `decision_guidance.do_not_use_as` still says hard gate / sizing — believe it
+Index must show `feature_columns` length **26**, `prob_column` `ML_Prob_Win_*`, `promoted: false` unless the gate passed. **Do not trust JSON `target_column` until I5 is fixed** (it currently stores the last research Hit name). Resume notes: `docs/CoiledCobraML-Handoff.md`.
 
 ### Step 6 — Deploy is already done
 
@@ -430,7 +429,7 @@ Or the full pipeline (this **clears** `data/raw/daily/` unless you add your own 
 docker exec -w /app finance_vibe python src/finance_vibe/run_vibe.py --keep-raw
 ```
 
-In `/app/data/logs/daily/coiled_cobra_setups_YYYY-MM-DD.csv`, `ML_Pred_Return` and `ML_Rank` should be populated. Logs should say `ML ranks attached to scan results.` If they say `No ML model available`, the ranker did not find a 10-feature daily booster.
+In `/app/data/logs/daily/coiled_cobra_setups_YYYY-MM-DD.csv`, `ML_Prob_Win_*` stay **null** while `production_model` is `none`. That is correct. Non-null `ML_Rank` from a leftover `coiled_cobra_xgb_model.json` is the old regression path — do not treat it as this trainer.
 
 ---
 
@@ -468,18 +467,21 @@ Never copy weekly `*_model.json` into `logs/daily/`.
 
 ---
 
-## 8. Promotion checklist (human, not automated)
+## 8. Promotion checklist (automated + human)
 
-Promote (leave files in `logs/daily/`) only if:
+The trainer writes `production_model: xgb` only if the walk-forward gate passes. Do **not** hand-edit that field.
 
-- [ ] Trained on a **full-universe** daily `--backtest`, not a 3-ticker smoke CSV
-- [ ] Metadata lists the **10** v2.1 features
-- [ ] Train / val / test all non-empty
-- [ ] Test Spearman **> 0** for at least one of XGB or LGB (prefer both)
-- [ ] Artifacts sit in `/app/data/logs/daily/`
-- [ ] A live `coiled_cobra.py` run fills `ML_Rank`
+Human checklist before believing a `true`:
 
-Do **not** promote if Spearman is negative or feature names are the old 6-column set. Delete or rename the json/txt files so the scanner falls back to Score (fail-soft).
+- [ ] `--csv` was the **native** 114-column `..._2026-08-24.csv` (or a later full `--backtest`), not `_Large.csv` / smoke tickers
+- [ ] `feature_columns` length **26** (not the old Score+Fib six)
+- [ ] Fraction cuts used **per-fold** selection (`schema_version` ≥ 3)
+- [ ] Gate metrics are avg / median / win rate vs Score **and** random **and** population (no hit_rate)
+- [ ] `best_iteration >= 3` on the saved booster
+- [ ] Fold pass rate ≥ 0.60
+- [ ] You have **not** loosened the gate to force a ship
+
+Do **not** promote because AUC looks good, because Hit rate beat Score, or because a 6-feature importance PNG looks consistent. Current honest result: **Win XGB does not beat random.** See `docs/CoiledCobraML-Handoff.md`.
 
 ---
 
@@ -529,9 +531,9 @@ python src/finance_vibe/coiled_cobra_ml_training.py --help
 | `data_ingestor.py` | Feature-time OHLCV (and QQQ) |
 | `coiled_cobra_backtest.py` | **Label store** — walk-forward coils + forward returns |
 | `coiled_cobra_ml_training.py` | **Trainer** — split, fit, metrics, serialize |
-| `ml_ranker.py` | **Inference** — load boosters, average, rank |
+| `ml_ranker.py` | **Inference** — load promoted horizon XGB only; never average LGB |
 | `coiled_cobra.py` | Live scan; calls `attach_ml_ranks` |
-| `trade_planner.py` | Sort by `ML_Pred_Return` (tight-coil boost) |
+| `trade_planner.py` | Still may treat `ML_Pred_Return` as expected return (I4 — do not enable live ML until fixed) |
 | `run_vibe.py` | Orchestrates live path; **does not train** |
 | `pipeline_backtest.py` | Quality-swing study — **not** an ML input |
 
@@ -560,23 +562,18 @@ python src/finance_vibe/coiled_cobra_ml_training.py --help
 ## 13. Quick reference card
 
 ```bash
-# 1) Labels (daily, full universe)
-docker exec -w /app finance_vibe python src/finance_vibe/coiled_cobra_backtest.py --backtest
+# 1) Labels (daily, full universe) — slow
+docker exec finance_vibe python -m finance_vibe.coiled_cobra_backtest daily --backtest
 
-# 2) See the file name
-docker exec finance_vibe ls -lt /app/data/logs/daily/coiled_cobra_backtest_trades_*.csv
-
-# 3) Train (paste the real date)
-docker exec -w /app finance_vibe python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_YYYY-MM-DD.csv \
+# 2) Train — pin the native CSV
+docker exec finance_vibe python -m finance_vibe.coiled_cobra_ml_training \
+  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_2026-08-24.csv \
   --artifacts-dir /app/data/logs/daily
 
-# 4) Confirm artifacts
-docker exec finance_vibe ls /app/data/logs/daily/coiled_cobra_*model* \
-  /app/data/logs/daily/coiled_cobra_ml_model_metadata.json
-
-# 5) Live ranks
-docker exec -w /app finance_vibe python src/finance_vibe/coiled_cobra.py
+# 3) Confirm three boosters + index + OOS
+docker exec finance_vibe ls /app/data/logs/daily/coiled_cobra_xgb_*d.json \
+  /app/data/logs/daily/coiled_cobra_ml_model_metadata.json \
+  /app/data/logs/daily/coiled_cobra_ml_oos_*d.csv
 ```
 
-You have completed training when those artifacts exist, metadata shows 10 features and non-negative test Spearman, and the next scan writes non-null `ML_Rank`.
+Training is “done” when those files exist. **Serving** is done only when the index has `production_model: xgb`. Today it does not; live scans correctly stay on Score. Full pickup: `docs/CoiledCobraML-Handoff.md`.

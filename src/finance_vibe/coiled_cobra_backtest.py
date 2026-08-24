@@ -208,11 +208,19 @@ def future_max_return_series(ohlc: pd.DataFrame, bars: int) -> pd.Series:
     return pd.Series(out, index=ohlc.index)
 
 
-def enrich_mfe_targets(df: pd.DataFrame, mode: str | None = None) -> pd.DataFrame:
+def enrich_mfe_targets(
+    df: pd.DataFrame,
+    mode: str | None = None,
+    strict: bool = True,
+) -> pd.DataFrame:
     """Attach Max_Return / Hit_* from raw OHLC for existing signal rows.
 
     Lets older backtest CSVs (forward closes only) gain intra-horizon MFE labels
     without re-scanning coils. Future prices are not copied into feature columns.
+
+    A symbol whose raw file is missing or unreadable cannot be labelled at all.
+    Under ``strict`` that raises, because silently returning those rows unlabelled
+    leaves a pool where some symbols carry MFE labels and others carry nothing.
     """
     if df.empty or "Symbol" not in df.columns or "Signal Date" not in df.columns:
         return df
@@ -221,18 +229,18 @@ def enrich_mfe_targets(df: pd.DataFrame, mode: str | None = None) -> pd.DataFram
     horizons = ((10, "10d"), (21, "21d"), (42, "42d"))
     pieces: list[pd.DataFrame] = []
     n_ok = 0
-    n_miss = 0
+    unresolved: list[str] = []
     for symbol, group in df.groupby("Symbol", sort=False):
         path = resolve_raw_path(str(symbol), cfg)
         g = group.copy()
         if not path or not os.path.isfile(path):
-            n_miss += 1
+            unresolved.append(str(symbol))
             pieces.append(g)
             continue
         try:
             ohlc = load_ohlc_csv(path)
         except Exception:
-            n_miss += 1
+            unresolved.append(str(symbol))
             pieces.append(g)
             continue
         ohlc = ohlc.copy()
@@ -250,7 +258,15 @@ def enrich_mfe_targets(df: pd.DataFrame, mode: str | None = None) -> pd.DataFram
                 )
         n_ok += 1
         pieces.append(g)
-    print(f"MFE enrich: {n_ok} symbol file(s) loaded, {n_miss} missing/unreadable")
+    print(f"MFE enrich: {n_ok} symbol file(s) loaded, {len(unresolved)} missing/unreadable")
+    if unresolved and strict:
+        shown = ", ".join(sorted(unresolved)[:10])
+        more = "" if len(unresolved) <= 10 else f" (+{len(unresolved) - 10} more)"
+        raise FileNotFoundError(
+            f"Cannot build MFE labels for {len(unresolved)} symbol(s) in {mode} raw dir "
+            f"{cfg['raw_dir']}: {shown}{more}. Download the raw history or drop these "
+            "symbols before training."
+        )
     return pd.concat(pieces, ignore_index=True) if pieces else df
 
 

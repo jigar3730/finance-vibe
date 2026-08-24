@@ -95,6 +95,88 @@ def test_forward_horizon_bars_are_calendar_equivalent():
     assert held_coil_low_at(df, 0, 20, 100.0) is None
 
 
+def _mfe_ohlc() -> pd.DataFrame:
+    """60 bars of flat closes with two isolated highs: +12% at bar 5, +30% at bar 30."""
+    n = 60
+    high = [100.0] * n
+    high[5] = 112.0
+    high[30] = 130.0
+    return pd.DataFrame({
+        "Date": pd.date_range("2024-01-01", periods=n, freq="B"),
+        "Open": [100.0] * n,
+        "High": high,
+        "Low": [100.0] * n,
+        "Close": [100.0] * n,
+        "Volume": [100000] * n,
+    })
+
+
+def _patch_raw_lookup(monkeypatch, tmp_path, available: dict[str, pd.DataFrame]):
+    import finance_vibe.coiled_cobra_backtest as module
+
+    for symbol, ohlc in available.items():
+        ohlc.to_csv(tmp_path / f"{symbol}.csv", index=False)
+
+    def fake_resolve_raw_path(symbol, cfg):
+        return str(tmp_path / f"{symbol}.csv")
+
+    monkeypatch.setattr(module, "resolve_raw_path", fake_resolve_raw_path)
+    monkeypatch.setattr(module, "load_ohlc_csv", lambda p: pd.read_csv(p))
+    return module
+
+
+def test_enrich_mfe_targets_labels_each_horizon_from_its_own_window(tmp_path, monkeypatch):
+    module = _patch_raw_lookup(monkeypatch, tmp_path, {"AAA": _mfe_ohlc()})
+    signals = pd.DataFrame({
+        "Symbol": ["AAA"],
+        "Signal Date": [pd.Timestamp("2024-01-01")],
+    })
+
+    out = module.enrich_mfe_targets(signals, mode="daily")
+
+    # 10d and 21d windows only see the +12% bar; the 42d window also sees +30%.
+    assert out["Max_Return_10d"].iloc[0] == pytest.approx(0.12)
+    assert out["Max_Return_21d"].iloc[0] == pytest.approx(0.12)
+    assert out["Max_Return_42d"].iloc[0] == pytest.approx(0.30)
+    assert out["Hit_10Pct_10d"].iloc[0] == 1.0
+    assert out["Hit_15Pct_10d"].iloc[0] == 0.0
+    assert out["Hit_15Pct_21d"].iloc[0] == 0.0
+    assert out["Hit_20Pct_21d"].iloc[0] == 0.0
+    assert out["Hit_25Pct_42d"].iloc[0] == 1.0
+    assert out["Hit_50Pct_42d"].iloc[0] == 0.0
+
+
+def test_enrich_mfe_targets_leaves_tail_signals_unlabelled(tmp_path, monkeypatch):
+    """A signal without a complete window gets NaN, never a truncated-window label."""
+    ohlc = _mfe_ohlc()
+    module = _patch_raw_lookup(monkeypatch, tmp_path, {"AAA": ohlc})
+    signals = pd.DataFrame({
+        "Symbol": ["AAA"],
+        "Signal Date": [ohlc["Date"].iloc[-5]],
+    })
+
+    out = module.enrich_mfe_targets(signals, mode="daily")
+
+    for suffix in ("10d", "21d", "42d"):
+        assert pd.isna(out[f"Max_Return_{suffix}"].iloc[0])
+        assert pd.isna(out["Hit_10Pct_" + suffix].iloc[0])
+
+
+def test_enrich_mfe_targets_raises_when_a_symbol_has_no_raw_history(tmp_path, monkeypatch):
+    module = _patch_raw_lookup(monkeypatch, tmp_path, {"AAA": _mfe_ohlc()})
+    signals = pd.DataFrame({
+        "Symbol": ["AAA", "GONE"],
+        "Signal Date": [pd.Timestamp("2024-01-01")] * 2,
+    })
+
+    with pytest.raises(FileNotFoundError, match="GONE"):
+        module.enrich_mfe_targets(signals, mode="daily")
+
+    lenient = module.enrich_mfe_targets(signals, mode="daily", strict=False)
+    assert lenient.loc[lenient["Symbol"] == "AAA", "Hit_10Pct_10d"].iloc[0] == 1.0
+    assert pd.isna(lenient.loc[lenient["Symbol"] == "GONE", "Hit_10Pct_10d"].iloc[0])
+
+
 def _fake_setup(symbol: str) -> dict:
     return {
         "Symbol": symbol,
