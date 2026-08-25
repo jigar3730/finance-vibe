@@ -2,9 +2,11 @@
 
 Loads per-horizon XGBClassifier boosters produced by
 ``coiled_cobra_ml_training.py`` and attaches win probabilities
-(``ML_Prob_Win_*``). ``ML_Pred_Return`` / ``ML_Rank`` are filled only from a
-**promoted** horizon (walk-forward beat Score on avg return AND win rate).
-Horizons are never blended; LightGBM is not averaged in.
+(``ML_Prob_Win_*``). ``ML_Pred_Return`` / ``ML_Rank`` use one horizon
+(see ``config.ML_RANK_HORIZON_PRIORITY``). When ``config.SERVE_ML_RANKER``
+is True, a valid saved booster is used even if the walk-forward gate left
+``production_model`` at ``none``. Horizons are never blended; LightGBM is
+not averaged in.
 """
 from __future__ import annotations
 
@@ -44,8 +46,10 @@ LGB_MODEL_FILENAME = "coiled_cobra_lgb_model.txt"
 ML_PRED_COL = "ML_Pred_Return"
 ML_RANK_COL = "ML_Rank"
 
-# Prefer the swing-length horizon when more than one model is promoted.
-PROMOTE_PRIORITY = ("21d", "10d", "42d")
+# Prefer the swing-length horizon when more than one booster is servable.
+PROMOTE_PRIORITY = tuple(
+    getattr(config, "ML_RANK_HORIZON_PRIORITY", ("21d", "10d", "42d"))
+)
 
 
 def _search_dirs(mode: str | None) -> list[Path]:
@@ -140,13 +144,20 @@ def feature_columns_from_metadata(meta: dict | None) -> list[str]:
     return [str(c) for c in cols]
 
 
+def _allowed_target_columns(spec: dict) -> set[str]:
+    allowed = {label_col(spec)}
+    allowed.update(spec.get("research_targets") or ())
+    if spec.get("hit_col"):
+        allowed.add(spec["hit_col"])
+    return {str(name) for name in allowed if name}
+
+
 def validate_artifact_metadata(meta: dict, spec: dict) -> None:
-    """Reject wrong task/model/horizon/target/schema before loading weights."""
+    """Reject wrong task/model/horizon/schema before loading weights."""
     expected = {
         "task": "binary",
         "model_type": "XGBClassifier",
         "horizon": spec["key"],
-        "target_column": label_col(spec),
         "prob_column": spec["prob_col"],
     }
     mismatches = [
@@ -154,6 +165,12 @@ def validate_artifact_metadata(meta: dict, spec: dict) -> None:
         for key, value in expected.items()
         if meta.get(key) != value
     ]
+    allowed_targets = _allowed_target_columns(spec)
+    if meta.get("target_column") not in allowed_targets:
+        mismatches.append(
+            f"target_column={meta.get('target_column')!r} "
+            f"(expected one of {sorted(allowed_targets)})"
+        )
     features = meta.get("feature_columns")
     if not isinstance(features, list) or not features:
         mismatches.append("feature_columns missing/empty")
@@ -323,12 +340,25 @@ def predict_horizon_proba(
     return result
 
 
+def _serve_horizon(meta: dict | None) -> bool:
+    """Whether a validated artifact should be used for live ranks."""
+    if not meta:
+        return False
+    if meta.get("production_model") == "xgb":
+        return True
+    return bool(getattr(config, "SERVE_ML_RANKER", False))
+
+
 def attach_horizon_probabilities(df: pd.DataFrame, mode: str | None = None) -> pd.DataFrame:
-    """Attach separately promoted ``ML_Prob_*`` columns; never blend horizons."""
+    """Attach ``ML_Prob_Win_*`` from each servable horizon; never blend them."""
     out = df.copy()
     for spec in HORIZON_SPECS:
-        _, meta = load_horizon_artifact(mode, spec)
-        if meta and meta.get("production_model") == "xgb":
+        try:
+            path, meta = load_horizon_artifact(mode, spec)
+        except ValueError:
+            out[spec["prob_col"]] = np.nan
+            continue
+        if path is not None and _serve_horizon(meta):
             out[spec["prob_col"]] = predict_horizon_proba(
                 out, spec, mode
             ).round(4)
@@ -337,48 +367,69 @@ def attach_horizon_probabilities(df: pd.DataFrame, mode: str | None = None) -> p
     return out
 
 
-def _promoted_spec(mode: str | None) -> dict | None:
+def _servable_keys(mode: str | None) -> list[str]:
     by_key = {s["key"]: s for s in HORIZON_SPECS}
     index = load_horizon_index(mode)
-    promoted_keys: list[str] = []
+    keys: list[str] = []
     if index and index.get("horizons"):
         for item in index["horizons"]:
-            if (
-                item.get("production_model") == "xgb"
-                and item.get("key") in by_key
-            ):
-                promoted_keys.append(item["key"])
-    else:
-        for spec in HORIZON_SPECS:
-            _, meta = load_horizon_artifact(mode, spec)
-            if meta and meta.get("production_model") == "xgb":
-                promoted_keys.append(spec["key"])
+            key = item.get("key")
+            if key not in by_key:
+                continue
+            try:
+                path, meta = load_horizon_artifact(mode, by_key[key])
+            except ValueError:
+                continue
+            if path is None:
+                continue
+            promoted = item.get("production_model") == "xgb"
+            if promoted or _serve_horizon(meta):
+                keys.append(key)
+        if keys:
+            return keys
+    for spec in HORIZON_SPECS:
+        try:
+            path, meta = load_horizon_artifact(mode, spec)
+        except ValueError:
+            continue
+        if path is not None and _serve_horizon(meta):
+            keys.append(spec["key"])
+    return keys
+
+
+def _ranking_spec(mode: str | None) -> dict | None:
+    by_key = {s["key"]: s for s in HORIZON_SPECS}
+    available = _servable_keys(mode)
     for key in PROMOTE_PRIORITY:
-        if key in promoted_keys:
+        if key in available:
             return by_key[key]
     return None
 
 
-def predict_returns(df: pd.DataFrame, mode: str | None = None) -> pd.Series:
-    """Live ranking score: probability from the single promoted horizon.
+def _promoted_spec(mode: str | None) -> dict | None:
+    """Back-compat alias: ranking spec (promoted, or any servable booster)."""
+    return _ranking_spec(mode)
 
-    Returns all-NaN when no horizon beat Score out of sample. Does not average
-    XGBoost with LightGBM and does not blend 10d/21d/42d models.
+
+def predict_returns(df: pd.DataFrame, mode: str | None = None) -> pd.Series:
+    """Live ranking score: probability from a single servable horizon.
+
+    Does not average XGBoost with LightGBM and does not blend 10d/21d/42d.
     """
     result = pd.Series(np.nan, index=df.index, dtype="float64")
     if df.empty:
         return result
-    spec = _promoted_spec(mode)
+    spec = _ranking_spec(mode)
     if spec is None:
         return result
     return predict_horizon_proba(df, spec, mode)
 
 
 def attach_ml_ranks(df: pd.DataFrame, mode: str | None = None) -> pd.DataFrame:
-    """Attach horizon probabilities plus optional ``ML_Pred_Return`` / ``ML_Rank``.
+    """Attach horizon probabilities plus ``ML_Pred_Return`` / ``ML_Rank``.
 
-    Rank 1 is the highest promoted-horizon probability. When no model is
-    promoted, ML rank columns stay null and row order is preserved (Score sort).
+    Rank 1 is the highest probability on the ranking horizon. When no booster
+    is servable, ML columns stay null and row order is preserved (Score sort).
     """
     out = df.copy()
     if out.empty:

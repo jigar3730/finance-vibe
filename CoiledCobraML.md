@@ -63,7 +63,7 @@ docker exec finance_vibe python -m finance_vibe.coiled_cobra_ml_training \
 | `--csv` | **Required in practice** — pin the native trades file |
 | `--artifacts-dir` | Writes `coiled_cobra_xgb_{10,21,42}d.json`, `coiled_cobra_ml_metadata_{horizon}.json`, index, OOS CSVs |
 
-Live `ml_ranker.attach_horizon_probabilities` fills `ML_Prob_Win_*` only when that horizon’s metadata has `production_model == "xgb"`. Today that is never.
+Live `ml_ranker.attach_horizon_probabilities` fills `ML_Prob_Win_*` when a booster loads and `SERVE_ML_RANKER` is True (default). `production_model: xgb` still means the OOS gate passed.
 
 ---
 

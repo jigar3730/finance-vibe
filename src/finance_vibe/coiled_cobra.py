@@ -890,7 +890,11 @@ def _latest_csv_in_dir(directory: str, prefix: str) -> Optional[str]:
 
 
 def attach_weekly_confirmation(df_out: pd.DataFrame, scan_mode: str) -> pd.DataFrame:
-    """Join latest weekly setups onto a daily scan; soft-boost ML preds. Never a gate."""
+    """Join latest weekly setups onto a daily scan. Never a gate.
+
+    Weekly overlap can lift *sort order* of ML ranks. The stored
+    ``ML_Pred_Return`` stays the model probability (not multiplied).
+    """
     out = df_out.copy()
     if "Weekly_Coil_Pass" not in out.columns:
         out["Weekly_Coil_Pass"] = 0
@@ -932,21 +936,21 @@ def attach_weekly_confirmation(df_out: pd.DataFrame, scan_mode: str) -> pd.DataF
 
     if "ML_Pred_Return" in out.columns:
         pred = pd.to_numeric(out["ML_Pred_Return"], errors="coerce")
+        rank_key = pred.copy()
         boost = out["Weekly_Coil_Pass"].eq(1)
-        out.loc[boost & pred.notna(), "ML_Pred_Return"] = (
+        rank_key.loc[boost & pred.notna()] = (
             pred[boost & pred.notna()] * WEEKLY_CONFIRM_BOOST
-        ).round(4)
+        )
         if pred.notna().any():
-            ranks = pd.to_numeric(out["ML_Pred_Return"], errors="coerce").rank(
+            out["ML_Rank"] = rank_key.rank(
                 method="dense", ascending=False
-            )
-            out["ML_Rank"] = ranks.astype("Int64")
-            out = out.sort_values(
-                ["ML_Pred_Return", "Score"] if "Score" in out.columns else ["ML_Pred_Return"],
+            ).astype("Int64")
+            out = out.assign(_ml_sort=rank_key).sort_values(
+                ["_ml_sort", "Score"] if "Score" in out.columns else ["_ml_sort"],
                 ascending=False,
                 na_position="last",
                 kind="mergesort",
-            ).reset_index(drop=True)
+            ).drop(columns="_ml_sort").reset_index(drop=True)
     return out
 
 
@@ -1074,7 +1078,7 @@ def run_scanner():
             if df_out[ML_PRED_COL].notna().any():
                 logger.info("ML ranks attached to scan results.")
             else:
-                logger.info("No ML model available; ranking by Score.")
+                logger.info("No servable ML booster; ranking by Score.")
                 df_out = df_out.sort_values(by="Score", ascending=False)
         except Exception as e:
             logger.warning(f"ML ranking skipped ({e}); ranking by Score.")

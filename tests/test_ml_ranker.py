@@ -186,7 +186,7 @@ def test_metadata_feature_schema_is_used():
 
 def test_predict_returns_does_not_average_lgb_when_unpromoted(monkeypatch):
     df = pd.DataFrame([{"Symbol": "A", "Score": 80, "RSI": 55.0}])
-    monkeypatch.setattr(ml_ranker, "_promoted_spec", lambda mode=None: None)
+    monkeypatch.setattr(ml_ranker, "_ranking_spec", lambda mode=None: None)
     out = ml_ranker.predict_returns(df, "daily")
     assert out.isna().all()
 
@@ -290,3 +290,93 @@ def test_horizon_target_mismatch_fails_loudly():
     }
     with pytest.raises(ValueError, match="target_column"):
         validate_artifact_metadata(bad, spec)
+
+
+def test_horizon_metadata_accepts_research_hit_as_target_column():
+    """On-disk I5 files wrote the last research Hit name; those must still load."""
+    from finance_vibe.coiled_cobra_ml_training import HORIZON_SPECS
+    from finance_vibe.ml_ranker import validate_artifact_metadata
+
+    spec = HORIZON_SPECS[0]
+    meta = {
+        "task": "binary",
+        "model_type": "XGBClassifier",
+        "horizon": spec["key"],
+        "target_column": spec["research_targets"][1],
+        "prob_column": spec["prob_col"],
+        "feature_columns": list(FEATURE_COLS),
+        "feature_count": len(FEATURE_COLS),
+        "best_iteration": 56,
+        "production_model": "none",
+    }
+    validate_artifact_metadata(meta, spec)
+
+
+def test_unpromoted_artifact_is_served_when_flag_on(monkeypatch):
+    from finance_vibe import config
+    from finance_vibe.coiled_cobra_ml_training import HORIZON_SPECS
+
+    monkeypatch.setattr(config, "SERVE_ML_RANKER", True)
+    spec = HORIZON_SPECS[1]
+    meta = {
+        "task": "binary",
+        "model_type": "XGBClassifier",
+        "horizon": spec["key"],
+        "target_column": spec["label_col"],
+        "prob_column": spec["prob_col"],
+        "feature_columns": list(FEATURE_COLS),
+        "feature_count": len(FEATURE_COLS),
+        "best_iteration": 18,
+        "production_model": "none",
+    }
+
+    def fake_load(mode, s):
+        if s["key"] != spec["key"]:
+            return None, None
+        return Path("unused.json"), meta
+
+    def fake_predict(df, s, mode=None):
+        return pd.Series(0.61, index=df.index, dtype="float64")
+
+    monkeypatch.setattr(ml_ranker, "load_horizon_artifact", fake_load)
+    monkeypatch.setattr(ml_ranker, "predict_horizon_proba", fake_predict)
+    df = pd.DataFrame([{"Symbol": "A", "Score": 80}])
+    out = ml_ranker.attach_horizon_probabilities(df, "daily")
+    assert out[spec["prob_col"]].iloc[0] == pytest.approx(0.61)
+    assert out["ML_Prob_Win_10d"].isna().all()
+
+
+def test_unpromoted_artifact_stays_null_when_flag_off(monkeypatch):
+    from finance_vibe import config
+    from finance_vibe.coiled_cobra_ml_training import HORIZON_SPECS
+
+    monkeypatch.setattr(config, "SERVE_ML_RANKER", False)
+    spec = HORIZON_SPECS[1]
+    meta = {
+        "task": "binary",
+        "model_type": "XGBClassifier",
+        "horizon": spec["key"],
+        "target_column": spec["label_col"],
+        "prob_column": spec["prob_col"],
+        "feature_columns": list(FEATURE_COLS),
+        "feature_count": len(FEATURE_COLS),
+        "best_iteration": 18,
+        "production_model": "none",
+    }
+    called = {"n": 0}
+
+    def fake_load(mode, s):
+        if s["key"] != spec["key"]:
+            return None, None
+        return Path("unused.json"), meta
+
+    def fake_predict(df, s, mode=None):
+        called["n"] += 1
+        return pd.Series(0.61, index=df.index, dtype="float64")
+
+    monkeypatch.setattr(ml_ranker, "load_horizon_artifact", fake_load)
+    monkeypatch.setattr(ml_ranker, "predict_horizon_proba", fake_predict)
+    df = pd.DataFrame([{"Symbol": "A", "Score": 80}])
+    out = ml_ranker.attach_horizon_probabilities(df, "daily")
+    assert called["n"] == 0
+    assert out[spec["prob_col"]].isna().all()

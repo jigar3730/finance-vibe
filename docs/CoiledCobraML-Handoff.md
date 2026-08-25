@@ -4,7 +4,7 @@ Read this first after a break. Audit detail lives in **`CodeReview.MD`**. Featur
 
 ## Status in one line
 
-**Do not promote.** Three independent XGB classifiers exist (`schema_version` 5, `Win_*` labels). Index `production_model` is `"none"` for 10d / 21d / 42d. Live scans must keep sorting by rubric **Score**. Retraining the same 26 features on `Win_*` will not create an edge.
+**Do not promote** (OOS gate still fails). Live scans **do** sort by ML when `SERVE_ML_RANKER` is True. Three independent XGB classifiers exist (`schema_version` 5, `Win_*` labels). Index `production_model` is `"none"` for 10d / 21d / 42d — that flag is the gate, not the serve switch. Retraining the same 26 features on `Win_*` will not create an OOS edge.
 
 ## What we decided (do not reverse without new evidence)
 
@@ -67,7 +67,7 @@ The PNG titled **Forward_Return_2w** (XGB + LightGBM, 6 bars) is a **different p
 | Features | EMA50, ATR, EMA20, Fib 786, Fib 618, **Score** | 26 pillars; Score/Fib forbidden |
 | Models | XGB **and** LGB | XGB only; never average |
 | OOS vs Score/random/pop | Not in that chart | Walk-forward; **fails** |
-| Live | `ML_Pred_Return` as predicted return | Only if `production_model=="xgb"` (currently never) |
+| Live | `ML_Pred_Return` as predicted return | `SERVE_ML_RANKER`: rank by 21d P(win); gate flag stays `none` |
 
 Shared DNA: both lean on **ATR + EMA distance**. That is not evidence of a selector.
 
@@ -117,7 +117,7 @@ Hyperparameter search (`lr=0.01` underfit vs logistic — E3) only **after** a r
 | File | Role |
 | ---- | ---- |
 | `src/finance_vibe/coiled_cobra_ml_training.py` | Trainer, `HORIZON_SPECS`, promotion, artifacts |
-| `src/finance_vibe/ml_ranker.py` | Inference; NaN probs unless `production_model=="xgb"` |
+| `src/finance_vibe/ml_ranker.py` | Inference; `SERVE_ML_RANKER` ranks even when `production_model` is `none` |
 | `src/finance_vibe/coiled_cobra_backtest.py` | Native `Forward_Return_*` / `Max_Return_*` / `Win_*` / `Hit_*` |
 | `src/finance_vibe/config.py` | Universe including `STATIC_TICKERS` (L1) |
 | `tests/test_coiled_cobra_ml.py` / `test_ml_ranker.py` / `test_coiled_cobra_backtest.py` | Contract |

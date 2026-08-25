@@ -400,6 +400,14 @@ REQUIRED_OHLCV = ["Date", "Open", "High", "Low", "Close", "Volume"]
 # Minimum usable rows before a raw CSV is worth saving/scanning.
 MIN_SAVE_ROWS = 60
 
+# Live scan: attach saved horizon XGBs and sort by ML_Rank even when the
+# walk-forward gate left production_model at "none". Promotion flags stay
+# honest. Set False to fall back to Score-only ranking.
+SERVE_ML_RANKER = True
+# Horizon used for ML_Pred_Return / ML_Rank when more than one booster loads.
+# 21d is the swing-length default; 10d then 42d if that file is missing.
+ML_RANK_HORIZON_PRIORITY = ("21d", "10d", "42d")
+
 # Live Coiled Cobra setup-row schema (trade_planner + ML ranker).
 # Swing scanner still fills a subset for offline pipeline_backtest.
 SETUP_ROW_COLUMNS = [

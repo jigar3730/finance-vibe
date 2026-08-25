@@ -289,7 +289,7 @@ def test_attach_weekly_confirmation_boosts_daily_preds(tmp_path, monkeypatch):
     assert out.loc[out["Symbol"] == "AAA", "Weekly_Coil_Pass"].iloc[0] == 1
     assert out.loc[out["Symbol"] == "CCC", "Weekly_Coil_Pass"].iloc[0] == 0
     aaa_pred = float(out.loc[out["Symbol"] == "AAA", "ML_Pred_Return"].iloc[0])
-    assert aaa_pred == pytest.approx(0.04 * cc.WEEKLY_CONFIRM_BOOST)
+    assert aaa_pred == pytest.approx(0.04)
     cc.configure_mode(config.DEFAULT_MODE)
 
 

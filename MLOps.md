@@ -15,7 +15,7 @@
 | `BacktestAndBackfill.md` | How historical labels are produced |
 | This file | How to **run** the loop in the container |
 
-`run_vibe.py` never trains. Training is an offline job. Live ranks attach **only** when a horizon’s metadata has `production_model: xgb`. As of 2026-08-24 that is **none** for 10d / 21d / 42d — scans correctly stay on rubric **Score**.
+`run_vibe.py` never trains. Training is an offline job. Live scans attach saved horizon XGBs and sort by **ML_Rank** when `config.SERVE_ML_RANKER` is True (default), even if the walk-forward gate left `production_model: none`. Set that flag False to rank by Score only. Promotion flags in metadata stay honest: the models did **not** beat random OOS.
 
 ---
 
@@ -29,7 +29,7 @@
 | Pool | 80,052 signals / **21,961** new coils / 413 symbols |
 | Artifacts | `coiled_cobra_xgb_{10,21,42}d.json` + per-horizon metadata + index + OOS CSVs |
 | `schema_version` | 5 |
-| Live | `production_model: none` — `ML_Prob_Win_*` stay null |
+| Live | `SERVE_ML_RANKER=True` — rank by 21d P(win) when artifacts load; `production_model` remains `none` |
 | Do not | Retrain the same 26 features on Win; loosen the gate; average XGB+LGB; blend horizons |
 
 JSON `target_column` in horizon metadata is **wrong** (last research `Hit_*` name). Models were trained on `Win_*`. See handoff I5.
@@ -46,7 +46,7 @@ A **multi-horizon ranking layer** on valid **new-coil** setups:
 2. Separate probabilities that **close is up** at 10 / 21 / 42 sessions (`Win_*`). MFE `Hit_*` is research-only.
 3. Walk-forward OOS: top 10% **inside each fold**, then pool. A horizon ships only if that cut beats **Score, random, and the population** on average forward return, median forward return, and win rate, and ≥60% of folds pass. **Hit rate is not in the gate.**
 
-The rubric Score remains the quality filter (≥70 + hard gates) and the live sort until a model is promoted.
+The rubric Score remains the quality filter (≥70 + hard gates). Live **sort** uses ML when `SERVE_ML_RANKER` is True.
 
 ### What you are not building
 
@@ -127,9 +127,9 @@ docker exec finance_vibe python -c "import xgboost, lightgbm, sklearn, matplotli
      artifacts          xgb_{10,21,42}d.json, metadata_*, index, oos_*.csv
           │
   [5] Serve (soft)      coiled_cobra.py → ml_ranker.attach_ml_ranks
-          │             only if production_model == xgb
+          │               SERVE_ML_RANKER (default on): valid XGBs rank the book
           ▼
-     ML_Prob_Win_*      else null; book stays Score-sorted
+     ML_Prob_Win_* + ML_Rank   Score is the fallback if no booster loads
 ```
 
 Steps 1–4 are batch. Step 5 is the next live scan. “Deploy” means files in `logs/daily/` **and** a passing promotion flag — not merely that json exists.
@@ -206,11 +206,11 @@ Current Win result: **does not beat random or population on the mean.** Medians 
 
 ### 4.9 Inference
 
-`attach_horizon_probabilities` writes `ML_Prob_Win_*` only for horizons with `production_model == "xgb"`.
+`attach_horizon_probabilities` writes `ML_Prob_Win_*` for each horizon whose booster loads and is servable (`production_model == "xgb"` **or** `SERVE_ML_RANKER`).
 
-`predict_returns` / `ML_Pred_Return` / `ML_Rank` use **one** promoted horizon (priority 10d → 21d → 42d). No LGB average. No horizon blend.
+`predict_returns` / `ML_Pred_Return` / `ML_Rank` use **one** horizon (`ML_RANK_HORIZON_PRIORITY`: 21d, then 10d, then 42d). No LGB average. No horizon blend.
 
-`trade_planner.py` may still treat `ML_Pred_Return` as expected return and boost it (I4). Do not enable live ML until that is fixed.
+Weekly confirmation may change **sort order** but does not multiply the stored probability.
 
 `resolve_model_paths` still prefers a legacy filename; unused by the attach path — delete before anything calls it (I3).
 
@@ -323,9 +323,9 @@ docker exec finance_vibe ls -l \
 
 Index: `feature_columns` length **26**, `prob_column` `ML_Prob_Win_*`, `promoted: false`. Do not trust per-file `target_column` until I5 is fixed.
 
-### Step 6 — Live scan does not “turn on” ML
+### Step 6 — Live scan ranks with ML when artifacts load
 
-Files in `logs/daily/` are visible to the scanner immediately. Probabilities stay **null** while `production_model` is `none`. That is correct.
+Files in `logs/daily/` are visible to the scanner immediately. With `SERVE_ML_RANKER=True`, `ML_Prob_Win_*` fill from valid boosters and the book sorts by the 21d probability (`ML_RANK_HORIZON_PRIORITY`). `production_model` in JSON can still be `none` — that only records that the OOS gate failed, not that inference is off.
 
 ```bash
 docker exec -w /app finance_vibe python -m finance_vibe.coiled_cobra
@@ -416,7 +416,7 @@ Keep the trades CSV that produced the artifacts next to them.
 | Training looks like Hit / old 6 features | Stale image | Rebuild or `docker cp` |
 | `best_iteration < 3` skip / no save | Stump fold or final refit | Expected on noisy Win labels; C4 refuses shipping stumps |
 | Weekly CSV `RuntimeError` | Trainer is daily-only | Use a daily trades file |
-| Live `ML_Prob_Win_*` all null | `production_model: none` | **Expected.** Do not force-serve |
+| Live `ML_Prob_Win_*` all null | No json / schema mismatch / `SERVE_ML_RANKER=False` | Check artifacts, I5 target_column, or the flag |
 | Non-null `ML_Pred_Return` anyway | Legacy `xgb_model.json` | Ignore / quarantine the old files |
 | JSON `target_column` is `Hit_*` | I5 loop-variable leak | Trust stdout + `Win_*`; fix the loop then rewrite metadata |
 | QQQ missing | Not ingested | `data_ingestor`; file is `QQQ_10y_1d.csv` |
@@ -439,7 +439,7 @@ python -m finance_vibe.coiled_cobra_ml_training --help
 | `data_ingestor.py` | OHLCV + QQQ |
 | `coiled_cobra_backtest.py` | Label store (native forwards / MFE / Win / Hit) |
 | `coiled_cobra_ml_training.py` | Walk-forward trainer; writes promotion flag |
-| `ml_ranker.py` | Load **promoted** horizon XGB only |
+| `ml_ranker.py` | Load servable horizon XGBs; rank by 21d unless missing |
 | `coiled_cobra.py` | Live scan; `attach_ml_ranks` |
 | `trade_planner.py` | Plan CSV; still may misuse `ML_Pred_Return` (I4) |
 | `run_vibe.py` | Live orchestrator; **does not train** |
@@ -483,8 +483,8 @@ docker exec finance_vibe ls /app/data/logs/daily/coiled_cobra_xgb_*d.json \
   /app/data/logs/daily/coiled_cobra_ml_model_metadata.json \
   /app/data/logs/daily/coiled_cobra_ml_oos_*d.csv
 
-# Live scan (ML stays null until promoted)
+# Live scan (ML rank if boosters load)
 docker exec finance_vibe python -m finance_vibe.coiled_cobra
 ```
 
-Training is done when those files exist. **Serving** is done only when the index has `production_model: xgb`. Today it does not. Pickup: `docs/CoiledCobraML-Handoff.md`.
+Training is done when those files exist. Live ranking uses them when `SERVE_ML_RANKER` is True. **Promotion** (`production_model: xgb`) is still the OOS gate and has not passed. Pickup: `docs/CoiledCobraML-Handoff.md`.

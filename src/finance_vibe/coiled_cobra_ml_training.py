@@ -1083,19 +1083,19 @@ def evaluate_research_targets(
 ) -> dict:
     """Walk-forward XGB checks for optional stricter hit thresholds."""
     results: dict[str, dict] = {}
-    for target in spec.get("research_targets", ()):
-        if target not in labeled.columns:
+    for research_target in spec.get("research_targets", ()):
+        if research_target not in labeled.columns:
             continue
-        prob_col = f"_Research_Prob_{target}"
+        prob_col = f"_Research_Prob_{research_target}"
         parts: list[pd.DataFrame] = []
         for i, fold in enumerate(folds, start=1):
-            train = fold["train"].dropna(subset=[target])
-            val = fold["val"].dropna(subset=[target])
-            test = fold["test"].dropna(subset=[target])
+            train = fold["train"].dropna(subset=[research_target])
+            val = fold["val"].dropna(subset=[research_target])
+            test = fold["test"].dropna(subset=[research_target])
             if min(len(train), len(val), len(test)) == 0:
                 continue
-            y_train = train[target].astype(int).to_numpy()
-            y_val = val[target].astype(int).to_numpy()
+            y_train = train[research_target].astype(int).to_numpy()
+            y_val = val[research_target].astype(int).to_numpy()
             if len(np.unique(y_train)) < 2 or len(np.unique(y_val)) < 2:
                 continue
             model = _fit_xgb_classifier(
@@ -1119,15 +1119,17 @@ def evaluate_research_targets(
         oos = pd.concat(parts, ignore_index=True)
         research_spec = {
             **spec,
-            "hit_col": target,
+            "hit_col": research_target,
             "prob_col": prob_col,
             "logistic_prob_col": "_unused",
         }
         xgb = evaluate_ranker(oos, research_spec, prob_col, "xgb")
         score = evaluate_ranker(oos, research_spec, SCORE_COL, "score")
-        results[target] = {
-            "class_balance": class_balance(labeled[target]),
-            "classification": classification_metrics(oos[target], oos[prob_col]),
+        results[research_target] = {
+            "class_balance": class_balance(labeled[research_target]),
+            "classification": classification_metrics(
+                oos[research_target], oos[prob_col]
+            ),
             "score_top_10pct": score["selections"]["top_10pct"],
             "xgb_top_10pct": xgb["selections"]["top_10pct"],
         }
@@ -1451,9 +1453,10 @@ def train_horizon(
     research_results = evaluate_research_targets(
         labeled, folds, spec, xgb_params
     )
-    for target, result in research_results.items():
+    target = label_col(spec)
+    for research_name, result in research_results.items():
         print(
-            f"  Research {target}: "
+            f"  Research {research_name}: "
             f"ScoreTop10%={result['score_top_10pct']['avg_fwd']:.4f} "
             f"XGBTop10%={result['xgb_top_10pct']['avg_fwd']:.4f}"
         )
