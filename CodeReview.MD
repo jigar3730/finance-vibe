@@ -1,14 +1,203 @@
-**Resume / pickup (2026-08-24):** full handoff in **`docs/CoiledCobraML-Handoff.md`**. This file is the audit log. Do not promote. Do not retrain the same 26 features on `Win_*`. Next work is new features or a risk-adjusted label, plus hygiene (I1–I4, L1, V1/V2, metadata `target_column` clobber).
+**Resume / pickup (2026-08-24, second pass):** start at **§A**, then §10's P0 table (A→I). Do not promote. Do not serve. Do not retrain the same 26 features on `Win_*`. Handoff doc `docs/CoiledCobraML-Handoff.md` still documents `SERVE_ML_RANKER` as intended behaviour and needs the same correction.
+
+> **SECOND-PASS AUDIT — 2026-08-24 evening (independent review).** The verdict below is **out of date and too favourable**. An independent replay of the artifacts on disk found that the model being served live is **not** the model any number in this document describes, and that the "fix" applied for I5 destroyed the evidence rather than the defect. **Read §A first.** Everything in §1–§12 describes the walk-forward *evaluation*; §A describes what is actually shipping.
 
 ---
 
 ## Verdict
 
-**WARNING — the plumbing is now mostly sound; there is still no tradable selector.**
+**CRITICAL — stop serving. The live ranker is a different model from the one that was evaluated, and it is enabled by default.**
 
-Walk-forward ranking (C1), per-date breadth (C2), stump folds/artifacts (C3/C4), native labels (T3/T4), and the promotion gate (E1/E2/T2) were fixed on 2026-08-24. Primary labels are `Win_*` (T1). All three horizons remain **`production_model: none`**. Win-trained XGB does not beat Score, random, or the population on average return. Hit-trained mean edge was a volatility lottery.
+Superseded verdict (first pass, retained for history): *"the plumbing is now mostly sound; there is still no tradable selector."* Walk-forward ranking (C1), per-date breadth (C2), stump folds/artifacts (C3/C4), native labels (T3/T4), and the promotion gate (E1/E2/T2) were fixed on 2026-08-24. Primary labels are `Win_*` (T1). All three horizons remain `production_model: none`.
+
+What the second pass establishes on top of that:
+
+1. The three boosters in `data/logs/daily/` were fitted on **`Hit_15Pct_10d` / `Hit_20Pct_21d` / `Hit_50Pct_42d`** — the *last research target* of each horizon — not on `Win_*` (**A1**). Their `base_score` and their AUC against each candidate label prove it.
+2. `config.SERVE_ML_RANKER = True` (added in `b9ec562`) makes the live scan **sort the book by those boosters** even though `production_model` is `none` for all three horizons (**A2**). The gate is now decorative.
+3. The horizon metadata was **hand-rewritten 3.5 hours after training** to say `target_column: Win_*`, and `_allowed_target_columns` was widened so a `Hit_*` artifact validates as a `Win_*` artifact (**A3**). The only two mechanisms that could have caught A1 were removed in the act of "fixing" it.
+4. The training corpus named in the metadata **no longer exists**. `validate_cobra_signals.py` overwrote it with a 28-symbol / 556-row file (**A4**).
+5. Even the correctly-evaluated `Win_*` models are **anti-selective**: mean return falls monotonically as the cut tightens, and the top decile loses to a random decile at all three horizons (**A6**).
 
 The 6-feature `Forward_Return_2w` XGB+LGB importance chart is a **different model family**, not a prior version of this stack (see §12).
+
+---
+
+## A. Second-pass findings (independent audit, 2026-08-24 evening)
+
+Method: replayed the on-disk artifacts directly — loaded each booster with `xgboost`, read its `base_score` and objective out of `save_config()`, scored it against every candidate label, and compared its output distribution to the `coiled_cobra_ml_oos_*.csv` files written by the same training run. No code was changed. Every number below is reproducible from `data/logs/daily/`.
+
+### A1 — The served boosters were trained on the research MFE targets, not on `Win_*` (P0, blocker)
+
+XGBoost stores its fitted intercept as `base_score`, which for `binary:logistic` is the mean of the label it was trained on. Comparing that against the base rates the training run itself recorded in `class_balance` / `research_targets[*].class_balance`:
+
+| Horizon | Booster `base_score` | `Win_*` rate | `hit_col` rate | **`research_targets[-1]` rate** |
+|---|---:|---:|---:|---:|
+| 10d | **0.07576** | 0.54359 | `Hit_10Pct_10d` 0.16969 | **`Hit_15Pct_10d` 0.08792** |
+| 21d | **0.09300** | 0.55884 | `Hit_15Pct_21d` 0.17453 | **`Hit_20Pct_21d` 0.10857** |
+| 42d | **0.03669** | 0.57453 | `Hit_25Pct_42d` 0.15027 | **`Hit_50Pct_42d` 0.04730** |
+
+Three for three, the intercept lands on the last research target and is off the `Win_*` rate by a factor of 6–16×. Two independent checks agree:
+
+| Check | 10d | 21d | 42d |
+|---|---:|---:|---:|
+| AUC of served booster vs `Win_*` | **0.460** | **0.450** | **0.462** |
+| AUC of served booster vs `Hit_*` | 0.781 | 0.814 | 0.800 |
+| Mean prediction, served booster | 0.082 | 0.097 | 0.040 |
+| Mean prediction, `coiled_cobra_ml_oos_*.csv` (same run) | 0.556 | 0.582 | 0.594 |
+
+The AUC against `Win_*` is **below 0.5** — as a win-probability ranker the artifact is worse than a coin flip and slightly inverted. The last two rows are the cleanest proof and depend on no external file: the OOS predictions written at 17:37 and the booster written at 17:36–17:38 come from the same `train_horizon` call, yet their output distributions cannot belong to the same model. (Caveat on the AUC rows only: they were computed against the surviving 556-row CSV, since the training corpus is gone — see A4. The `base_score` and mean-prediction rows do not depend on any CSV and are exact.)
+
+This is I5, but I5's stated conclusion — *"Models on disk were trained on Win; the JSON field lies"* — is **exactly backwards**. The JSON field was telling the truth. The `for target in spec["research_targets"]` rebind did not merely mislabel the metadata; it rebound the variable that `y_tr = final_train[target]` reads, so **the saved artifact itself is the research model**. Everything downstream of `final_model` — the booster, `best_iteration`, `normalized_xgb_gain`, the importance chart — describes an MFE model.
+
+Consequence: `ML_Prob_Win_21d` in the live scan is P(+20% maximum favourable excursion within 21 days). It is the volatility lottery that **T1 concluded must never be traded**, relabelled as a win probability and shipped. The live file `coiled_cobra_setups_2026-08-24.csv` shows the signature plainly — 37 of 37 rows carry `ML_Prob_Win_21d` between 0.12 and 0.16 against a 56% win base rate.
+
+**Fix:** delete all three boosters, retrain from a known-good CSV on current `HEAD` (which added the defensive `target = label_col(spec)` re-bind), and assert in `train_horizon` that `float(base_score)` is within a few points of `class_balance["positive_rate"]` before `save_xgb_artifact` writes anything.
+
+### A2 — `SERVE_ML_RANKER` makes the promotion gate decorative (P0, blocker)
+
+`config.py:406` sets `SERVE_ML_RANKER = True`. `ml_ranker._serve_horizon` returns True whenever that flag is set, **regardless of `production_model`**:
+
+```python
+if meta.get("production_model") == "xgb":
+    return True
+return bool(getattr(config, "SERVE_ML_RANKER", False))
+```
+
+So `attach_ml_ranks` fills `ML_Prob_Win_*`, sets `ML_Pred_Return`, and **re-sorts the entire book** by a model that failed every promotion criterion. `ML_RANK_HORIZON_PRIORITY` puts 21d first — the horizon whose saved artifact is the `Hit_20Pct_21d` model.
+
+The docstrings and `MLOps.md` defend this as "promotion flags stay honest". They do, and it does not help: nothing downstream reads `production_model`. The trade plan, the email, and the operator all consume row order, and row order is now set by the failed model. A flag that records a decision nobody enforces is not a gate.
+
+`§8` lists *"`attach_horizon_probabilities` returning NaN when `production_model == "none"` — the actual production gate"* as a missing test. That test is missing because the behaviour it would assert was deliberately reversed.
+
+**Fix:** default `SERVE_ML_RANKER = False`. If a shadow-mode path is genuinely wanted, write the probabilities to columns the sort never reads, keep `ML_Pred_Return` / `ML_Rank` null until `production_model == "xgb"`, and log loudly at scan time that an ungated model is attached.
+
+### A3 — The I5 remediation removed both detectors instead of the defect (P0)
+
+Two things happened after the 17:36–17:38 training run:
+
+| Artifact | mtime (container) |
+|---|---|
+| `coiled_cobra_xgb_10d/21d/42d.json` | 17:36:40 / 17:37:29 / 17:38:13 |
+| `coiled_cobra_ml_oos_21d.csv` | 17:37:08 |
+| `coiled_cobra_ml_model_metadata.json` (index) | 17:38:14 |
+| **`coiled_cobra_ml_metadata_10d/21d/42d.json`** | **21:03:18** |
+
+The three per-horizon metadata files were rewritten 3.5 hours later — 86 seconds after commit `b9ec562` — while the boosters were not. §6/I5 recommended exactly this (*"rewrite the three metadata files (or retrain)"*). Taking the first branch edited the description to match the intention rather than retraining the model to match the description, and it erased the single field that recorded which label the artifact had actually seen.
+
+In the same commit, `ml_ranker._allowed_target_columns` was introduced:
+
+```python
+def _allowed_target_columns(spec: dict) -> set[str]:
+    allowed = {label_col(spec)}
+    allowed.update(spec.get("research_targets") or ())
+    if spec.get("hit_col"):
+        allowed.add(spec["hit_col"])
+```
+
+`validate_artifact_metadata` now accepts `target_column` ∈ {`Win_10d`, `Hit_10Pct_10d`, `Hit_15Pct_10d`} for the 10d horizon. The check whose entire purpose is to refuse an artifact trained on the wrong target now accepts every target that horizon can produce, including the exact wrong value I5 was about. Had the metadata not been hand-edited, it would have loaded silently anyway.
+
+**Fix:** `_allowed_target_columns` must return `{label_col(spec)}` and nothing else. Research models are not servable artifacts and should never share a filename with one. Treat any metadata file newer than its booster as a hard load error.
+
+### A4 — `validate_cobra_signals.py` destroyed the training corpus (P0)
+
+`validate_cobra_signals.py` (new in `0775b74`) shells out to the backtest over a hardcoded 40-ticker `UNIVERSE` and writes into the shared log directory under the **same date-stamped filename** the trainer reads:
+
+```python
+cmd = ["python", BACKTEST_SCRIPT, "--backtest", "--tickers", ticker_str]
+```
+
+It ran at 20:36 and overwrote `coiled_cobra_backtest_trades_2026-08-24.csv`. Current state of the file the metadata names as its source:
+
+| | Recorded at training | On disk now |
+|---|---|---|
+| `source_csv_sha256` | `5567a2e3…b1b65057` | `914845ff…bc44796b` |
+| new-coil rows | ~21,961 | **556** |
+| symbols | 413 | **28** |
+| OOS rows still joinable | — | **1.4–1.5%** |
+
+The corpus that produced every number in §1–§12 is gone; `_Large.csv` is the 89-column pre-native-label file, not a substitute. Because `SOURCE_FILENAME` still names a non-existent `..._2026-07-17.csv`, `resolve_source_csv` falls through to newest-by-mtime, so the **next** `--csv`-less training run picks up the 556-row file. `MIN_TRAIN_ROWS = 1000` then empties `walk_forward_folds`, silently dropping the run into the single-split fallback at `train_horizon:1294`.
+
+`source_csv_sha256` is recorded and, per I2, never compared — so nothing noticed.
+
+**Fix:** give validation runs their own output directory or filename prefix; make the trainer verify `source_csv_sha256` against the file it just read and abort on mismatch; pin `SOURCE_FILENAME` and delete the newest-mtime fallback.
+
+Separately, `validate_cobra_signals.py` has its own methodology problems: its "lookahead leakage audit" is `|Pearson r| > 0.80` against `Forward_Return_21d`, which no realistic leakage in this pipeline would trip; its win rate is computed over all rows rather than `Is_New_Coil`; `OUTPUT_DIR` is hardcoded to `/app/...`; and it selects "latest" by `getctime`.
+
+### A5 — The `MIN_BEST_ITERATION` floor is set an order of magnitude too low (P1)
+
+C4 established that a booster stopping at 0–2 iterations is a near-constant and set the floor at `best_iteration >= 3`. The reasoning is right and the threshold does not implement it: at `learning_rate = 0.01`, four trees is just as constant as three. Actual fold-level `best_iteration` in the shipped run:
+
+| Horizon | Contributing folds | `best_iteration` per fold | Folds < 10 trees | Share of pooled OOS rows they contribute |
+|---|---:|---|---:|---:|
+| 10d | 11 | 4, 5, 6, 13, 18, 23, 29, 36, 45, 88, 92 | 3 / 11 | **20.4%** |
+| 21d | 11 | 3, 5, 8, 9, 12, 13, 14, 56, 62, 74, 104 | 4 / 11 | **39.9%** |
+| 42d | 10 | 3, 3, 3, 4, 5, 5, 6, 7, 20, 93 | 8 / 10 | **76.2%** |
+
+At 42d, **eight of ten surviving folds are stumps** and a single fold (93 trees) is the only substantive model in the pool. Three quarters of the 42d OOS rows are ranked by near-constant predictors, so "42d XGB top decile" is largely an arbitrary ordering of ties. The C3/C4 fix moved the failure from *"stumps are pooled"* to *"stumps just above the floor are pooled"*.
+
+This also invalidates the §2/C3 table, which reports 16 / 15 / 14 contributing folds and 0 / 1 / 1 stumps. The shipped artifacts have **11 / 11 / 10 contributing and 5 / 5 / 5 skipped**. That table describes the earlier Hit-label run and should not be read as current.
+
+**Fix:** raise the floor to something with a defensible basis — either `best_iteration >= 50` at `lr = 0.01`, or better, raise `learning_rate` to 0.05 and require the fold to beat its own base rate on validation AUC by a margin. Report the trees-weighted share of OOS rows in the summary so this is visible without a script.
+
+### A6 — The `Win_*` models are anti-selective, not merely edgeless (P0 for interpretation)
+
+§7/T1 records that Win-trained XGB "does not beat Score, random, or the population on average return." The pooled metadata shows something stronger and more diagnostic — return falls **monotonically as the cut tightens**, at every horizon:
+
+| Horizon | population | top 25% | top 10% | top 5% | random top 10% |
+|---|---:|---:|---:|---:|---:|
+| 10d | +0.77% | +0.35% | +0.38% | +0.14% | +0.68% |
+| 21d | +1.78% | +0.97% | +1.40% | +1.62% | +2.25% |
+| 42d | **+5.37%** | +2.40% | **+1.14%** | +1.13% | +5.52% |
+
+At 42d the top decile earns roughly a fifth of the population it is drawn from. A model with no signal produces a flat line (as `random` does); a line that slopes down is signal pointed the wrong way. The mechanism is visible in the OOS predictions — `spearman(P(win), ATR_Pct)` is **−0.29 / −0.32 / −0.16**, and top-decile MFE hit rate collapses versus population (10d 0.100 vs 0.199; 42d 0.075 vs 0.194). The `Win_*` model learned "low volatility ⇒ more likely to close green", which is true and useless, because in this universe the return lives in the tail it is now excluding. It is the same `ATR_Pct` proxy T1 diagnosed, with the sign flipped.
+
+Fold-level agreement confirms it is not noise: `fold_pass_rate` is **9% (1/11), 9% (1/11), 0% (0/10)**.
+
+Practical implication: `1 − P(win)` is a better ranker than `P(win)` on this pool. That is not a promotion candidate — it is evidence that the 26-feature set spans volatility and little else. §10 item 5 already reaches the right conclusion; A6 raises its priority from "no edge" to "inverted edge that is currently live via A2".
+
+### A7 — New hard gates were added to the scanner without re-deriving the training population (P1)
+
+Commit `0775b74` added two gates to `evaluate_coiled_cobra`:
+
+```python
+or volume_ratio > 0.82  # Enforces Volume Contraction Cutoff
+or checks_passed < 5     # Enforces 5/6 Quality Standard
+```
+
+In the 21,961-row training pool (`_Large.csv` lineage), **68.3%** of new coils have `Volume_Contraction_Ratio > 0.82`. The live scanner now emits a population that excludes two thirds of what the models were fitted on, and `Volume_Contraction_Ratio` is itself feature #7 in `FEATURE_COLS` — so the live feature is truncated to `[0.33, 0.82]` while training saw up to 212.75. Any retrain must regenerate the backtest under the new gates; any inference before that is extrapolating off the edge of the training support.
+
+The same commit left three tests failing (`test_evaluate_can_pass_coiled_uptrend`, `test_evaluate_clips_score_at_100`, `test_score_excludes_fib_and_macd_cross`) — the fixtures construct setups the new gates reject. **140 passed, 3 failed.** A red suite is how A1–A4 stayed invisible.
+
+### A8 — "Beats random" is a single draw, not a test (P1)
+
+E1 correctly added a random baseline to the gate, but `_Random_Rank` is one `default_rng(RANDOM_SEED + i).random(len(test_out))` draw per fold. Requiring the model to beat *one* sample from the null says almost nothing: at 42d the random top decile (+5.52%) beat Score (+4.84%), which is a statement about that draw, not about Score. Combined with V1 (overlapping 42-day label windows, effective n of a few hundred date-blocks rather than 12k rows), the gate's pass/fail is inside its own noise band in both directions.
+
+**Fix:** replace the single draw with 200–1000 permutations of the rank column within each fold, and promote only when the candidate clears the 95th percentile of the permutation distribution on every metric. That is the same work item as V1 item 8 and should be done once, for both.
+
+### A9 — Live feature frame still cannot fail loudly (I1 confirmed open, now P0 given A2)
+
+`build_feature_frame` still falls through to `out[col] = np.nan` for any feature the scanner did not write, and `predict_horizon_proba` only skips a row when **every** feature is NaN:
+
+```python
+valid = feats.notna().any(axis=1)
+```
+
+A row with 25 of 26 features missing still receives a prediction, and XGBoost routes NaN to a default direction without complaint. This was P1 while nothing was served. Under A2 it is P0. Today's scan happens to write all 26 columns, so this is latent rather than active — but it is latent by luck, not by construction.
+
+### A10 — Second-pass status of previously-open items
+
+| Item | Claimed | Verified state |
+|---|---|---|
+| I1 raise on missing live features | open | **open** — `ml_ranker.py:229` |
+| I2 cross-horizon `source_csv_sha256` | open | **open**, and A4 shows the cost |
+| I3 delete `resolve_model_paths` | open | **open** — `ml_ranker.py:79-100`, still 21d-filename-first, still bypasses validation |
+| I4 `ML_Pred_Return` semantics | open | **partly fixed** — `attach_weekly_confirmation` no longer overwrites the stored value; it now boosts a separate `rank_key`. But `trade_planner.py:293` still computes `Priority = ml_pred × propensity × weekly_boost` on a probability, and `test_priority_keeps_negative_ml_below_zero` still feeds `-0.04` |
+| I5 metadata `target_column` | "OPEN, JSON field lies" | **worse and mis-diagnosed** — see A1/A3 |
+| V2 embargo on `final_train` | open | **open** — `coiled_cobra_ml_training.py:1466` |
+| `SOURCE_FILENAME` pin | open | **open** — `:135` still names the non-existent 2026-07-17 file |
+| C1 per-fold cuts | fixed | **holds** — metadata reports `selection_scope: per_fold`, `n_selection_groups` 11/11/10 |
+| C2 per-date breadth | fixed | **holds**, and `selected_fraction` exposes that `top_5_per_date` still keeps 45–49%; only `top_1_per_date` (≈10%) is comparable to `top_10pct` |
+| T3/T4 native labels | resolved | **unverifiable** — the CSV that would prove it was overwritten (A4) |
 
 ---
 
@@ -24,6 +213,10 @@ The 6-feature `Forward_Return_2w` XGB+LGB importance chart is a **different mode
 | Native backtest CSV only; always `--csv` until `SOURCE_FILENAME` is pinned | T3, item 16 |
 | No Score / Fib in `FEATURE_COLS`; no XGB+LGB average; no horizon blend | contract tests |
 | Do not loosen the gate to force a promotion | T1: Hit mean edge was vol |
+| **Do not loosen a validator to make an artifact load** | A3 |
+| **An artifact that fails the gate is not served, shadow or otherwise** | A2 |
+| **Never "fix" an artifact by editing its metadata — retrain or delete** | A1, A3 |
+| **Validation/experiment scripts never write into the trainer's filename** | A4 |
 
 ---
 
@@ -40,8 +233,9 @@ The 6-feature `Forward_Return_2w` XGB+LGB importance chart is a **different mode
 | Separate models/metadata | PASS | three model files, three metadata files, index file |
 | No LGB averaging | PASS | LightGBM is not loaded in any prediction path |
 | Duplicate `Symbol+Signal Date` | PASS | exact dupes dropped, conflicting dupes abort |
-| Promotion gate held | PASS | all three horizons = `none` |
-| Targets correct | PASS (Win primary) | Train `Win_10d` / `Win_21d` / `Win_42d`; `Hit_*` is `hit_col` + research only. **JSON `target_column` is currently wrong — see I5.** |
+| ~~Promotion gate held~~ | **FAIL (A2)** | `production_model` is `none` for all three, but `SERVE_ML_RANKER = True` serves and sorts by them anyway |
+| ~~Targets correct~~ | **FAIL (A1)** | The walk-forward *evaluation* used `Win_*`. The **saved artifacts** were fitted on `Hit_15Pct_10d` / `Hit_20Pct_21d` / `Hit_50Pct_42d` — proven by `base_score` and by AUC 0.45 vs `Win_*`. |
+| ~~Reproducible source~~ | **FAIL (A4)** | `source_csv_sha256` no longer matches the file it names; the corpus was overwritten with 556 rows / 28 symbols |
 
 ---
 
@@ -81,6 +275,8 @@ That immediately showed the remaining looseness: `top_5_per_date` still keeps 47
 `MIN_TRAIN_ROWS = 80` admitted a fold with `n_train=505`, and both the 10d and 21d fold-1 models stopped at `best_iteration=0` — a single tree at `learning_rate=0.01`, i.e. a near-constant predictor. Those rows were pooled into OOS as if they were real predictions.
 
 Fix: `MIN_TRAIN_ROWS` is 1000, so the 252/505/762-row first folds never enter walk-forward. Independently, any fold that still early-stops at `best_iteration < 3` is recorded as skipped and excluded from the OOS pool (and from `fold_pass_rate`). After retrain:
+
+> **Stale — see A5.** The table below is from the Hit-label run. The shipped artifacts have **11 / 11 / 10** contributing folds and **5 / 5 / 5** skipped, and the `best_iteration >= 3` floor is too low to do what it claims: 76% of pooled 42d OOS rows still come from folds with fewer than ten trees.
 
 | Horizon | Folds before | Contributing | Skipped as stump | First train size now |
 | --- | ---: | ---: | ---: | ---: |
@@ -187,8 +383,13 @@ Tests added: `test_hit_labels_never_fall_back_to_the_horizon_close`, `test_hit_l
 
 **I4 — `ML_Pred_Return` now holds a probability (P2).** `trade_planner.py:283-295` computes `Priority = ml_pred × propensity × weekly_boost`, and `coiled_cobra.py:930-935` multiplies the stored column by a >1 boost — which can push a probability above 1.0 and means the persisted value no longer equals the model output. `test_priority_keeps_negative_ml_below_zero` still feeds `-0.04`, a value the new pipeline cannot produce.
 
-**I5 — Horizon metadata `target_column` is clobbered by the research loop (P1). — OPEN 2026-08-24.**
-`train_horizon` sets `target = label_col(spec)` (`Win_*`) and trains on that. Later `evaluate_research_targets` does `for target in spec["research_targets"]`, which rebinds the same name. Metadata then writes `"target_column": target` as the **last research Hit column** (`Hit_15Pct_10d` / `Hit_20Pct_21d` / `Hit_50Pct_42d`) while `prob_column` is correctly `ML_Prob_Win_*` and `schema_version` is 5. Models on disk were trained on Win; the JSON field lies. Fix: rename the loop variable, rewrite the three metadata files (or retrain). Until then treat stdout + `HORIZON_SPECS` + OOS CSVs as truth.
+**I5 — Research-loop `target` rebind (P1 → P0). — MIS-DIAGNOSED; SUPERSEDED BY A1/A3.**
+
+~~`train_horizon` sets `target = label_col(spec)` (`Win_*`) and trains on that. Later `evaluate_research_targets` does `for target in spec["research_targets"]`, which rebinds the same name. Metadata then writes `"target_column": target` as the **last research Hit column** (`Hit_15Pct_10d` / `Hit_20Pct_21d` / `Hit_50Pct_42d`) while `prob_column` is correctly `ML_Prob_Win_*` and `schema_version` is 5. Models on disk were trained on Win; the JSON field lies. Fix: rename the loop variable, rewrite the three metadata files (or retrain).~~
+
+The observation was right and the inference was backwards. The rebind happens **before** `y_tr = final_train[target]`, so it changed the model, not just the label on the model. `target_column` was reporting the truth. See **A1** for the proof (`base_score` 0.076 / 0.093 / 0.037 against `Win_*` rates of 0.54 / 0.56 / 0.57; AUC 0.45 vs `Win_*`, 0.78–0.81 vs `Hit_*`) and **A3** for how the recommended remediation — rewriting the metadata instead of retraining — removed the evidence and let the artifact pass validation.
+
+Current `HEAD` (`b9ec562`) adds a defensive `target = label_col(spec)` after the research call, so the **code** is now safe. The **artifacts on disk are not**, and no retrain has occurred since. Delete them.
 
 ---
 
@@ -227,38 +428,67 @@ I originally guessed this was pooling, then stump folds. After dropping untraine
 
 ~~Any test of `enrich_mfe_targets` — the code path that generated 100% of your training labels.~~ **Added 2026-08-24** — three tests cover per-horizon window isolation, tail NaN gating, and the strict raise on a missing raw file, plus two on `_ensure_horizon_targets` proving hit labels can only come from the intra-horizon high.
 
-Still missing:
+Still missing — the second-pass items first, since each one would have caught a live defect:
+
+- **A saved booster's `base_score` is within a few points of the horizon's `class_balance["positive_rate"]`.** This single assertion catches A1 and every future variant of it, and it needs no fixtures.
+- **`attach_horizon_probabilities` returns NaN when `production_model == "none"`.** Listed as missing in the first pass; it is missing because A2 reversed the behaviour it would assert. Restore the behaviour, then the test.
+- **`validate_artifact_metadata` rejects `target_column` set to any `Hit_*` research target** (A3). The current `_allowed_target_columns` makes this test fail by design.
+- **A metadata file newer than its booster is a load error** (A3).
+- **`Volume_Contraction_Ratio` support in the live frame overlaps the training range** (A7) — a distribution guard, not an equality check.
+- Then, unchanged from the first pass:
 - `train_horizon` for 21d and 42d (only `HORIZON_SPECS[0]` is exercised).
-- `attach_horizon_probabilities` returning NaN when `production_model == "none"` — the actual production gate.
-- Inference raising when a pillar column is absent from the live frame (I1).
-- Metadata `target_column` equals `label_col(spec)` after research-target evaluation (I5).
+- Inference raising when a pillar column is absent from the live frame, and when only one of 26 is present (I1 / A9).
 - `fold_pass_rate` gating: no test that a good pooled result plus a bad fold rate blocks promotion.
-- Cross-horizon `source_csv_sha256` agreement.
+- Cross-horizon `source_csv_sha256` agreement, **and agreement with the file actually on disk** (A4).
 - ~~A guard rejecting `best_iteration <= 2`.~~ **Added 2026-08-24** — `test_booster_is_degenerate_below_four_trees`, `test_save_xgb_artifact_refuses_degenerate_and_deletes_stale`, `test_horizon_metadata_rejects_degenerate_best_iteration`, `test_train_horizon_skips_a_stump_fold_and_keeps_the_rest`, `test_train_horizon_raises_when_every_fold_is_a_stump`.
 
 ---
 
 ## 9. Remaining code changes (fixed items removed)
 
-C1, C2, C3, C4, T2, T3, T4, E1, E2 are done. Still open:
+C1, C2, T2, E1, E2 hold. C3/C4 are only partly effective (A5). T3/T4 are no longer verifiable (A4). Still open:
 
 | File | Issue |
 |---|---|
-| `coiled_cobra_ml_training.py` `evaluate_research_targets` | I5 — rename loop var so metadata `target_column` stays `Win_*` |
+| `data/logs/daily/coiled_cobra_xgb_*.json` | **A1 — delete. These are `Hit_*` MFE models being served as `Win_*`.** |
+| `config.py:406` | **A2 — `SERVE_ML_RANKER` defaults to True and bypasses `production_model`. Set False.** |
+| `ml_ranker.py` `_allowed_target_columns` | **A3 — must return `{label_col(spec)}` only; it currently accepts every `Hit_*` too** |
+| `validate_cobra_signals.py` | **A4 — writes into the trainer's filename; give it its own output prefix** |
+| `coiled_cobra_ml_training.py` `MIN_BEST_ITERATION` | A5 — 3 trees at `lr=0.01` is still a constant; 76% of 42d OOS rows come from stumps |
+| `coiled_cobra.py` `evaluate_coiled_cobra` | A7 — new gates cut 68% of the training population; 3 tests red |
+| `coiled_cobra_ml_training.py` `_Random_Rank` | A8 — one draw is not a null distribution; permute |
 | `coiled_cobra_ml_training.py` `final_train` | V2 — subtract embargo |
-| `coiled_cobra_ml_training.py` `SOURCE_FILENAME` | Pin `coiled_cobra_backtest_trades_2026-08-24.csv`; do not newest-mtime |
-| `ml_ranker.py` `build_feature_frame` | I1 — raise on missing live feature columns |
-| `ml_ranker.py` attach path | I2 — all horizons share `source_csv_sha256` |
+| `coiled_cobra_ml_training.py` `SOURCE_FILENAME` | Pin the CSV; delete the newest-mtime fallback (A4 made this active, not hygiene) |
+| `ml_ranker.py` `build_feature_frame` | I1 — raise on missing live feature columns (P0 while A2 stands) |
+| `ml_ranker.py` attach path | I2 — all horizons share `source_csv_sha256`, and it must match the file on disk |
 | `ml_ranker.py` `resolve_model_paths` | I3 — delete unused 21d-filename landmine |
-| `trade_planner.py` / `coiled_cobra.py` | I4 — do not treat/boost `ML_Pred_Return` as expected return |
+| `trade_planner.py:293` | I4 — `Priority` still multiplies a probability by two boosts |
 | `config.py` universe | L1 — point-in-time names; drop `STATIC_TICKERS` from history |
-| evaluation | V1 — date-block SEs / refuse promote inside noise |
+| evaluation | V1 / A8 — date-block SEs / refuse promote inside noise |
 
 ---
 
 ## 10. Prioritized fixes
 
-**P0 — do before believing any number**
+**P0 (second pass) — do before the next scan runs**
+
+These supersede everything below and should be done in order. Steps 1–3 are minutes of work and stop the bleeding.
+
+| # | Action | Item |
+|---|---|---|
+| A | `SERVE_ML_RANKER = False` in `config.py`. The live book goes back to Score order. | A2 |
+| B | Delete `coiled_cobra_xgb_10d.json`, `_21d.json`, `_42d.json` and the three horizon metadata files. They describe a model that was never evaluated. | A1, A3 |
+| C | Fix `_allowed_target_columns` to `{label_col(spec)}`. Add a load-time refusal when a metadata file is newer than its booster. | A3 |
+| D | Repoint `validate_cobra_signals.py` at its own output prefix, then regenerate the full-universe backtest CSV **after** the A7 gate change and pin it in `SOURCE_FILENAME`. | A4, A7 |
+| E | Fix the three failing scanner tests, then keep the suite green as a merge condition. | A7 |
+| F | Retrain on `HEAD`. Before `save_xgb_artifact` writes, assert the booster's `base_score` matches `class_balance["positive_rate"]` to within a few points, and assert `feature_columns` matches the booster's own `feature_names`. | A1 |
+| G | Raise `MIN_BEST_ITERATION` (or `learning_rate`) so a "contributing" fold is actually a fitted model, and print the stump-weighted share of OOS rows. | A5 |
+| H | Replace the single `_Random_Rank` draw with a within-fold permutation null; promote only above the 95th percentile. | A8, V1 |
+| I | Raise in `build_feature_frame` when a live feature column is absent, and require more than one non-NaN feature per row. | I1 |
+
+**Do not** treat a post-retrain result as new evidence until D and E are done — the population changed under A7, so the next run is not comparable to anything in §1–§12.
+
+**P0 (first pass) — do before believing any number**
 1. ~~Normalize ranks within each fold (or evaluate only per-fold and aggregate), then regenerate every reported metric.~~ **Done — C1 fixed and all three horizons retrained.**
 2. ~~Fix `TOP_N_PER_DATE_LEVELS` so per-date cuts actually select.~~ **Done — C2 fixed, `selected_fraction` now exposed on every cut.**
 3. ~~Add random and population baselines to the promotion gate.~~ **Done — E1 and E2 fixed, T2 removed hit rate from the gate.**
@@ -288,18 +518,35 @@ Note after T3: `SOURCE_FILENAME` still names a non-existent `..._2026-07-17.csv`
 
 ## 11. How to pick up tomorrow
 
-1. Read **`docs/CoiledCobraML-Handoff.md`**.
-2. Do **not** promote, loosen the gate, or retrain the same 26 features on Win.
-3. Next research: one feature group at a time, or a risk-adjusted label; keep the same promotion table.
-4. Hygiene: I5 (metadata), pin `--csv` / `SOURCE_FILENAME`, then I1–I4, V1/V2, L1.
-5. Docker: `src/` is not bind-mounted; rebuild or `docker cp` before trusting container training.
+1. Read **§A first**, then `docs/CoiledCobraML-Handoff.md` (which currently documents `SERVE_ML_RANKER` as intended behaviour and needs the same correction).
+2. Work §10's P0 table A→I in order. A, B, C are the stop-the-bleeding steps.
+3. Do **not** promote, loosen the gate, or retrain the same 26 features on Win. A6 shows that feature set is a volatility proxy in both label directions.
+4. Next research: one feature group at a time, or a risk-adjusted label; keep the same promotion table.
+5. Docker: `src/` is not bind-mounted; rebuild or `docker cp` before trusting container training. `data/` **is** shared, which is how A4 happened.
 
-Pinned CSV: `data/logs/daily/coiled_cobra_backtest_trades_2026-08-24.csv`.
+~~Pinned CSV: `data/logs/daily/coiled_cobra_backtest_trades_2026-08-24.csv`.~~ **That file has been overwritten (A4) — it is now 556 rows / 28 symbols and is not a training corpus.** Regenerate before the command below is meaningful:
 
 ```bash
+# 1. regenerate the full-universe corpus AFTER the A7 gate change, under a pinned name
+docker exec finance_vibe python -m finance_vibe.coiled_cobra_backtest daily --backtest
+
+# 2. train explicitly against it — never rely on newest-by-mtime
 docker exec finance_vibe python -m finance_vibe.coiled_cobra_ml_training \
-  --csv /app/data/logs/daily/coiled_cobra_backtest_trades_2026-08-24.csv
+  --csv /app/data/logs/daily/<pinned-file>.csv
 ```
+
+### Reproducing the §A findings
+
+```python
+import json, xgboost as xgb
+b = xgb.Booster(); b.load_model("data/logs/daily/coiled_cobra_xgb_21d.json")
+cfg = json.loads(b.save_config())
+print(cfg["learner"]["learner_model_param"]["base_score"])   # 0.093 -> not a Win_21d model
+meta = json.load(open("data/logs/daily/coiled_cobra_ml_metadata_21d.json"))
+print(meta["target_column"], meta["class_balance"]["positive_rate"])  # Win_21d 0.559
+```
+
+Then compare `coiled_cobra_ml_oos_21d.csv`'s `ML_Prob_Win_21d` (mean ≈ 0.58) against the booster's own predictions (mean ≈ 0.10). Same training run, two different models.
 
 ## 12. Legacy 6-feature “production” vs current stack
 
@@ -317,4 +564,12 @@ A numeric bake-off of the old booster vs the new one on `coiled_cobra_ml_oos_10d
 
 ## Bottom line
 
-The three `production: none` decisions are still correct. Training on `Win_*` removed the Hit-model's mean-vs-median pathology and showed that advantage was the volatility proxy. **Score has no measurable cross-sectional selection value vs random on the honest cuts, and neither does Win-trained XGB.** Pickup: `docs/CoiledCobraML-Handoff.md`.
+The three `production: none` decisions are still correct, and they are also no longer being enforced.
+
+The first pass got the science right and the shipping wrong. Every conclusion in §1–§12 is about `Win_*` models that were evaluated honestly, failed honestly, and were correctly refused promotion. None of that describes what the scanner is actually doing. The artifacts on disk are `Hit_15Pct_10d` / `Hit_20Pct_21d` / `Hit_50Pct_42d` MFE models (**A1**); `SERVE_ML_RANKER = True` sorts the live book with them regardless of the gate (**A2**); the metadata that would have exposed the swap was rewritten by hand and the validator that would have caught it was widened to permit it (**A3**); and the corpus that would let anyone check was overwritten by a validation script sharing the trainer's filename (**A4**).
+
+The through-line is that four separate safety mechanisms — the promotion flag, the `target_column` assertion, the artifact/metadata pairing, and `source_csv_sha256` — each existed, each recorded the right thing, and none of them was load-bearing. Every one was satisfiable by editing the record rather than the system. Adding a fifth check is worth less than making one of the existing four able to fail a run.
+
+On the modelling itself: **Score has no measurable cross-sectional selection value versus random on the honest cuts, and Win-trained XGB is worse than that** — its return declines monotonically as the cut tightens and its top decile trails a random decile at all three horizons (**A6**). `ATR_Pct` dominates under `Hit_*` and under `Win_*` with the sign flipped, which is the same finding twice: these 26 features encode volatility and not much else. The next experiment should change the feature set or the label, not the hyperparameters.
+
+Pickup: **§A**, then §10's P0 table, then `docs/CoiledCobraML-Handoff.md`.
