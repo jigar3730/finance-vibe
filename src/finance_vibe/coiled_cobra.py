@@ -755,6 +755,9 @@ def evaluate_coiled_cobra(
         or struct < MIN_STRUCTURE
         or not healthy_structure_gate(df)
         or rs_pts < MIN_RS_POINTS
+        or volume_ratio is None
+        or volume_ratio > 0.82  # Enforces Volume Contraction Cutoff
+        or checks_passed < 5     # Enforces 5/6 Quality Standard
     ):
         return None
 
