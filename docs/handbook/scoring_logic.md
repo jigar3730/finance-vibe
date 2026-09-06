@@ -1,8 +1,8 @@
 # Macro Vibe Score — Scoring Logic
 
-This document describes the **implemented** scoring rules in [`analysis_engine.py`](analysis_engine.py). The score ranks macro tradability on a **−10 to +10** integer scale. It favors trend structure and pullback timing over raw momentum.
+This document describes the **implemented** scoring rules in [`analysis_engine.py`](../../src/finance_vibe/analysis_engine.py). The score ranks macro tradability on a **−10 to +10** integer scale. It favors trend structure and pullback timing over raw momentum.
 
-For tactical entry rules (EMA pullbacks), see [`swing_scanner.py`](swing_scanner.py) and [`swing_setup_readme.md`](../../swing_setup_readme.md).
+For tactical entry rules (EMA pullbacks), see [`swing_scanner.py`](../../src/finance_vibe/swing_scanner.py) and [`swing_setup.md`](swing_setup.md).
 
 ---
 
@@ -195,4 +195,7 @@ The live pipeline does **not** filter swing setups by Vibe Score. The offline ba
 
 Override via CLI: `--long-min-score`, `--short-max-score`.
 
-See [`config.py`](config.py) for `BACKTEST_*` constants.
+See [`config.py`](../../src/finance_vibe/config.py) for `BACKTEST_*` constants.
+
+Quant / ML mapping of this score vs the Coiled Cobra feature set:
+[`QUANT_ML_MANUAL.md`](QUANT_ML_MANUAL.md).

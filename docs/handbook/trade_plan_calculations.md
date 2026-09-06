@@ -1,5 +1,7 @@
 # 🧮 Trade Plan Architecture Documentation
 
+> **Code of record:** mode-aware geometry lives in `config.get_swing_params` / `trade_planner.calculate_stock_levels` (weekly / daily / high_beta / Coiled Cobra Fib path). The ATR multiples below are an early daily-swing illustration — they do **not** match current weekly 1.25/2.25 ATR or high_beta 1R/2R targets. See [`swing_setup.md`](swing_setup.md) and [`trade_planner_worklog.md`](../architecture/trade_planner_worklog.md).
+
 This document outlines the systematic, mathematical pipeline used by the `quant-platform-scanner` ecosystem to transform raw market indicators into actionable, volatility-adjusted trade execution architectures.
 
 ---

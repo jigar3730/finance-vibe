@@ -1,6 +1,6 @@
 # Technical Analysis & Trade Execution Guide (Finance Vibe Project)
 
-This guide outlines how to interpret macro Vibe Score output from `analysis_engine.py` and tactical setups from `swing_scanner.py`. The default weekly profile uses a **10-year weekly** lookback (`config.py` → `TIMEFRAME_PROFILES`). Full scoring rules: `src/finance_vibe/Scoring_Logic.md`.
+This guide outlines how to interpret macro Vibe Score output from `analysis_engine.py` and tactical setups from `swing_scanner.py`. The default weekly profile uses a **10-year weekly** lookback (`config.py` → `TIMEFRAME_PROFILES`). Full scoring rules: [`scoring_logic.md`](scoring_logic.md).
 
 ## 1. The Trend Pillars (Moving Averages)
 Moving averages establish the baseline structural bias of an asset.

@@ -123,6 +123,8 @@ Requires ≥ 60 bars in the input DataFrame (before indicators).
 
 ## Related files
 
-- `src/finance_vibe/trade_planner.py` — structural levels + options metadata
-- `src/finance_vibe/trade_plan_helper.py` — R:R cleanup
-- `src/finance_vibe/config.py` — `SWING_*` tunables
+- [`trade_planner.py`](../../src/finance_vibe/trade_planner.py) — structural levels + options metadata
+- [`trade_plan_helper.py`](../../src/finance_vibe/trade_plan_helper.py) — R:R cleanup
+- [`config.py`](../../src/finance_vibe/config.py) — `SWING_*` tunables
+- [`trade_plan_calculations.md`](trade_plan_calculations.md) — entry / stop / target math
+- [`backtest_and_backfill.md`](../architecture/backtest_and_backfill.md) — walk-forward validation

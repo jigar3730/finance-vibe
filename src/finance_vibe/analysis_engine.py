@@ -4,7 +4,7 @@ Scores each ticker in ``data/raw/{mode}/`` on a -10 to +10 scale using SMA trend
 MACD/RSI momentum, pullback timing, and RSI/CCI risk governors. Output is written
 to ``data/logs/{mode}/vibe_report_<date>.csv``.
 
-Full rubric: Scoring_Logic.md in this package.
+Full rubric: docs/handbook/scoring_logic.md.
 """
 from __future__ import annotations
 
@@ -320,7 +320,7 @@ def _compute_score(last: pd.Series) -> tuple[int, dict[str, int]]:
     """Apply the Vibe Score rubric to the latest indicator row.
 
     Returns the clipped integer score and a per-component point breakdown.
-    See Scoring_Logic.md for the full specification.
+    See docs/handbook/scoring_logic.md for the full specification.
     """
     score = 0
     components: dict[str, int] = {}

@@ -338,9 +338,9 @@ Outcomes: `no_fill`, `stopped`, `target1`, `target2`, `expired` with a single `R
 ### ML baseline (downstream of backtest)
 
 **Module:** `src/finance_vibe/coiled_cobra_ml_training.py`  
-**Doc:** **`CoiledCobraML.md`**
+**Doc:** **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)**
 
-Consumes `coiled_cobra_backtest_trades_*.csv` to train XGBoost + LightGBM regressors on **`Forward_Return_13w`** with:
+Consumes `coiled_cobra_backtest_trades_*.csv` to train XGBoost + LightGBM regressors on **`Forward_Return_2w`** (code of record in `coiled_cobra_ml_training.py`) with:
 
 - 6 pre-signal features (`Grade` excluded — collinear with `Score`)
 - Strict temporal split (train ≤2023 / val 2024 / test 2025–Jul 2026) — **no random K-fold**
@@ -435,7 +435,7 @@ python -m pytest tests/ -q   # full suite
 | Zero signals (high_beta) | Missing QQQ, regime/RS too strict, or risk band rejecting all | Check `QQQ_5y_1d.csv`; run filter ablation; inspect `max_risk_atr` |
 | Uses short history | Only `*_2y_1d.csv` present after period change | Re-ingest daily → `*_5y_1d.csv` |
 | Stale results in Docker | Host edits not in container | `docker cp` or rebuild |
-| ML `FileNotFoundError` for trades CSV | Backtest CSV missing on volume | Run cobra `--backtest`; see **`CoiledCobraML.md`** |
+| ML `FileNotFoundError` for trades CSV | Backtest CSV missing on volume | Run cobra `--backtest`; see **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)** |
 | Coiled Cobra empty backfill | Wrong mode / insufficient bars | Need weekly history; lookback ≈ 60+ bars |
 | `ImportError: finance_vibe` | `PYTHONPATH` unset | `export PYTHONPATH=src` (or `/app/src`) |
 | Unexpected short trades in high_beta | Old code without `long_only` | Sync latest `swing_scanner` / `pipeline_backtest` |
@@ -459,13 +459,14 @@ PY
 
 | Doc | Contents |
 | --- | -------- |
-| `README.md` | Project overview and quick commands |
-| `OperationManual.md` | Day-to-day pipeline ops |
-| `CoiledCobraML.md` | Coiled Cobra ML baseline (features, splits, metrics) |
-| `swing_setup_readme.md` | Quality-swing rules and geometry table |
-| `src/finance_vibe/Scoring_Logic.md` | Vibe Score rubric |
-| `Coiled Cobra Rubric .MD` | Coiled Cobra checklist / grades |
-| `Trade Plan Calculations.md` | Entry / stop / target math |
+| [`README.md`](../../README.md) | Project overview and quick commands |
+| [`operation_manual.md`](operation_manual.md) | Day-to-day pipeline ops |
+| [`coiled_cobra_ml.md`](coiled_cobra_ml.md) | Coiled Cobra ML baseline (features, splits, metrics) |
+| [`swing_setup.md`](../handbook/swing_setup.md) | Quality-swing rules and geometry table |
+| [`scoring_logic.md`](../handbook/scoring_logic.md) | Vibe Score rubric |
+| [`coiled_cobra_rubric.md`](../handbook/coiled_cobra_rubric.md) | Coiled Cobra checklist / grades |
+| [`trade_plan_calculations.md`](../handbook/trade_plan_calculations.md) | Entry / stop / target math |
+| [`QUANT_ML_MANUAL.md`](../handbook/QUANT_ML_MANUAL.md) | Quant / ML theory mapped to this repo |
 
 ---
 
@@ -480,6 +481,6 @@ PY
 | `trade_planner.py` | `calculate_stock_levels` (row Mode authoritative; cobra Fib path preserved) |
 | `pipeline_backtest.py` | Swing walk-forward + scaled simulator + reporting |
 | `coiled_cobra_backtest.py` | Cobra signal backfill + legacy trade simulation |
-| `coiled_cobra_ml_training.py` | XGBoost/LightGBM baseline on `Forward_Return_13w` |
+| `coiled_cobra_ml_training.py` | XGBoost/LightGBM baseline on `Forward_Return_2w` |
 | `tests/test_pipeline_backtest.py` | Scale-out, gap, slippage, long-only, cooldown contracts |
 | `tests/test_coiled_cobra_backtest.py` | Cobra planner + backtest smoke tests |

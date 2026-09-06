@@ -78,18 +78,18 @@ coiled_cobra_backtest_trades_*.csv
     • parse Signal Date → datetime
     • DROP leakage columns (execution / outcome)
     • KEEP no_fill rows
-    • DROP rows with NaN Forward_Return_13w
+    • DROP rows with NaN Forward_Return_2w
         │
         ▼
   _temporal_split() on Signal Date  (NO random K-fold)
-    Train  ≤ 2023-12-31
-    Val    2024-01-01 .. 2024-12-31
-    Test   2025-01-01 .. 2026-07-31
+    Train  < max_date − 52 weeks
+    Val    last-52w .. last-26w
+    Test   last-26w .. max_date
         │
         ▼
   _build_matrices()
     X = 6 pre-signal features
-    y = Forward_Return_13w
+    y = Forward_Return_2w
     sample_weight = ATR_Pct
         │
         ├── XGBRegressor(objective="reg:absoluteerror")
@@ -123,7 +123,7 @@ coiled_cobra_backtest_trades_*.csv
 | ------ | ---------- |
 | `Forward_Return_2w` | `(Close[t+2] − Close[t]) / Close[t]` on the weekly series |
 
-Also present in the CSV but **not** used as the baseline target: `Forward_Return_5w`, `Forward_Return_26w`.
+Also present in the CSV but **not** used as the baseline target: `Forward_Return_5w`, `Forward_Return_13w`, `Forward_Return_26w`. See [Lab 02](../labs/02_target_horizon_shift.md) to switch horizons.
 
 ### Leakage columns — strictly dropped before training
 
@@ -142,30 +142,28 @@ Other identity columns (`Symbol`, `Signal Date`, `Setup Type`) are used only for
 | Rule | Behavior |
 | ---- | -------- |
 | `Outcome == no_fill` | **Kept** — model still learns coil geometry vs continuous forward return |
-| `Forward_Return_13w` is NaN/None | **Dropped** — insufficient future bars near series end |
+| `Forward_Return_2w` is NaN/None | **Dropped** — insufficient future bars near series end |
 | Random shuffle / K-fold | **Forbidden** — would leak future structure across time |
 
 ---
 
-## Temporal split (rigid, date-based)
+## Temporal split (dynamic, date-based)
 
-Split on **`Signal Date`** only — never random folds.
+Split on **`Signal Date`** only — never random folds. `_temporal_split()` in `coiled_cobra_ml_training.py` rolls backward from the latest signal date:
 
 | Partition | Signal Date range | Role |
 | --------- | ----------------- | ---- |
-| Train | Inception → 2023-12-31 | Fit |
-| Validation | 2024-01-01 → 2024-12-31 | Tuning / comparison |
-| Test (OOS) | 2025-01-01 → 2026-07-31 | Final holdout |
+| Train | Inception → `max_date − 52 weeks` | Fit |
+| Validation | `max_date − 52w` → `max_date − 26w` | Tuning / comparison |
+| Test (OOS) | `max_date − 26w` → `max_date` | Final holdout |
 
-Example sizes from `coiled_cobra_backtest_trades_2026-07-17.csv` (after NaN-target drop):
+Example sizes from an older fixed-cut run on `coiled_cobra_backtest_trades_2026-07-17.csv` (after NaN-target drop). Counts will shift under the current rolling window:
 
 | Partition | Rows × features |
 | --------- | --------------- |
 | Train | 3398 × 6 |
 | Val | 764 × 6 |
 | Test | 1117 × 6 |
-
-Raw CSV was 5397 rows; 118 rows dropped for missing `Forward_Return_13w`.
 
 ---
 
@@ -309,7 +307,7 @@ A practical workflow is:
 ### Known limitations
 
 - Stock forward return only — no options / LEAPS P&L target
-- Single horizon (`13w`); 5w / 26w not trained in this baseline
+- Single horizon (`2w`); 5w / 13w / 26w are present in the CSV but not trained in this baseline
 - No hyperparameter search, early stopping, or calibration layer
 - No model serialization / inference API yet
 - Test RMSE remains sensitive to extreme movers (e.g. high-beta names)
@@ -334,7 +332,7 @@ A practical workflow is:
 | `pipeline_backtest.py` | Separate quality-swing / high_beta path — not an ML input |
 | `run_vibe.py` | Does **not** invoke ML training |
 
-Full backtest column definitions and CLI: **`BacktestAndBackfill.md`**.
+Full backtest column definitions and CLI: **[`backtest_and_backfill.md`](backtest_and_backfill.md)**. Theory mapped to this trainer: **[`QUANT_ML_MANUAL.md`](../handbook/QUANT_ML_MANUAL.md)**.
 
 ---
 

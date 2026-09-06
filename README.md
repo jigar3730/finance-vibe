@@ -15,19 +15,32 @@ The orchestrator is `src/finance_vibe/run_vibe.py`.
 | **Coiled Cobra (Macro Reversal)** | `coiled_cobra.py` / `coiled_cobra_backtest.py` | `data/logs/{mode}/coiled_cobra_setups_<date>.csv`, `coiled_cobra_backfill_<date>.csv`, `coiled_cobra_backtest_trades_<date>.csv` |
 | **Coiled Cobra ML (offline)** | `coiled_cobra_ml_training.py` | Trains XGBoost/LightGBM on backtest trades → MAE/RMSE + `coiled_cobra_ml_feature_importance.png` |
 
-Macro scoring rules: `src/finance_vibe/Scoring_Logic.md`.
+Macro scoring rules: [`docs/handbook/scoring_logic.md`](docs/handbook/scoring_logic.md).
+
+## Documentation
+
+This repo is both a production pipeline and a **quant / ML lab**. Start here:
+
+| Section | Path | Contents |
+| ------- | ---- | -------- |
+| **Catalog** | [`docs/README.md`](docs/README.md) | Full map of handbook, architecture, and labs |
+| **Handbook** | [`docs/handbook/`](docs/handbook/) | Theory, scoring rubrics, and [`QUANT_ML_MANUAL.md`](docs/handbook/QUANT_ML_MANUAL.md) |
+| **Architecture** | [`docs/architecture/`](docs/architecture/) | Pipeline ops, backtests, ML baseline |
+| **Labs** | [`docs/labs/`](docs/labs/) | Seven hands-on experiments (indicator ablation → SHAP) |
 
 ## Repository structure
 
 ```
 finance-vibe/
 ├── src/finance_vibe/          # Application code
+├── docs/
+│   ├── handbook/              # Conceptual guides + QUANT_ML_MANUAL.md
+│   ├── architecture/          # System design, ops, ML pipeline
+│   └── labs/                  # Hands-on ML / DS experiments
 ├── data/
 │   ├── active_tickers.csv     # Universe from ticker_provider
 │   ├── raw/{weekly|daily}/    # Ingested OHLCV CSVs
 │   └── logs/{weekly|daily|high_beta}/  # Reports, trade plans, backtests
-├── BacktestAndBackfill.md     # Offline validation guide
-├── CoiledCobraML.md           # ML baseline (XGBoost / LightGBM)
 └── tests/
 ```
 
@@ -99,11 +112,11 @@ All outputs live under `data/logs/{mode}/`.
 
 - Scale: **−10 to +10** on the latest bar
 - Uses SMA20/50 trend, MACD/RSI momentum, pullback distance from SMA20, CCI cyclical rules, RSI caps
-- Full rubric: `src/finance_vibe/Scoring_Logic.md`
+- Full rubric: [`docs/handbook/scoring_logic.md`](docs/handbook/scoring_logic.md)
 
 ## Tactical swing scanner (summary)
 
-Quality swing profile only (see `swing_setup_readme.md`):
+Quality swing profile only (see [`docs/handbook/swing_setup.md`](docs/handbook/swing_setup.md)):
 
 **Long (`SETUP_LONG`):**
 
@@ -159,7 +172,7 @@ python src/finance_vibe/coiled_cobra_ml_training.py \
 
 The training run writes model artifacts such as `coiled_cobra_xgb_model.json`, `coiled_cobra_lgb_model.txt`, and `coiled_cobra_ml_model_metadata.json` beside the feature-importance plot. Use them with `src/finance_vibe/ml_ranker.py` to attach `ML_Pred_Return` and `ML_Rank` to new Coiled Cobra setups. Treat those columns as a soft ranking/confirmation signal: combine them with the macro score, structure checks, risk rules, and options/liquidity constraints rather than using them as a standalone entry gate.
 
-Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI, execution model, data backfill steps, and promotion gates: **`BacktestAndBackfill.md`**. ML feature isolation, temporal split, and metrics: **`CoiledCobraML.md`**.
+Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI, execution model, data backfill steps, and promotion gates: **[`docs/architecture/backtest_and_backfill.md`](docs/architecture/backtest_and_backfill.md)**. ML feature isolation, temporal split, and metrics: **[`docs/architecture/coiled_cobra_ml.md`](docs/architecture/coiled_cobra_ml.md)**.
 
 **Limitations (summary):** stock-level only (no options P&L); not part of `run_vibe.py`. The scaled simulator includes gap/slippage and 50%-at-1R scale-out; Coiled Cobra still uses the legacy full-exit simulator.
 
@@ -173,9 +186,12 @@ Outputs land under `data/logs/{weekly|daily|high_beta}/`. Full CLI, execution mo
 
 ## Further reading
 
-- `BacktestAndBackfill.md` — **data backfill, signal backfill, and walk-forward backtests**
-- `CoiledCobraML.md` — **Coiled Cobra ML baseline (XGBoost / LightGBM)**
-- `OperationManual.md` — operations and troubleshooting
-- `src/finance_vibe/Scoring_Logic.md` — macro score specification
-- `swing_setup_readme.md` — tactical scanner reference
+- [`docs/README.md`](docs/README.md) — documentation catalog
+- [`docs/handbook/QUANT_ML_MANUAL.md`](docs/handbook/QUANT_ML_MANUAL.md) — feature / target / GBDT / validation / SHAP reference
+- [`docs/labs/README.md`](docs/labs/README.md) — hands-on experiment index
+- [`docs/architecture/backtest_and_backfill.md`](docs/architecture/backtest_and_backfill.md) — data backfill and walk-forward backtests
+- [`docs/architecture/coiled_cobra_ml.md`](docs/architecture/coiled_cobra_ml.md) — Coiled Cobra ML baseline (XGBoost / LightGBM)
+- [`docs/architecture/operation_manual.md`](docs/architecture/operation_manual.md) — operations and troubleshooting
+- [`docs/handbook/scoring_logic.md`](docs/handbook/scoring_logic.md) — macro score specification
+- [`docs/handbook/swing_setup.md`](docs/handbook/swing_setup.md) — tactical scanner reference
 - `src/finance_vibe/pipeline_backtest.py` — offline walk-forward validation

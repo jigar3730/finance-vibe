@@ -3,6 +3,8 @@
 
 Version: 2.0 (Coil → Expansion)
 
+Implementation: [`coiled_cobra.py`](../../src/finance_vibe/coiled_cobra.py). Theory and ML mapping: [`QUANT_ML_MANUAL.md`](QUANT_ML_MANUAL.md). Historical trade archive: [`backtest_and_backfill.md`](../architecture/backtest_and_backfill.md).
+
 ---
 
 # Overview
