@@ -1,8 +1,8 @@
 # Macro Vibe Score — Scoring Logic
 
-This document describes the **implemented** scoring rules in [`analysis_engine.py`](analysis_engine.py). The score ranks macro tradability on a **−10 to +10** integer scale. It favors trend structure and pullback timing over raw momentum.
+This document describes the **implemented** scoring rules in [`analysis_engine.py`](../../src/finance_vibe/analysis_engine.py). The score ranks macro tradability on a **−10 to +10** integer scale. It favors trend structure and pullback timing over raw momentum.
 
-For tactical entry rules (EMA pullbacks), see [`swing_scanner.py`](swing_scanner.py) and [`swing_setup_readme.md`](../../swing_setup_readme.md).
+For tactical entry rules (EMA pullbacks), see [`swing_scanner.py`](../../src/finance_vibe/swing_scanner.py) and [`swing_setup.md`](swing_setup.md).
 
 ---
 
@@ -46,7 +46,7 @@ Implementation note: CCI uses a vectorized MAD window (not pandas_ta), which avo
 
 ## Score components (additive, applied in order)
 
-Each rule reads the **latest bar** only. Logic lives in `_compute_score()`; keys below appear in `calculate_vibe_score(..., return_components=True)`.
+Each rule reads the **latest bar** only. Logic lives in `_compute_score()`; keys below are the per-component breakdown that function returns.
 
 ### 1. Trend — key `Trend` (±4)
 
@@ -165,11 +165,10 @@ Universe scan runs in parallel (`ProcessPoolExecutor`); tickers that fail to loa
 ## Programmatic API
 
 ```python
-from finance_vibe.analysis_engine import build_features, score_last_row, calculate_vibe_score
+from finance_vibe.analysis_engine import build_features, score_last_row
 
+feat = build_features(df)
 score = score_last_row(feat.iloc[-1])
-detail = calculate_vibe_score("SPY", df, return_components=True)
-# detail["Score"], detail["Components"]["Trend"], ...
 ```
 
 Used by `pipeline_backtest.py` for walk-forward macro gating.
@@ -196,4 +195,7 @@ The live pipeline does **not** filter swing setups by Vibe Score. The offline ba
 
 Override via CLI: `--long-min-score`, `--short-max-score`.
 
-See [`config.py`](config.py) for `BACKTEST_*` constants.
+See [`config.py`](../../src/finance_vibe/config.py) for `BACKTEST_*` constants.
+
+Quant / ML mapping of this score vs the Coiled Cobra feature set:
+[`QUANT_ML_MANUAL.md`](QUANT_ML_MANUAL.md).

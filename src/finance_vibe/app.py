@@ -1,15 +1,30 @@
-import os
-import glob
-from datetime import datetime
-import pandas as pd
-import yfinance as yf  # Added for live price fetching
-from flask import Flask, render_template_string, request, abort
+"""Flask dashboard for browsing weekly/daily trade-plan CSVs with live quotes."""
+from __future__ import annotations
 
-app = Flask(__name__)
+import glob
+import os
+from datetime import datetime
+
+import pandas as pd
+import yfinance as yf
+from flask import Flask, abort, render_template, request
 
 # Ensure absolute paths resolve relative to the project root
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 LOGS_BASE_DIR = os.path.join(BASE_DIR, "data", "logs")
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, "templates"),
+    static_folder=os.path.join(os.path.dirname(__file__), "static"),
+)
+
+try:
+    from finance_vibe.docs_routes import docs_bp
+except ImportError:
+    from docs_routes import docs_bp
+
+app.register_blueprint(docs_bp)
 
 # The dual-timeframe folder structure paths
 MODES = {
@@ -17,8 +32,8 @@ MODES = {
     "daily": os.path.join(LOGS_BASE_DIR, "daily")
 }
 
-def get_available_runs():
-    """Scans both weekly and daily logs folders to find all execution dates and files."""
+def _get_available_runs() -> dict[str, list[dict]]:
+    """Scan weekly/daily log folders and return dated trade-plan files."""
     runs = {"weekly": [], "daily": []}
     
     for mode, folder_path in MODES.items():
@@ -49,8 +64,8 @@ def get_available_runs():
                 
     return runs
 
-def fetch_live_prices(symbols):
-    """Fetches real-time prices efficiently using yfinance fast_info."""
+def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
+    """Fetch last prices via yfinance ``fast_info``; missing symbols map to ``N/A``."""
     if not symbols:
         return {}
     try:
@@ -70,124 +85,15 @@ def fetch_live_prices(symbols):
         print(f"Error fetching live prices: {e}")
         return {sym: "N/A" for sym in symbols}
 
-# Embedded lightweight HTML templates for simple maintenance
-INDEX_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Finance Vibe Dashboard</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 40px; background: #fdfdfd; color: #333; }
-        h1 { color: #111; border-bottom: 2px solid #eaeaea; padding-bottom: 10px; }
-        h2 { color: #444; margin-top: 30px; text-transform: uppercase; font-size: 1.1em; letter-spacing: 0.5px;}
-        .container { display: flex; gap: 40px; }
-        .column { flex: 1; background: #fff; padding: 20px; border-radius: 6px; border: 1px solid #e1e4e8; }
-        ul { list-style: none; padding: 0; }
-        li { padding: 10px; border-bottom: 1px solid #f1f1f1; display: flex; justify-content: space-between; align-items: center; }
-        li:last-child { border: none; }
-        a { color: #0366d6; text-decoration: none; font-weight: 500; }
-        a:hover { text-decoration: underline; }
-        .badge { font-size: 0.8em; padding: 3px 8px; border-radius: 12px; background: #e1f5fe; color: #0288d1; font-weight: bold; }
-        .badge.clean { background: #e8f5e9; color: #2e7d32; }
-    </style>
-</head>
-<body>
-    <h1>🚀 Finance Vibe Execution Hub</h1>
-    <p>Select an isolated timeframe run to inspect detected trade plans and scanning outputs.</p>
-    
-    <div class="container">
-        <div class="column">
-            <h2>📅 Weekly Framework (10Y Lookback)</h2>
-            {% if runs['weekly'] %}
-                <ul>
-                {% for run in runs['weekly'] %}
-                    <li>
-                        <a href="/view/weekly/{{ run['date'] }}?file={{ run['file_name'] }}">Trade Plan ({{ run['date'] }})</a>
-                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
-                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
-                        </span>
-                    </li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p style="color:#777;">No weekly log files discovered yet.</p>
-            {% endif %}
-        </div>
-        
-        <div class="column">
-            <h2>⚡ Daily Framework (2Y Lookback)</h2>
-            {% if runs['daily'] %}
-                <ul>
-                {% for run in runs['daily'] %}
-                    <li>
-                        <a href="/view/daily/{{ run['date'] }}?file={{ run['file_name'] }}">Trade Plan ({{ run['date'] }})</a>
-                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
-                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
-                        </span>
-                    </li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p style="color:#777;">No daily log files discovered yet.</p>
-            {% endif %}
-        </div>
-    </div>
-</body>
-</html>
-"""
-
-VIEW_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>View Plan - {{ date }} ({{ mode }})</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 30px; background: #fdfdfd; }
-        h1 { color: #111; margin-bottom: 5px; }
-        .meta { color: #666; margin-bottom: 20px; font-size: 0.95em; }
-        .back { display: inline-block; margin-bottom: 20px; color: #0366d6; text-decoration: none; font-weight: 500; }
-        .table-container { width: 100%; overflow-x: auto; background: #fff; border: 1px solid #e1e4e8; border-radius: 6px; }
-        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9em; }
-        th { background: #f6f8fa; padding: 12px; border-bottom: 2px solid #e1e4e8; font-weight: 600; text-transform: capitalize; }
-        td { padding: 10px 12px; border-bottom: 1px solid #eaecef; }
-        tr:hover { background: #f8f9fa; }
-        
-        /* Interactive ticker links layout modifications */
-        .ticker-link {
-            color: #0056b3; 
-            text-decoration: none;
-            font-weight: bold;
-        }
-        .ticker-link:hover {
-            text-decoration: underline;
-        }
-        /* Highlight styling for the new Live Price field */
-        .live-price-cell {
-            font-weight: 600;
-            color: #2e7d32;
-            background-color: #f4faf4;
-        }
-    </style>
-</head>
-<body>
-    <a class="back" href="/">← Back to Dashboard</a>
-    <h1>📋 Trade Plan Preview</h1>
-    <div class="meta">Execution Cadence: <strong>{{ mode|upper }}</strong> | Log Date: <strong>{{ date }}</strong> | Source File: <code>{{ file_name }}</code></div>
-    
-    <div class="table-container">
-        {{ table_html|safe }}
-    </div>
-</body>
-</html>
-"""
-
 @app.route("/")
-def index():
-    runs = get_available_runs()
-    return render_template_string(INDEX_TEMPLATE, runs=runs)
+def index() -> str:
+    """Render the dashboard index of available weekly and daily runs."""
+    runs = _get_available_runs()
+    return render_template("index.html", runs=runs)
 
 @app.route("/view/<mode>/<date>")
-def view_run(mode, date):
+def view_run(mode: str, date: str) -> str | tuple[str, int]:
+    """Render one trade-plan CSV with live Yahoo quotes injected as HTML."""
     if mode not in MODES:
         abort(404, "Invalid historical directory mode context.")
         
@@ -219,7 +125,7 @@ def view_run(mode, date):
         if symbol_col is not None:
             # 1. Gather clean, raw symbol strings to request live quotes
             raw_symbols = [str(x).strip().upper() for x in df[symbol_col].dropna().unique()]
-            live_price_map = fetch_live_prices(raw_symbols)
+            live_price_map = _fetch_live_prices(raw_symbols)
             
             # 2. Add 'Live Price' values aligned with symbols
             df['Live Price'] = df[symbol_col].apply(
@@ -233,15 +139,15 @@ def view_run(mode, date):
             cols.insert(symbol_idx + 1, cols.pop(cols.index('Live Price')))
             df = df[cols]
             
-            # 4. Convert plain strings into operational Yahoo Finance anchor links
+            # 4. Convert plain strings into operational Finviz anchor links
             df[symbol_col] = df[symbol_col].apply(
-                lambda x: f'<a href="https://finance.yahoo.com/quote/{str(x).strip().upper()}" target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
+                lambda x: f'<a href="https://finviz.com/quote.ashx?t={str(x).strip().upper()}" target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
                 if pd.notna(x) else ""
             )
             
         # escape=False ensures Pandas treats custom injected HTML elements cleanly
         table_html = df.to_html(classes="table", index=False, border=0, escape=False)
-        return render_template_string(VIEW_TEMPLATE, mode=mode, date=date, file_name=requested_file, table_html=table_html)
+        return render_template("view.html", mode=mode, date=date, file_name=requested_file, table_html=table_html)
     except Exception as e:
         return f"<h3>❌ Failed to parse data contents:</h3><pre>{str(e)}</pre>", 500
 

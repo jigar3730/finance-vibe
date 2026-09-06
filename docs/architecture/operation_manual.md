@@ -28,6 +28,7 @@ Compatible with the dev container or any standard Python environment with `PYTHO
 | Path | Contents |
 | ---- | -------- |
 | `src/finance_vibe/` | Pipeline source |
+| `docs/` | Handbook, architecture, and labs ([catalog](../README.md)) |
 | `data/active_tickers.csv` | Ticker universe |
 | `data/raw/weekly/` | Weekly OHLCV CSVs (`*_10y_1wk.csv`) |
 | `data/raw/daily/` | Daily OHLCV CSVs (`*_5y_1d.csv`) |
@@ -86,7 +87,7 @@ Replace `weekly` with `daily` for the daily profile.
 - Scores every raw CSV in `data/raw/{mode}/` on a **−10 to +10** Vibe Score
 - Requires ≥ 60 bars per file
 - Parallel scan via `ProcessPoolExecutor`
-- **Specification:** `src/finance_vibe/Scoring_Logic.md`
+- **Specification:** [`scoring_logic.md`](../handbook/scoring_logic.md)
 
 ### `swing_scanner.py` (tactical layer)
 
@@ -119,7 +120,7 @@ python src/finance_vibe/pipeline_backtest.py daily --tickers QQQ,SPY
 python src/finance_vibe/pipeline_backtest.py high_beta --tickers PLTR,TSLA,HOOD
 ```
 
-Not part of the default pipeline. Stock simulation only. Full guide (data backfill, CLI, scale-out execution, promotion gates): **`BacktestAndBackfill.md`**.
+Not part of the default pipeline. Stock simulation only. Full guide (data backfill, CLI, scale-out execution, promotion gates): **[`backtest_and_backfill.md`](backtest_and_backfill.md)**.
 
 ### `src/finance_vibe/coiled_cobra_backtest.py` (Coiled Cobra historical)
 
@@ -138,11 +139,11 @@ python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
 Notes:
 - Uses the same `evaluate_coiled_cobra()` engine as the live scanner but evaluates every eligible historical bar.
 - `trade_planner.py` recognizes `Source` == `coiled_cobra` so Coiled Cobra setups use Fib 78.6% entry logic.
-- Details and recipes: **`BacktestAndBackfill.md`**.
+- Details and recipes: **[`backtest_and_backfill.md`](backtest_and_backfill.md)**.
 
 ### `src/finance_vibe/coiled_cobra_ml_training.py` (offline ML)
 
-Trains XGBoost + LightGBM regressors to predict `Forward_Return_13w` from Coiled Cobra backtest exports.
+Trains XGBoost + LightGBM regressors to predict `Forward_Return_2w` from Coiled Cobra backtest exports.
 
 - Input: `data/logs/weekly/coiled_cobra_backtest_trades_<date>.csv` (from `--backtest`)
 - Features: 6 pre-signal columns (`Score`, EMA/Fib distances, `ATR_Pct`); `Grade` excluded
@@ -155,7 +156,7 @@ python src/finance_vibe/coiled_cobra_ml_training.py \
   --csv data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv
 ```
 
-Not part of the default pipeline. Full specification: **`CoiledCobraML.md`**.
+Not part of the default pipeline. Full specification: **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)**.
 
 ## UI dashboard
 
@@ -183,7 +184,7 @@ python src/finance_vibe/run_vibe.py
 | Empty `swing_setups_*.csv` | No tickers matched tactical filters (expected in quiet markets) |
 | `trade_plan_helper` file not found | Run full pipeline first; helper expects today’s dated file |
 | Macro report missing tickers | Check ingest logs; file needs ≥ 60 rows |
-| ML script cannot find trades CSV | Run `coiled_cobra_backtest.py weekly --backtest`; pass `--csv`; see **`CoiledCobraML.md`** |
+| ML script cannot find trades CSV | Run `coiled_cobra_backtest.py weekly --backtest`; pass `--csv`; see **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)** |
 
 ## Extending the project
 
@@ -203,8 +204,8 @@ Edit `TIMEFRAME_PROFILES` in `config.py`:
 
 ### Change scoring or setup rules
 
-1. Macro: edit `score_last_row()` in `analysis_engine.py`; update `Scoring_Logic.md`
-2. Tactical: edit `evaluate_setup()` in `swing_scanner.py`; update `swing_setup_readme.md`
+1. Macro: edit `score_last_row()` in `analysis_engine.py`; update [`scoring_logic.md`](../handbook/scoring_logic.md)
+2. Tactical: edit `evaluate_setup()` in `swing_scanner.py`; update [`swing_setup.md`](../handbook/swing_setup.md)
 3. Execution: edit `trade_planner.py` for level/options logic
 
 ## Output files

@@ -10,7 +10,9 @@ pipeline keeps running on the rubric ``Score`` sort.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -19,7 +21,6 @@ try:
     from finance_vibe import config
     from finance_vibe.coiled_cobra_ml_training import FEATURE_COLS
 except ImportError:  # pragma: no cover - local direct execution
-    import sys
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from finance_vibe import config
     from finance_vibe.coiled_cobra_ml_training import FEATURE_COLS
@@ -27,11 +28,11 @@ except ImportError:  # pragma: no cover - local direct execution
 XGB_MODEL_FILENAME = "coiled_cobra_xgb_model.json"
 LGB_MODEL_FILENAME = "coiled_cobra_lgb_model.txt"
 
-ML_PRED_COL = "ML_Pred_Return"
-ML_RANK_COL = "ML_Rank"
+ML_PRED_COL: str = "ML_Pred_Return"
+ML_RANK_COL: str = "ML_Rank"
 
 
-def resolve_model_paths(mode: str = "weekly") -> dict[str, Path | None]:
+def _resolve_model_paths(mode: str = "weekly") -> dict[str, Path | None]:
     """Locate saved XGB/LGB artifacts for ``mode``.
 
     Searches the mode log silo first, then common container/data roots. Returns
@@ -107,7 +108,7 @@ def build_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     return out[FEATURE_COLS]
 
 
-def _load_xgb(path: Path):
+def _load_xgb(path: Path) -> Any | None:
     try:
         import xgboost as xgb
     except ImportError:  # pragma: no cover
@@ -120,7 +121,7 @@ def _load_xgb(path: Path):
         return None
 
 
-def _load_lgb(path: Path):
+def _load_lgb(path: Path) -> Any | None:
     try:
         import lightgbm as lgb
     except ImportError:  # pragma: no cover
@@ -141,7 +142,7 @@ def predict_returns(df: pd.DataFrame, mode: str = "weekly") -> pd.Series:
     if df.empty:
         return result
 
-    paths = resolve_model_paths(mode)
+    paths = _resolve_model_paths(mode)
     feats = build_feature_frame(df)
     valid = feats.notna().all(axis=1)
     if not valid.any():

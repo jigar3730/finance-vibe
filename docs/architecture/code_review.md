@@ -166,7 +166,7 @@ In `run_vibe.py` line 57:
 #{"path": "src/finance_vibe/analysis_engine.py", "pass_mode": True},
 ```
 
-Macro scoring runs only manually or via backtest. Docs (`README.md`, `Scoring_Logic.md`, `OperationManual.md`) still describe it as step 3/4.
+Macro scoring runs only manually or via backtest. Docs ([`README.md`](../../README.md), [`scoring_logic.md`](../handbook/scoring_logic.md), [`operation_manual.md`](operation_manual.md)) still describe it as step 3/4.
 
 ### Unused config helpers
 
@@ -376,7 +376,7 @@ At current universe size (~250 tickers), production pipeline runtime is dominate
 
 ## Summary Assessment
 
-Finance Vibe has a **clear layered design** (universe → ingest → macro/tactical → execution → clean export) and several strong choices: vectorized MAD CCI, explicit scoring documentation (`Scoring_Logic.md`), mode-isolated data silos, and an offline backtest path.
+Finance Vibe has a **clear layered design** (universe → ingest → macro/tactical → execution → clean export) and several strong choices: vectorized MAD CCI, explicit scoring documentation ([`scoring_logic.md`](../handbook/scoring_logic.md)), mode-isolated data silos, and an offline backtest path.
 
 The biggest risks today are **integration gaps**, not math complexity:
 
@@ -389,10 +389,13 @@ Fixing P0 items and re-enabling (or explicitly retiring) the macro layer would g
 
 ---
 
+> **Snapshot note (2026-07-12):** this review predates later Cobra v2 coil scoring and the ML trainer’s `Forward_Return_2w` contract. Treat findings as historical debt, not a live inventory. `coiled_cobra_v2.py` is no longer in the workspace.
+
 ## Related documentation
 
-- `README.md` — project overview and pipeline flow
-- `OperationManual.md` — operations and troubleshooting
-- `src/finance_vibe/Scoring_Logic.md` — macro Vibe Score specification
-- `swing_setup_readme.md` — tactical scanner reference
-- `Planned future enhancements.md` — roadmap items
+- [`README.md`](../../README.md) — project overview and pipeline flow
+- [`operation_manual.md`](operation_manual.md) — operations and troubleshooting
+- [`scoring_logic.md`](../handbook/scoring_logic.md) — macro Vibe Score specification
+- [`swing_setup.md`](../handbook/swing_setup.md) — tactical scanner reference
+- [`planned_enhancements.md`](planned_enhancements.md) — roadmap items
+- [`QUANT_ML_MANUAL.md`](../handbook/QUANT_ML_MANUAL.md) — current quant / ML reference

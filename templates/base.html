@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Finance Vibe{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/finviz-theme.css') }}">
+    {% block extra_head %}{% endblock %}
+    <style>
+        {% block extra_css %}{% endblock %}
+    </style>
+</head>
+<body>
+    <nav class="top-nav" aria-label="Primary">
+        <a class="brand" href="{{ url_for('index') }}">🚀 Finance Vibe</a>
+        <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">Dashboard</a>
+        <a class="nav-link {% if request.blueprint == 'docs' %}active{% endif %}" href="{{ url_for('docs.index') }}">Docs &amp; Labs</a>
+    </nav>
+    <div class="page-body">
+        {% block content %}{% endblock %}
+    </div>
+</body>
+</html>

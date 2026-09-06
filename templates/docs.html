@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} — Docs{% endblock %}
+{% block extra_head %}
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/finviz-theme.css') }}">
+{% endblock %}
+{% block extra_css %}
+        {{ pygments_css|safe }}
+{% endblock %}
+{% block content %}
+    <div class="docs-shell">
+        <aside class="docs-sidebar" aria-label="Documentation sections">
+            {% for section in nav_sections %}
+                <h2>{{ section.title }}</h2>
+                <ul>
+                    {% for item in section.links %}
+                        <li>
+                            <a href="{{ item.href }}" class="{% if item.active %}active{% endif %}">{{ item.title }}</a>
+                        </li>
+                    {% endfor %}
+                </ul>
+            {% endfor %}
+        </aside>
+        <article class="docs-main">
+            <p class="docs-crumb">{{ doc_rel }}</p>
+            {% if toc_html and toc_html|striptags|trim %}
+                <nav class="docs-toc" aria-label="On this page">
+                    <div class="docs-toc-label">On this page</div>
+                    {{ toc_html|safe }}
+                </nav>
+            {% endif %}
+            <div class="docs-content">
+                {{ content_html|safe }}
+            </div>
+        </article>
+    </div>
+{% endblock %}

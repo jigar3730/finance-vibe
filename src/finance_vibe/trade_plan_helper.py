@@ -1,9 +1,12 @@
-# src/finance_vibe/trade_plan_helper.py
+"""Ingest a trade plan CSV, apply guardrails, and rank survivors by expected value."""
+from __future__ import annotations
+
 import re
 import sys
 import traceback
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -11,8 +14,6 @@ import pandas as pd
 try:
     from finance_vibe import config
 except ImportError:
-    import sys
-    from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from finance_vibe import config
 
@@ -70,7 +71,7 @@ def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -
     )
 
 
-def _checklist_fully_passed(value) -> bool:
+def _checklist_fully_passed(value: Any) -> bool:
     """True when Checks Met is missing (swing) or meets the soft baseline (≥5/6)."""
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return True
@@ -93,7 +94,7 @@ def _count_true(mask: pd.Series) -> int:
     return int(np.asarray(mask.fillna(False), dtype=bool).sum())
 
 
-def apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+def _apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     """Drop rows that fail risk, checklist, or T1 R:R guardrails.
 
     Returns the filtered frame and a small rejection summary.
@@ -232,7 +233,7 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         raise SystemExit(1) from None
 
     print("🛡️ Applying ingestion guardrails (risk ≤5%, checklist ≥5/6, R:R T1 ≥ 2)...")
-    df, filter_stats = apply_ingestion_filters(df)
+    df, filter_stats = _apply_ingestion_filters(df)
     print(
         f"   kept {filter_stats['kept']}/{filter_stats['input']} "
         f"(dropped risk={filter_stats['risk_pct']}, "
@@ -276,14 +277,7 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         "ATR",
         "RSI",
         "Fib 78.6%",
-        "LEAPS Type",
-        "Options Type",
-        "Delta Min",
-        "Delta Max",
-        "LEAPS Expiry Min",
-        "LEAPS Expiry Max",
-        "Options Expiry Min",
-        "Options Expiry Max",
+   
     ]
 
     # Keep only columns that exist

@@ -1,0 +1,18 @@
+# Role & Rules for Refactoring & Code Cleanup
+
+## Core Principles
+1. Do NOT delete anything without performing a full usage search across the codebase.
+2. Check for dynamic imports, reflection, API routes, database schemas/migrations, environment variables, and Docker dependencies before marking code as "dead".
+3. Always verify tests, build scripts, and entry points before removing exports or functions.
+4. Work incrementally: audit first, request confirmation, then execute changes step-by-step.
+
+## Dead Code Criteria
+Mark code as dead only if:
+- Unused functions, classes, interfaces, or variables have zero references across src, tests, scripts, and configs.
+- Unused dependencies or devDependencies exist in package.json / requirements.txt.
+- Unused export statements exist where the exported symbol is never imported outside its file.
+- Dead branches or unreachable logical paths exist (e.g., condition evaluates to false perpetually).
+
+## Execution Strategy
+- Present audit findings in structured tables with filename, line numbers, reason, and safety confidence score (High/Medium/Low).
+- Wait for user confirmation before executing file deletions or major refactors.

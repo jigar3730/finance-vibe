@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Finance Vibe Dashboard{% endblock %}
+{% block content %}
+    <h1>🚀 Finance Vibe Execution Hub</h1>
+    <p>Select an isolated timeframe run to inspect detected trade plans and scanning outputs.</p>
+
+    <div class="container">
+        <div class="column">
+            <h2>📅 Weekly Framework (10Y Lookback)</h2>
+            {% if runs['weekly'] %}
+                <ul>
+                {% for run in runs['weekly'] %}
+                    <li>
+                        <a href="/view/weekly/{{ run['date'] }}?file={{ run['file_name'] }}">Trade Plan ({{ run['date'] }})</a>
+                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
+                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
+                        </span>
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p style="color: var(--finviz-text-muted);">No weekly log files discovered yet.</p>
+            {% endif %}
+        </div>
+
+        <div class="column">
+            <h2>⚡ Daily Framework (2Y Lookback)</h2>
+            {% if runs['daily'] %}
+                <ul>
+                {% for run in runs['daily'] %}
+                    <li>
+                        <a href="/view/daily/{{ run['date'] }}?file={{ run['file_name'] }}">Trade Plan ({{ run['date'] }})</a>
+                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
+                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
+                        </span>
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p style="color: var(--finviz-text-muted);">No daily log files discovered yet.</p>
+            {% endif %}
+        </div>
+    </div>
+{% endblock %}

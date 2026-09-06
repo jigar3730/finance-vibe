@@ -40,7 +40,7 @@ Output columns follow the shared setup schema (`config.SETUP_ROW_COLUMNS`), incl
 | MACD histogram | pandas_ta default 12 / 26 / 9 |
 | RSI | Length 14 |
 | ATR | Length 14 on High / Low / Close |
-| Swing Low / High | Rolling min/max of Low/High over `SWING_STRUCTURE_BARS` (5) |
+| Swing Low / High | Rolling min/max of Low/High over `structure_bars` from `get_swing_params()` (weekly default: 10) |
 
 ## Quality long (`SETUP_LONG`)
 
@@ -123,6 +123,8 @@ Requires ≥ 60 bars in the input DataFrame (before indicators).
 
 ## Related files
 
-- `src/finance_vibe/trade_planner.py` — structural levels + options metadata
-- `src/finance_vibe/trade_plan_helper.py` — R:R cleanup
-- `src/finance_vibe/config.py` — `SWING_*` tunables
+- [`trade_planner.py`](../../src/finance_vibe/trade_planner.py) — structural levels + options metadata
+- [`trade_plan_helper.py`](../../src/finance_vibe/trade_plan_helper.py) — R:R cleanup
+- [`config.py`](../../src/finance_vibe/config.py) — `SWING_*` tunables
+- [`trade_plan_calculations.md`](trade_plan_calculations.md) — entry / stop / target math
+- [`backtest_and_backfill.md`](../architecture/backtest_and_backfill.md) — walk-forward validation
