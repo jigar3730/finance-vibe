@@ -277,14 +277,7 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         "ATR",
         "RSI",
         "Fib 78.6%",
-        "LEAPS Type",
-        "Options Type",
-        "Delta Min",
-        "Delta Max",
-        "LEAPS Expiry Min",
-        "LEAPS Expiry Max",
-        "Options Expiry Min",
-        "Options Expiry Max",
+   
     ]
 
     # Keep only columns that exist
