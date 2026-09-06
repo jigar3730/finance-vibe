@@ -12,6 +12,8 @@ services:
 
     volumes:
       - /mnt/fast/finance-vibe-data:/app/data
+      # Live docs tree for the in-UI handbook (image also copies docs/ at build)
+      - ./docs:/app/docs:ro
 
     restart: unless-stopped
     

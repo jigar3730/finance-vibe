@@ -7,13 +7,24 @@ from datetime import datetime
 
 import pandas as pd
 import yfinance as yf
-from flask import Flask, abort, render_template_string, request
-
-app = Flask(__name__)
+from flask import Flask, abort, render_template, request
 
 # Ensure absolute paths resolve relative to the project root
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 LOGS_BASE_DIR = os.path.join(BASE_DIR, "data", "logs")
+
+app = Flask(
+    __name__,
+    template_folder=os.path.join(BASE_DIR, "templates"),
+    static_folder=os.path.join(os.path.dirname(__file__), "static"),
+)
+
+try:
+    from finance_vibe.docs_routes import docs_bp
+except ImportError:
+    from docs_routes import docs_bp
+
+app.register_blueprint(docs_bp)
 
 # The dual-timeframe folder structure paths
 MODES = {
@@ -74,122 +85,11 @@ def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
         print(f"Error fetching live prices: {e}")
         return {sym: "N/A" for sym in symbols}
 
-# Embedded lightweight HTML templates for simple maintenance
-INDEX_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Finance Vibe Dashboard</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 40px; background: #fdfdfd; color: #333; }
-        h1 { color: #111; border-bottom: 2px solid #eaeaea; padding-bottom: 10px; }
-        h2 { color: #444; margin-top: 30px; text-transform: uppercase; font-size: 1.1em; letter-spacing: 0.5px;}
-        .container { display: flex; gap: 40px; }
-        .column { flex: 1; background: #fff; padding: 20px; border-radius: 6px; border: 1px solid #e1e4e8; }
-        ul { list-style: none; padding: 0; }
-        li { padding: 10px; border-bottom: 1px solid #f1f1f1; display: flex; justify-content: space-between; align-items: center; }
-        li:last-child { border: none; }
-        a { color: #0366d6; text-decoration: none; font-weight: 500; }
-        a:hover { text-decoration: underline; }
-        .badge { font-size: 0.8em; padding: 3px 8px; border-radius: 12px; background: #e1f5fe; color: #0288d1; font-weight: bold; }
-        .badge.clean { background: #e8f5e9; color: #2e7d32; }
-    </style>
-</head>
-<body>
-    <h1>🚀 Finance Vibe Execution Hub</h1>
-    <p>Select an isolated timeframe run to inspect detected trade plans and scanning outputs.</p>
-    
-    <div class="container">
-        <div class="column">
-            <h2>📅 Weekly Framework (10Y Lookback)</h2>
-            {% if runs['weekly'] %}
-                <ul>
-                {% for run in runs['weekly'] %}
-                    <li>
-                        <a href="/view/weekly/{{ run['date'] }}?file={{ run['file_name'] }}">Trade Plan ({{ run['date'] }})</a>
-                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
-                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
-                        </span>
-                    </li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p style="color:#777;">No weekly log files discovered yet.</p>
-            {% endif %}
-        </div>
-        
-        <div class="column">
-            <h2>⚡ Daily Framework (2Y Lookback)</h2>
-            {% if runs['daily'] %}
-                <ul>
-                {% for run in runs['daily'] %}
-                    <li>
-                        <a href="/view/daily/{{ run['date'] }}?file={{ run['file_name'] }}">Trade Plan ({{ run['date'] }})</a>
-                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
-                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
-                        </span>
-                    </li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p style="color:#777;">No daily log files discovered yet.</p>
-            {% endif %}
-        </div>
-    </div>
-</body>
-</html>
-"""
-
-VIEW_TEMPLATE = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>View Plan - {{ date }} ({{ mode }})</title>
-    <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 30px; background: #fdfdfd; }
-        h1 { color: #111; margin-bottom: 5px; }
-        .meta { color: #666; margin-bottom: 20px; font-size: 0.95em; }
-        .back { display: inline-block; margin-bottom: 20px; color: #0366d6; text-decoration: none; font-weight: 500; }
-        .table-container { width: 100%; overflow-x: auto; background: #fff; border: 1px solid #e1e4e8; border-radius: 6px; }
-        table { width: 100%; border-collapse: collapse; text-align: left; font-size: 0.9em; }
-        th { background: #f6f8fa; padding: 12px; border-bottom: 2px solid #e1e4e8; font-weight: 600; text-transform: capitalize; }
-        td { padding: 10px 12px; border-bottom: 1px solid #eaecef; }
-        tr:hover { background: #f8f9fa; }
-        
-        /* Interactive ticker links layout modifications */
-        .ticker-link {
-            color: #0056b3; 
-            text-decoration: none;
-            font-weight: bold;
-        }
-        .ticker-link:hover {
-            text-decoration: underline;
-        }
-        /* Highlight styling for the new Live Price field */
-        .live-price-cell {
-            font-weight: 600;
-            color: #2e7d32;
-            background-color: #f4faf4;
-        }
-    </style>
-</head>
-<body>
-    <a class="back" href="/">← Back to Dashboard</a>
-    <h1>📋 Trade Plan Preview</h1>
-    <div class="meta">Execution Cadence: <strong>{{ mode|upper }}</strong> | Log Date: <strong>{{ date }}</strong> | Source File: <code>{{ file_name }}</code></div>
-    
-    <div class="table-container">
-        {{ table_html|safe }}
-    </div>
-</body>
-</html>
-"""
-
 @app.route("/")
 def index() -> str:
     """Render the dashboard index of available weekly and daily runs."""
     runs = _get_available_runs()
-    return render_template_string(INDEX_TEMPLATE, runs=runs)
+    return render_template("index.html", runs=runs)
 
 @app.route("/view/<mode>/<date>")
 def view_run(mode: str, date: str) -> str | tuple[str, int]:
@@ -247,7 +147,7 @@ def view_run(mode: str, date: str) -> str | tuple[str, int]:
             
         # escape=False ensures Pandas treats custom injected HTML elements cleanly
         table_html = df.to_html(classes="table", index=False, border=0, escape=False)
-        return render_template_string(VIEW_TEMPLATE, mode=mode, date=date, file_name=requested_file, table_html=table_html)
+        return render_template("view.html", mode=mode, date=date, file_name=requested_file, table_html=table_html)
     except Exception as e:
         return f"<h3>❌ Failed to parse data contents:</h3><pre>{str(e)}</pre>", 500
 

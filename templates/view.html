@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}View Plan - {{ date }} ({{ mode }}){% endblock %}
+{% block content %}
+    <a class="back" href="{{ url_for('index') }}">← Back to Dashboard</a>
+    <h1>📋 Trade Plan Preview</h1>
+    <div class="meta">Execution Cadence: <strong>{{ mode|upper }}</strong> | Log Date: <strong>{{ date }}</strong> | Source File: <code>{{ file_name }}</code></div>
+
+    <div class="table-container">
+        {{ table_html|safe }}
+    </div>
+{% endblock %}
