@@ -23,7 +23,9 @@ from xgboost import XGBRegressor
 # ---------------------------------------------------------------------------
 # Column zones (strict isolation — no leakage from post-trade metrics)
 # ---------------------------------------------------------------------------
-FEATURE_COLS = [
+# Pre-signal features shared with ``ml_ranker`` inference. Do not add
+# post-trade / leakage columns here.
+FEATURE_COLS: list[str] = [
     "Score",
     "Pct_From_EMA20",
     "Pct_From_EMA50",
@@ -88,7 +90,7 @@ def _candidate_csv_paths(explicit: str | None = None) -> list[Path]:
     return paths
 
 
-def resolve_source_csv(explicit: str | None = None) -> Path:
+def _resolve_source_csv(explicit: str | None = None) -> Path:
     """Locate the trades CSV; raise with a clear message if missing."""
     for path in _candidate_csv_paths(explicit):
         if path.is_file():
@@ -113,7 +115,7 @@ def resolve_source_csv(explicit: str | None = None) -> Path:
     )
 
 
-def load_and_prepare(csv_path: Path) -> pd.DataFrame:
+def _load_and_prepare(csv_path: Path) -> pd.DataFrame:
     """Load CSV, drop leakage cols, keep no_fill rows, drop NaN targets."""
     df = pd.read_csv(csv_path)
     print(f"Loaded source: {csv_path}")
@@ -146,7 +148,7 @@ def load_and_prepare(csv_path: Path) -> pd.DataFrame:
     return df.sort_values(DATE_COL).reset_index(drop=True)
 
 
-def temporal_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+def _temporal_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """Applies a dynamic rolling temporal split backward from the max available date."""
     max_date = df[DATE_COL].max()
     
@@ -166,7 +168,7 @@ def temporal_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Dat
     return train, val, test, bounds
 
 
-def build_matrices(
+def _build_matrices(
     train: pd.DataFrame,
     val: pd.DataFrame,
     test: pd.DataFrame,
@@ -189,21 +191,21 @@ def build_matrices(
     return parts
 
 
-def rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+def _rmse(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     return float(np.sqrt(mean_squared_error(y_true, y_pred)))
 
 
-def evaluate(model, X: pd.DataFrame, y: np.ndarray, label: str) -> dict:
+def _evaluate(model, X: pd.DataFrame, y: np.ndarray, label: str) -> dict:
     pred = model.predict(X)
     metrics = {
         "mae": float(mean_absolute_error(y, pred)),
-        "rmse": rmse(y, pred),
+        "rmse": _rmse(y, pred),
     }
     print(f"  {label}: MAE={metrics['mae']:.6f}  RMSE={metrics['rmse']:.6f}")
     return metrics
 
 
-def print_ascii_importance(names: list[str], importances: np.ndarray, title: str) -> None:
+def _print_ascii_importance(names: list[str], importances: np.ndarray, title: str) -> None:
     order = np.argsort(importances)[::-1]
     max_imp = float(importances.max()) if len(importances) else 1.0
     max_imp = max_imp if max_imp > 0 else 1.0
@@ -215,7 +217,7 @@ def print_ascii_importance(names: list[str], importances: np.ndarray, title: str
         print(f"  {names[idx]:<18} {importances[idx]:8.4f}  {bar}")
 
 
-def save_importance_plot(
+def _save_importance_plot(
     feature_names: list[str],
     xgb_imp: np.ndarray,
     lgb_imp: np.ndarray,
@@ -248,7 +250,7 @@ def save_importance_plot(
     plt.close(fig)
     print(f"\nSaved feature importance plot: {out_path}")
 
-def save_model_metadata(
+def _save_model_metadata(
     art_dir: Path,
     feature_names: list[str],
     xgb_val_metrics: dict,
@@ -303,7 +305,7 @@ def save_model_metadata(
     print(f"\n[SAVED] ML metadata summary: {metadata_path}")
 
 
-def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
+def _train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
     X_train, y_train, w_train = parts["train"]["X"], parts["train"]["y"], parts["train"]["w"]
     X_val, y_val = parts["val"]["X"], parts["val"]["y"]
     X_test, y_test = parts["test"]["X"], parts["test"]["y"]
@@ -329,8 +331,8 @@ def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
     xgb.fit(X_train, y_train, sample_weight=w_train)
 
     print("XGBoost validation / OOS scores:")
-    xgb_val_metrics = evaluate(xgb, X_val, y_val, f"Val ({labels['val']})")
-    xgb_test_metrics = evaluate(xgb, X_test, y_test, f"Test OOS ({labels['test']})")
+    xgb_val_metrics = _evaluate(xgb, X_val, y_val, f"Val ({labels['val']})")
+    xgb_test_metrics = _evaluate(xgb, X_test, y_test, f"Test OOS ({labels['test']})")
 
     print("\n=== Training LGBMRegressor (regression_l1 / MAE) ===")
     lgb = LGBMRegressor(
@@ -347,8 +349,8 @@ def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
     lgb.fit(X_train, y_train, sample_weight=w_train)
 
     print("LightGBM validation / OOS scores:")
-    lgb_val_metrics = evaluate(lgb, X_val, y_val, f"Val ({labels['val']})")
-    lgb_test_metrics = evaluate(lgb, X_test, y_test, f"Test OOS ({labels['test']})")
+    lgb_val_metrics = _evaluate(lgb, X_val, y_val, f"Val ({labels['val']})")
+    lgb_test_metrics = _evaluate(lgb, X_test, y_test, f"Test OOS ({labels['test']})")
 
     # --- NEW: Serialize Model Weights for Review and Pega Ingestion ---
     art_dir.mkdir(parents=True, exist_ok=True)
@@ -368,12 +370,12 @@ def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
     xgb_imp = np.asarray(xgb.feature_importances_, dtype=float)
     lgb_imp = np.asarray(lgb.feature_importances_, dtype=float)
 
-    print_ascii_importance(feature_names, xgb_imp, "XGBoost feature importance")
-    print_ascii_importance(feature_names, lgb_imp, "LightGBM feature importance")
+    _print_ascii_importance(feature_names, xgb_imp, "XGBoost feature importance")
+    _print_ascii_importance(feature_names, lgb_imp, "LightGBM feature importance")
 
     plot_path = art_dir / "coiled_cobra_ml_feature_importance.png"
-    save_importance_plot(feature_names, xgb_imp, lgb_imp, plot_path)
-    save_model_metadata(
+    _save_importance_plot(feature_names, xgb_imp, lgb_imp, plot_path)
+    _save_model_metadata(
         art_dir,
         feature_names,
         xgb_val_metrics,
@@ -386,6 +388,7 @@ def train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
     )
     
 def main(argv: list[str] | None = None) -> int:
+    """Train XGB/LGB baselines and write model artifacts next to the source CSV."""
     parser = argparse.ArgumentParser(
         description="Coiled Cobra ML baseline (XGBoost + LightGBM) with Dynamic Windows"
     )
@@ -401,14 +404,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    csv_path = resolve_source_csv(args.csv)
+    csv_path = _resolve_source_csv(args.csv)
     if args.artifacts_dir:
         art_dir = Path(args.artifacts_dir)
     else:
         art_dir = csv_path.parent if csv_path.parent.is_dir() else Path.cwd()
 
-    df = load_and_prepare(csv_path)
-    train, val, test, bounds = temporal_split(df)
+    df = _load_and_prepare(csv_path)
+    train, val, test, bounds = _temporal_split(df)
 
     v_str = f"{bounds['val_start'].strftime('%Y-%m-%d')} .. {bounds['test_start'].strftime('%Y-%m-%d')}"
     t_str = f"{bounds['test_start'].strftime('%Y-%m-%d')} .. {bounds['max_date'].strftime('%Y-%m-%d')}"
@@ -423,10 +426,10 @@ def main(argv: list[str] | None = None) -> int:
             f"Empty partition(s): train={len(train)} val={len(val)} test={len(test)}"
         )
 
-    parts = build_matrices(train, val, test)
+    parts = _build_matrices(train, val, test)
     labels = {"val": v_str, "test": t_str}
     
-    train_and_report(parts, art_dir, labels)
+    _train_and_report(parts, art_dir, labels)
     print("\nDone.")
     return 0
 

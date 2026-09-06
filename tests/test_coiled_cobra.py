@@ -2,7 +2,6 @@
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from finance_vibe.coiled_cobra import (
     coil_width_score,

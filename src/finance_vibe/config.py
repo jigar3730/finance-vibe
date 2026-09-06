@@ -3,6 +3,8 @@
 Use ``get_mode_config(mode)`` to resolve raw/log directories and yfinance
 download parameters for ``weekly`` or ``daily`` pipeline runs.
 """
+from __future__ import annotations
+
 import os
 
 import pandas as pd
@@ -28,7 +30,7 @@ TIMEFRAME_PROFILES = {
 DEFAULT_MODE = "weekly"
 
 
-def get_mode_config(mode: str = None) -> dict:
+def get_mode_config(mode: str | None = None) -> dict:
     """Return download settings and directory paths for ``weekly`` or ``daily``.
 
     Creates ``raw_dir`` and ``logs_dir`` if they do not exist.
@@ -52,14 +54,6 @@ ACTIVE_TICKER_CAP = 1000
 # yahooquery Screener IDs merged after the manifest (deduped, then capped)
 SCREENER_IDS = [
     "most_actives",
-    #"day_gainers",
-    #"day_losers",
-    #"undervalued_growth_stocks",
-    #"growth_technology_stocks",
-    #"most_shorted_stocks",
-    #"aggressive_small_caps",
-    #"small_cap_gainers",
-    #"undervalued_large_caps",
 ]
 # Per-screener quote count (Yahoo typically caps near 250)
 SCREENER_COUNT = 250
@@ -68,14 +62,14 @@ BASE_DIR = os.path.join(PROJECT_ROOT, "data")
 TICKER_LIST_PATH = os.path.join(BASE_DIR, "active_tickers.csv")
 
 
-def get_raw_filename(ticker: str, cfg: dict) -> str:
+def _get_raw_filename(ticker: str, cfg: dict) -> str:
     """Build a standardized raw CSV name, e.g. ``AAPL_10y_1wk.csv``."""
     return f"{ticker}_{cfg['period']}_{cfg['interval']}.csv"
 
 
 def get_raw_path(ticker: str, cfg: dict) -> str:
     """Absolute path to one ticker's raw CSV inside the active mode directory."""
-    return os.path.join(cfg["raw_dir"], get_raw_filename(ticker, cfg))
+    return os.path.join(cfg["raw_dir"], _get_raw_filename(ticker, cfg))
 
 
 # Pipeline backtest defaults (offline validation; not part of run_vibe.py)
@@ -84,9 +78,6 @@ BACKTEST_SHORT_MAX_SCORE = -2
 BACKTEST_WARMUP_BARS = 60
 BACKTEST_ENTRY_VALID_BARS = 4
 BACKTEST_MAX_HOLD_BARS = 12
-# Skip new signals within N bars of the prior accepted signal (cuts clustered re-entries)
-BACKTEST_COOLDOWN_BARS = 4
-
 # Realistic execution assumptions for the scaled-out swing simulator.
 # Adverse per-fill slippage applied to entries and market (stop) exits.
 BACKTEST_SLIPPAGE_PCT = 0.0005
@@ -208,22 +199,6 @@ _SWING_DEFAULTS = {
     "rs_ratio_ma_bars": 20,
 }
 
-# Backward-compatible aliases (weekly defaults)
-SWING_ENTRY_ATR = _SWING_WEEKLY["entry_atr"]
-SWING_STOP_BUFFER_ATR = _SWING_WEEKLY["stop_buffer_atr"]
-SWING_STOP_ATR_CAP = _SWING_WEEKLY["stop_atr_cap"]
-SWING_T1_ATR = _SWING_WEEKLY["t1_atr"]
-SWING_T2_ATR = _SWING_WEEKLY["t2_atr"]
-SWING_PROX_PCT_WEEKLY = _SWING_WEEKLY["prox_pct"]
-SWING_PROX_PCT_DAILY = _SWING_DAILY["prox_pct"]
-SWING_RSI_MIN_LONG_WEEKLY = _SWING_WEEKLY["rsi_min_long"]
-SWING_RSI_MIN_LONG_DAILY = _SWING_DAILY["rsi_min_long"]
-SWING_RSI_MAX_LONG = _SWING_WEEKLY["rsi_max_long"]
-SWING_RSI_MIN_SHORT = _SWING_WEEKLY["rsi_min_short"]
-SWING_RSI_MAX_SHORT = _SWING_WEEKLY["rsi_max_short"]
-SWING_STRUCTURE_BARS = _SWING_WEEKLY["structure_bars"]
-
-
 def get_swing_params(mode: str = "weekly") -> dict:
     """Return quality-swing geometry + filter params for a swing profile.
 
@@ -270,7 +245,7 @@ def get_log_dir(mode: str = "weekly") -> str:
 MAX_RISK_PCT_OF_CLOSE = 0.05
 
 
-def structural_stop_long(
+def _structural_stop_long(
     entry: float, atr: float, ema50: float, swing_low,
     *, stop_buffer_atr: float, stop_atr_cap: float | None = None,
     close: float | None = None, max_risk_pct: float | None = MAX_RISK_PCT_OF_CLOSE,
@@ -295,7 +270,7 @@ def structural_stop_long(
     return min(structural, entry - buf)
 
 
-def structural_stop_short(
+def _structural_stop_short(
     entry: float, atr: float, ema50: float, swing_high,
     *, stop_buffer_atr: float, stop_atr_cap: float | None = None,
     close: float | None = None, max_risk_pct: float | None = MAX_RISK_PCT_OF_CLOSE,
@@ -315,7 +290,7 @@ def structural_stop_short(
 
 def compute_swing_levels(
     *, setup_type: str, close: float, ema20: float, ema50: float, atr: float,
-    swing_low=None, swing_high=None, sp: dict,
+    swing_low: float | None = None, swing_high: float | None = None, sp: dict,
 ) -> dict:
     """Compute entry/stop/targets + risk for the non-cobra swing path.
 
@@ -349,7 +324,7 @@ def compute_swing_levels(
                 stop = max(stop, entry - max_risk_pct * close)
             stop = min(stop, entry - buf)
         else:
-            stop = structural_stop_long(
+            stop = _structural_stop_long(
                 entry, atr, ema50, swing_low,
                 stop_buffer_atr=sp["stop_buffer_atr"], stop_atr_cap=cap,
                 close=close, max_risk_pct=max_risk_pct,
@@ -365,7 +340,7 @@ def compute_swing_levels(
                 stop = min(stop, entry + max_risk_pct * close)
             stop = max(stop, entry + buf)
         else:
-            stop = structural_stop_short(
+            stop = _structural_stop_short(
                 entry, atr, ema50, swing_high,
                 stop_buffer_atr=sp["stop_buffer_atr"], stop_atr_cap=cap,
                 close=close, max_risk_pct=max_risk_pct,

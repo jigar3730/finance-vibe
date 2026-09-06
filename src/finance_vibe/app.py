@@ -1,9 +1,13 @@
-import os
+"""Flask dashboard for browsing weekly/daily trade-plan CSVs with live quotes."""
+from __future__ import annotations
+
 import glob
+import os
 from datetime import datetime
+
 import pandas as pd
-import yfinance as yf  # Added for live price fetching
-from flask import Flask, render_template_string, request, abort
+import yfinance as yf
+from flask import Flask, abort, render_template_string, request
 
 app = Flask(__name__)
 
@@ -17,8 +21,8 @@ MODES = {
     "daily": os.path.join(LOGS_BASE_DIR, "daily")
 }
 
-def get_available_runs():
-    """Scans both weekly and daily logs folders to find all execution dates and files."""
+def _get_available_runs() -> dict[str, list[dict]]:
+    """Scan weekly/daily log folders and return dated trade-plan files."""
     runs = {"weekly": [], "daily": []}
     
     for mode, folder_path in MODES.items():
@@ -49,8 +53,8 @@ def get_available_runs():
                 
     return runs
 
-def fetch_live_prices(symbols):
-    """Fetches real-time prices efficiently using yfinance fast_info."""
+def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
+    """Fetch last prices via yfinance ``fast_info``; missing symbols map to ``N/A``."""
     if not symbols:
         return {}
     try:
@@ -182,12 +186,14 @@ VIEW_TEMPLATE = """
 """
 
 @app.route("/")
-def index():
-    runs = get_available_runs()
+def index() -> str:
+    """Render the dashboard index of available weekly and daily runs."""
+    runs = _get_available_runs()
     return render_template_string(INDEX_TEMPLATE, runs=runs)
 
 @app.route("/view/<mode>/<date>")
-def view_run(mode, date):
+def view_run(mode: str, date: str) -> str | tuple[str, int]:
+    """Render one trade-plan CSV with live Yahoo quotes injected as HTML."""
     if mode not in MODES:
         abort(404, "Invalid historical directory mode context.")
         
@@ -219,7 +225,7 @@ def view_run(mode, date):
         if symbol_col is not None:
             # 1. Gather clean, raw symbol strings to request live quotes
             raw_symbols = [str(x).strip().upper() for x in df[symbol_col].dropna().unique()]
-            live_price_map = fetch_live_prices(raw_symbols)
+            live_price_map = _fetch_live_prices(raw_symbols)
             
             # 2. Add 'Live Price' values aligned with symbols
             df['Live Price'] = df[symbol_col].apply(
@@ -233,9 +239,9 @@ def view_run(mode, date):
             cols.insert(symbol_idx + 1, cols.pop(cols.index('Live Price')))
             df = df[cols]
             
-            # 4. Convert plain strings into operational Yahoo Finance anchor links
+            # 4. Convert plain strings into operational Finviz anchor links
             df[symbol_col] = df[symbol_col].apply(
-                lambda x: f'<a href="https://finance.yahoo.com/quote/{str(x).strip().upper()}" target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
+                lambda x: f'<a href="https://finviz.com/quote.ashx?t={str(x).strip().upper()}" target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
                 if pd.notna(x) else ""
             )
             

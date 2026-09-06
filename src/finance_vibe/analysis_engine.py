@@ -10,15 +10,14 @@ from __future__ import annotations
 
 import os
 import sys
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
-from concurrent.futures import ProcessPoolExecutor, as_completed
 
-# --- 1. PACKAGE IMPORT ---
 try:
     from finance_vibe import config
 except ImportError:
@@ -39,6 +38,7 @@ PRINT_TOP_N = 500
 
 @dataclass(frozen=True)
 class ScanRow:
+    """One ticker's latest-bar vibe score and display fields for the report CSV."""
     ticker: str
     price: float
     sma20: float
@@ -53,7 +53,8 @@ class ScanRow:
     sentiment: str
     action: str
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, object]:
+        """Serialize this row to the vibe-report CSV column names."""
         return {
             "Ticker": self.ticker,
             "Price": self.price,
@@ -76,6 +77,7 @@ class ScanRow:
 
 
 def iter_raw_csv_paths(raw_dir: str) -> Iterable[str]:
+    """Yield absolute paths to CSV files in ``raw_dir``, sorted by name."""
     if not os.path.isdir(raw_dir):
         raise FileNotFoundError(f"RAW_DIR does not exist: {raw_dir}")
     for name in sorted(os.listdir(raw_dir)):
@@ -84,6 +86,7 @@ def iter_raw_csv_paths(raw_dir: str) -> Iterable[str]:
 
 
 def ticker_from_filename(path: str) -> str:
+    """Parse the ticker symbol from a raw CSV filename (text before the first ``_``)."""
     base = os.path.basename(path)
     return base.split('_')[0].upper()
 
@@ -93,6 +96,7 @@ def ticker_from_filename(path: str) -> str:
 
 
 def load_ohlc_csv(path: str) -> pd.DataFrame:
+    """Load a raw OHLC CSV, normalize Date/Close, and drop unusable rows."""
     df = pd.read_csv(path)
     if df.empty:
         raise ValueError("empty csv")
@@ -121,21 +125,22 @@ def load_ohlc_csv(path: str) -> pd.DataFrame:
 # -----------------------------
 
 
-def sma(s: pd.Series, n: int) -> pd.Series:
+def _sma(s: pd.Series, n: int) -> pd.Series:
     return s.rolling(n, min_periods=n).mean()
 
 
 def ema(s: pd.Series, span: int) -> pd.Series:
+    """Exponential moving average (adjust=False) used by scoring and regime checks."""
     return s.ewm(span=span, adjust=False).mean()
 
 
-def macd_hist(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.Series:
+def _macd_hist(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.Series:
     macd_line = ema(close, fast) - ema(close, slow)
     signal_line = ema(macd_line, signal)
     return macd_line - signal_line
 
 
-def rsi_wilder(close: pd.Series, period: int = 14) -> pd.Series:
+def _rsi_wilder(close: pd.Series, period: int = 14) -> pd.Series:
     delta = close.diff()
     gain = delta.clip(lower=0.0)
     loss = (-delta).clip(lower=0.0)
@@ -145,7 +150,7 @@ def rsi_wilder(close: pd.Series, period: int = 14) -> pd.Series:
     return 100 - (100 / (1 + rs))
 
 
-def cci_fast(df: pd.DataFrame, period: int = 20) -> pd.Series:
+def _cci_fast(df: pd.DataFrame, period: int = 20) -> pd.Series:
     if "High" in df.columns and "Low" in df.columns:
         tp = (df["High"] + df["Low"] + df["Close"]) / 3.0
     else:
@@ -173,14 +178,14 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
     """Add SMA, MACD, RSI, and CCI columns required for scoring."""
     out = df.copy()
     close = out["Close"].astype(float)
-    out["SMA20"] = sma(close, 20)
-    out["SMA50"] = sma(close, 50)
-    out["MACD_H"] = macd_hist(close)
+    out["SMA20"] = _sma(close, 20)
+    out["SMA50"] = _sma(close, 50)
+    out["MACD_H"] = _macd_hist(close)
     out["MACD_S"] = ema(out["MACD_H"], 9)
-    out["RSI"] = rsi_wilder(close, 14)
-    out["RSI_S"] = sma(out["RSI"], 10)
-    out["CCI"] = cci_fast(out, 20)
-    out["CCI_S"] = sma(out["CCI"], 10)
+    out["RSI"] = _rsi_wilder(close, 14)
+    out["RSI_S"] = _sma(out["RSI"], 10)
+    out["CCI"] = _cci_fast(out, 20)
+    out["CCI_S"] = _sma(out["CCI"], 10)
     return out
 
 
@@ -243,7 +248,7 @@ def load_benchmark_frame(benchmark: str, data_mode: str) -> Optional[pd.DataFram
     return df
 
 
-def market_regime_ok(benchmark_df: pd.DataFrame, as_of) -> bool:
+def market_regime_ok(benchmark_df: pd.DataFrame, as_of: object | None) -> bool:
     """True when the benchmark is in an uptrend as of *as_of* (causal lookup).
 
     Requires close above EMA50 and EMA100 with a rising EMA50.
@@ -268,7 +273,7 @@ def relative_strength(
     stock_df: pd.DataFrame,
     benchmark_df: pd.DataFrame,
     *,
-    as_of=None,
+    as_of: object | None = None,
     lookback: int = 63,
     ratio_ma_bars: int = 20,
 ) -> tuple[bool, Optional[float]]:
@@ -428,6 +433,7 @@ def sentiment_action(score: int) -> tuple[str, str]:
 
 
 def scan_one_file(path: str) -> ScanRow:
+    """Score one raw CSV and return a ``ScanRow`` (raises if history is too short)."""
     ticker = ticker_from_filename(path)
     df = load_ohlc_csv(path)
     if len(df) < MIN_ROWS:
@@ -453,30 +459,6 @@ def scan_one_file(path: str) -> ScanRow:
         sentiment=sentiment,
         action=action,
     )
-
-
-def calculate_vibe_score(ticker: str, df: pd.DataFrame, return_components: bool = False) -> dict:
-    """Score a single OHLC DataFrame (used by tests and ad-hoc analysis).
-
-    Args:
-        ticker: Symbol label (included for API compatibility; not used in math).
-        df: OHLCV history with Date and Close columns.
-        return_components: If True, include per-component point breakdown.
-
-    Returns:
-        Dict with ``Score`` and optionally ``Components`` or ``Error``.
-    """
-    try:
-        feat = build_features(df)
-        last = feat.iloc[-1]
-        score, components = _compute_score(last)
-
-        if return_components:
-            return {"Score": score, "Components": components}
-        return {"Score": score}
-
-    except Exception as e:
-        return {"Score": 0, "Error": str(e)}
 
 
 def run_scan(mode: str = "weekly", max_workers: Optional[int] = None) -> pd.DataFrame:

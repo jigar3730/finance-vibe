@@ -46,7 +46,7 @@ Implementation note: CCI uses a vectorized MAD window (not pandas_ta), which avo
 
 ## Score components (additive, applied in order)
 
-Each rule reads the **latest bar** only. Logic lives in `_compute_score()`; keys below appear in `calculate_vibe_score(..., return_components=True)`.
+Each rule reads the **latest bar** only. Logic lives in `_compute_score()`; keys below are the per-component breakdown that function returns.
 
 ### 1. Trend — key `Trend` (±4)
 
@@ -165,11 +165,10 @@ Universe scan runs in parallel (`ProcessPoolExecutor`); tickers that fail to loa
 ## Programmatic API
 
 ```python
-from finance_vibe.analysis_engine import build_features, score_last_row, calculate_vibe_score
+from finance_vibe.analysis_engine import build_features, score_last_row
 
+feat = build_features(df)
 score = score_last_row(feat.iloc[-1])
-detail = calculate_vibe_score("SPY", df, return_components=True)
-# detail["Score"], detail["Components"]["Trend"], ...
 ```
 
 Used by `pipeline_backtest.py` for walk-forward macro gating.

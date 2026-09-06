@@ -3,12 +3,15 @@
 Reads ``swing_setups_<date>.csv`` and writes ``trade_plan_<date>.csv`` with
 entry, stop, ATR targets, and LEAPS (weekly) or short-dated options (daily) fields.
 """
+from __future__ import annotations
 
 import os
 import sys
-import pandas as pd
 from datetime import datetime
 from pathlib import Path
+from typing import Any, Mapping
+
+import pandas as pd
 
 try:
     from finance_vibe import config
@@ -34,7 +37,6 @@ _SHORT_DATED_MODES = {"daily", "high_beta"}
 
 # Dynamic path resolution according to isolation architecture.
 # high_beta gets its own log silo via config.get_log_dir.
-BASE_DIR = Path(__file__).resolve().parents[2]
 SCANNER_DIR = Path(config.get_log_dir(mode))
 SCANNER_PREFIX = "swing_setups_"
 COILED_PREFIX = "coiled_cobra_setups_"
@@ -43,7 +45,7 @@ OUTPUT_PREFIX = "trade_plan_"
 # --------- HELPER FUNCTIONS ----------
 
 
-def _resolve_row_mode(row, mode: str | None) -> str:
+def _resolve_row_mode(row: Mapping[str, Any] | pd.Series, mode: str | None) -> str:
     """Resolve which swing profile governs a row.
 
     Row ``Mode`` is authoritative when present so a high_beta setup keeps its
@@ -58,9 +60,10 @@ def _resolve_row_mode(row, mode: str | None) -> str:
     return candidate if candidate in config.SWING_PROFILES else "weekly"
 
 
-def calculate_stock_levels(row, mode: str | None = None):
-    """
-    Derive entry, stop, targets, option side, and delta band from one setup row.
+def calculate_stock_levels(
+    row: Mapping[str, Any] | pd.Series, mode: str | None = None
+) -> tuple[float, float, float, float, str, tuple[float, float]]:
+    """Derive entry, stop, targets, option side, and delta band from one setup row.
 
     Quality swing geometry is mode-aware via ``config.get_swing_params``.
     The high_beta profile uses dual-constraint stops and true 1R/2R targets.
@@ -117,7 +120,9 @@ def calculate_stock_levels(row, mode: str | None = None):
     )
 
 
-def _export_levels(entry: float, stop: float, t1: float, t2: float, close: float, setup_type: str):
+def _export_levels(
+    entry: float, stop: float, t1: float, t2: float, close: float, setup_type: str
+) -> tuple[float, float, float, float, float]:
     """Round levels for CSV export while keeping risk ≤ MAX_RISK_PCT_OF_CLOSE × close."""
     entry_r = round(entry, 2)
     close_v = float(close) if pd.notna(close) else entry_r
@@ -152,10 +157,10 @@ def _export_levels(entry: float, stop: float, t1: float, t2: float, close: float
     return entry_r, stop_r, round(t1, 2), round(t2, 2), round(abs(entry_r - stop_r), 2)
 
 
-def calculate_options_expiry():
-    """
-    Dynamically adjusts structural contracts option timeline based on profile timeframe mode.
-    Weekly pulls long-term LEAPS setups; daily pulls agile swing cycles.
+def _calculate_options_expiry() -> tuple[str, str]:
+    """Return (min, max) expiry labels for the active planner mode.
+
+    Weekly uses LEAPS (12–24 months); daily/high_beta use 1–3 month swings.
     """
     today = datetime.today()
     if mode in _SHORT_DATED_MODES:
@@ -173,7 +178,7 @@ def calculate_options_expiry():
 # --------- MAIN FUNCTION ----------
 
 
-def generate_trade_plan(scanner_csv_path=None):
+def generate_trade_plan(scanner_csv_path: str | Path | None = None) -> pd.DataFrame | None:
     """Build and export a trade plan CSV from the latest or provided scanner output."""
     print(
         f"--- STEP 5: Drafting Trade Execution Architectures [{mode.upper()} MODE] ---"
@@ -241,7 +246,7 @@ def generate_trade_plan(scanner_csv_path=None):
     contract_label = "Options Type" if short_dated else "LEAPS Type"
 
     # Expiry window depends only on mode, so compute it once per run.
-    expiry_min, expiry_max = calculate_options_expiry()
+    expiry_min, expiry_max = _calculate_options_expiry()
 
     for _, row in df.iterrows():
         # Row Mode is authoritative (mode=None) so high_beta setups keep their

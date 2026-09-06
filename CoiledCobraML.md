@@ -74,20 +74,20 @@ docker exec finance_vibe python /app/src/finance_vibe/coiled_cobra_ml_training.p
 coiled_cobra_backtest_trades_*.csv
         │
         ▼
-  load_and_prepare()
+  _load_and_prepare()
     • parse Signal Date → datetime
     • DROP leakage columns (execution / outcome)
     • KEEP no_fill rows
     • DROP rows with NaN Forward_Return_13w
         │
         ▼
-  temporal_split() on Signal Date  (NO random K-fold)
+  _temporal_split() on Signal Date  (NO random K-fold)
     Train  ≤ 2023-12-31
     Val    2024-01-01 .. 2024-12-31
     Test   2025-01-01 .. 2026-07-31
         │
         ▼
-  build_matrices()
+  _build_matrices()
     X = 6 pre-signal features
     y = Forward_Return_13w
     sample_weight = ATR_Pct
