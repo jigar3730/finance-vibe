@@ -217,6 +217,80 @@ table.table tr:hover {
 .meta { color: var(--finviz-text-muted); margin-bottom: 20px; font-size: 0.95em; }
 .back { display: inline-block; margin-bottom: 20px; color: var(--link); text-decoration: none; font-weight: 500; }
 
+/* Breakout dashboard: KPI cards */
+.kpi-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin: 8px 0 20px;
+}
+
+.kpi-card {
+    flex: 1 1 160px;
+    background: var(--finviz-bg-card);
+    border: 1px solid var(--finviz-border);
+    border-radius: 6px;
+    padding: 16px 18px;
+}
+
+.kpi-value {
+    font-family: var(--finviz-font-mono);
+    font-size: 1.9rem;
+    font-weight: 700;
+    color: var(--finviz-text-strong);
+    line-height: 1.1;
+}
+
+.kpi-value.pos { color: var(--finviz-green-light); }
+.kpi-value.neg { color: var(--finviz-red); }
+
+.kpi-label {
+    margin-top: 6px;
+    color: var(--finviz-text-muted);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-weight: 700;
+}
+
+/* Breakout dashboard: status filter chips */
+.chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 4px 0 12px;
+}
+
+.chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 14px;
+    border: 1px solid var(--finviz-border);
+    background: var(--finviz-bg-card);
+    color: var(--finviz-text-primary);
+    text-decoration: none;
+    font-size: 0.75rem;
+    font-weight: 600;
+    font-family: var(--finviz-font-mono);
+}
+
+.chip:hover { background: var(--finviz-bg-hover); color: var(--finviz-text-strong); }
+
+.chip.active {
+    border-color: var(--finviz-accent-blue);
+    background: rgba(41, 98, 255, 0.16);
+    color: var(--finviz-text-strong);
+}
+
+.chip-count {
+    color: var(--finviz-text-muted);
+    font-weight: 700;
+}
+
+.chip.active .chip-count { color: var(--finviz-text-strong); }
+
 /* Docs layout */
 .docs-shell {
     display: grid;

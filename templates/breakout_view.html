@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Breakout Scan - {{ date }} ({{ mode }}){% endblock %}
+{% block content %}
+    <a class="back" href="{{ url_for('breakout_index') }}">← Back to Breakout Scans</a>
+    <h1>🎯 Breakout Scan</h1>
+    <div class="meta">Mode: <strong>{{ mode|upper }}</strong> | Run Date: <strong>{{ date }}</strong> | Source File: <code>{{ file_name }}</code></div>
+
+    <div class="kpi-row">
+        <div class="kpi-card">
+            <div class="kpi-value">{{ kpis['setups'] }}</div>
+            <div class="kpi-label">Setups</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value">{{ kpis['median_readiness'] if kpis['median_readiness'] is not none else '—' }}</div>
+            <div class="kpi-label">Median Readiness</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value pos">{{ kpis['actionable'] }}</div>
+            <div class="kpi-label">Readiness ≥ 70</div>
+        </div>
+        <div class="kpi-card">
+            <div class="kpi-value neg">{{ kpis['failed'] }}</div>
+            <div class="kpi-label">Failed Breakouts</div>
+        </div>
+    </div>
+
+    {% if status_mix %}
+    <div class="chip-row">
+        <a class="chip {% if not active_status %}active{% endif %}" href="{{ url_for('breakout_view', mode=mode, date=date) }}">
+            All <span class="chip-count">{{ kpis['setups'] }}</span>
+        </a>
+        {% for item in status_mix %}
+        <a class="chip {% if active_status == item['status'] %}active{% endif %}"
+           href="{{ url_for('breakout_view', mode=mode, date=date, status=item['status']) }}">
+            {{ item['status'] }} <span class="chip-count">{{ item['count'] }}</span>
+        </a>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    <div class="meta" style="margin-top: 4px;">
+        Showing <strong>{{ row_count }}</strong> row(s){% if active_status %} for status <code>{{ active_status }}</code>{% endif %}.
+    </div>
+
+    <div class="table-container">
+        {{ table_html|safe }}
+    </div>
+{% endblock %}

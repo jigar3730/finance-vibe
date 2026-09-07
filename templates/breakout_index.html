@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Breakout Scans{% endblock %}
+{% block content %}
+    <h1>🎯 Breakout Readiness Scans</h1>
+    <p>Each run is a dated <code>breakout_setups_&lt;date&gt;.csv</code> snapshot. Select a run to inspect setup states and the 100-point readiness score.</p>
+
+    {% set labels = {'weekly': '📅 Weekly', 'daily': '⚡ Daily', 'high_beta': '🔥 High Beta'} %}
+    <div class="container">
+        {% for mode, mode_runs in runs.items() %}
+        <div class="column">
+            <h2>{{ labels.get(mode, mode|capitalize) }}</h2>
+            {% if mode_runs %}
+                <ul>
+                {% for run in mode_runs %}
+                    <li>
+                        <a href="{{ url_for('breakout_view', mode=mode, date=run['date']) }}">Breakout Scan ({{ run['date'] }})</a>
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p style="color: var(--finviz-text-muted);">No breakout scans discovered yet.</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+{% endblock %}
