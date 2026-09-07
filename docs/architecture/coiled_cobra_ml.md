@@ -179,13 +179,15 @@ Both frameworks receive `sample_weight=ATR_Pct` at `.fit()` time.
 
 ## Model configuration
 
-Shared hyperparameters:
+Shared hyperparameters (`MODEL_PARAMS` in `coiled_cobra_ml_training.py`):
 
 | Param | Value |
 | ----- | ----- |
-| `max_depth` | 6 |
-| `learning_rate` | 0.03 |
-| `n_estimators` | 300 |
+| `max_depth` | 4 |
+| `learning_rate` | 0.01 |
+| `n_estimators` | 400 |
+| `subsample` | 0.8 |
+| `colsample_bytree` | 0.8 |
 | `random_state` | 42 |
 
 | Framework | Objective | Rationale |
@@ -202,7 +204,7 @@ Missing values: left as-is; both libraries handle NaNs natively in tree growth. 
 Stdout always prints:
 
 1. **Dataset shape integrity** — `X_train` / `X_val` / `X_test` row × column counts and feature list
-2. **Validation scores** — MAE and RMSE on 2024 val and 2025–2026 test for each model
+2. **Validation scores** — MAE and RMSE on the rolling val and test windows for each model
 3. **ASCII feature-importance charts** — rank-ordered by split/gain importance
 
 Artifact files:
@@ -227,12 +229,15 @@ Expect **Test RMSE ≫ Val RMSE** when a few extreme high-beta paths appear in 2
 
 ---
 
-## Baseline results (reference run)
+## Baseline results (historical reference run)
 
-Source: `coiled_cobra_backtest_trades_2026-07-17.csv`  
+Source: `coiled_cobra_backtest_trades_2026-07-17.csv` under an **older fixed
+date cut** (not the current rolling 26w/26w split) and older hyperparameters.
+Treat the numbers as a snapshot, not a live SLA.
+
 Config: 6 features, MAE objectives, `ATR_Pct` sample weights.
 
-### Current baseline (MAE objectives, no Grade)
+### Snapshot metrics (MAE objectives, no Grade)
 
 | Model | Val 2024 MAE / RMSE | Test 2025–26 MAE / RMSE |
 | ----- | ------------------- | ----------------------- |
@@ -309,7 +314,7 @@ A practical workflow is:
 - Stock forward return only — no options / LEAPS P&L target
 - Single horizon (`2w`); 5w / 13w / 26w are present in the CSV but not trained in this baseline
 - No hyperparameter search, early stopping, or calibration layer
-- No model serialization / inference API yet
+- Inference is **soft only** (`ml_ranker.attach_ml_ranks` writes nullable columns)
 - Test RMSE remains sensitive to extreme movers (e.g. high-beta names)
 
 ### Sensible next experiments (not implemented)
@@ -318,8 +323,8 @@ A practical workflow is:
 2. Huber / Pseudo-Huber objectives (`reg:pseudohubererror`, LightGBM `huber`)
 3. Winsorize or clip `y` at train quantiles before fit; still evaluate unclipped OOS
 4. Multi-horizon multi-output or separate heads for 5w / 13w / 26w
-5. Walk-forward expanding window instead of a single fixed cut
-6. Persist best model + feature schema for offline scoring of new setups
+5. Purged multi-fold walk-forward (Lab 04) on top of the existing rolling cut
+6. Add RVOL / Market Gate / coil-width as optional research features (not in `FEATURE_COLS`)
 
 ---
 

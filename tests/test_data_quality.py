@@ -518,3 +518,57 @@ def test_generate_trade_plan_with_explicit_path(tmp_path, monkeypatch):
     assert plan_df is not None
     assert len(plan_df) == 1
     assert plan_df.iloc[0]["Symbol"] == "AAPL"
+
+
+def test_generate_trade_plan_uses_today_not_stale_archives(tmp_path, monkeypatch):
+    """A daily run must not merge last week's swing file with yesterday's cobra."""
+    scanner_dir = tmp_path / "logs" / "daily"
+    scanner_dir.mkdir(parents=True)
+    today = "2026-09-06"
+
+    stale_row = {
+        "Symbol": "STALE", "Setup Type": "SETUP_LONG", "Source": "swing",
+        "Close": 100.0, "EMA20": 98.0, "EMA50": 95.0, "ATR": 2.0, "RSI": 55.0,
+    }
+    today_row = {
+        "Symbol": "TODAY", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
+        "Close": 50.0, "EMA20": 49.0, "EMA50": 48.0, "ATR": 1.5, "RSI": 60.0,
+    }
+    pd.DataFrame([stale_row]).to_csv(scanner_dir / "swing_setups_2026-09-02.csv", index=False)
+    pd.DataFrame([{**stale_row, "Source": "coiled_cobra", "Symbol": "OLDCOBRA"}]).to_csv(
+        scanner_dir / "coiled_cobra_setups_2026-09-05.csv", index=False
+    )
+    pd.DataFrame(columns=config.SETUP_ROW_COLUMNS).to_csv(
+        scanner_dir / f"swing_setups_{today}.csv", index=False
+    )
+    pd.DataFrame([today_row]).to_csv(
+        scanner_dir / f"coiled_cobra_setups_{today}.csv", index=False
+    )
+
+    monkeypatch.setattr(trade_planner, "SCANNER_DIR", scanner_dir)
+    plan_df = generate_trade_plan(as_of=today)
+
+    assert plan_df is not None
+    assert list(plan_df["Symbol"]) == ["TODAY"]
+    assert (scanner_dir / f"trade_plan_{today}.csv").exists()
+    assert not (scanner_dir / "trade_plan_2026-09-05.csv").exists()
+
+
+def test_generate_trade_plan_writes_empty_today_when_no_archives(tmp_path, monkeypatch):
+    scanner_dir = tmp_path / "logs" / "daily"
+    scanner_dir.mkdir(parents=True)
+    today = "2026-09-06"
+    pd.DataFrame([{"Symbol": "STALE"}]).to_csv(
+        scanner_dir / "swing_setups_2026-09-02.csv", index=False
+    )
+    monkeypatch.setattr(trade_planner, "SCANNER_DIR", scanner_dir)
+
+    plan_df = generate_trade_plan(as_of=today)
+    assert plan_df is not None
+    assert plan_df.empty
+    out = scanner_dir / f"trade_plan_{today}.csv"
+    assert out.exists()
+    written = pd.read_csv(out)
+    assert written.empty
+    assert "Symbol" in written.columns
+    assert "Stock Entry" in written.columns

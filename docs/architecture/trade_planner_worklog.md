@@ -9,77 +9,72 @@ current codebase.
 
 ### Role in pipeline
 
-`trade_planner.py` is **step 5** in `run_vibe.py`. It reads the latest
-`swing_setups_*.csv` for the active mode and writes `trade_plan_<date>.csv`.
-`trade_plan_helper.py` (step 6) produces `trade_plan_clean_<date>.csv` with R:R columns.
+`trade_planner.py` runs after the swing scanner and Coiled Cobra in
+`run_vibe.py`. It merges **today's** `swing_setups_<date>.csv` and
+`coiled_cobra_setups_<date>.csv` from `config.get_log_dir(mode)` and writes
+`trade_plan_<date>.csv`. `trade_plan_helper.py` applies guardrails and ranks
+survivors into `trade_plan_clean_<date>.csv`.
 
 ```bash
 python src/finance_vibe/trade_planner.py weekly
+python src/finance_vibe/trade_planner.py daily
+python src/finance_vibe/trade_planner.py high_beta
 python src/finance_vibe/trade_plan_helper.py weekly
 ```
-
-Daily mode uses the same flow with `daily` instead of `weekly`.
 
 ### Paths
 
 | File | Location |
 | --- | --- |
-| Scanner input | `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv` |
+| Swing input | `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv` |
+| Cobra input | `data/logs/{mode}/coiled_cobra_setups_<YYYY-MM-DD>.csv` |
 | Trade plan output | `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv` |
 | Cleaned plan | `data/logs/{mode}/trade_plan_clean_<YYYY-MM-DD>.csv` |
 
-The planner auto-selects the **latest** `swing_setups_*.csv` in the mode directory
-(by date in the filename). Output date matches the scanner file date.
+The planner uses **today's dated files only** (no silent reuse of last week's
+hits). `high_beta` has its own log silo. Coiled Cobra is skipped in that mode.
 
-### Input columns (from swing scanner)
+### Input columns
 
-`Symbol`, `Setup Type`, `Close`, `EMA20`, `EMA50`, `RSI`, `ATR`, `Notes`
+Shared `config.SETUP_ROW_COLUMNS`, including `Source`, `Mode`, `Swing Low` /
+`Swing High`, Fib levels, `Score` / `Grade` / `Checks Met`, `RVOL`,
+`Market Gate`, and optional `ML_Pred_Return` / `ML_Rank`. Row `Mode` is
+authoritative for swing geometry.
 
 ### Stock level formulas (`calculate_stock_levels`)
 
-**SETUP_LONG**
+**Quality swing** — `config.compute_swing_levels` / `get_swing_params`:
+
+| Level | Weekly | Daily | High-beta |
+| --- | --- | --- | --- |
+| Entry (long) | `max(EMA20, Close − 0.25×ATR)` | same | same |
+| Stop | dual-constraint vs **1.5×ATR** + 5% Close | same | same, then reject risk ∉ **[0.5, 1.5] ATR** |
+| T1 / T2 | **1.25 / 2.25 ATR** | **0.85 / 1.6 ATR** | **2R / 3R** |
+
+**Coiled Cobra** (`Source` in `{coiled_cobra, cobra}` and Fib 78.6% present):
 
 | Level | Formula |
 | --- | --- |
-| Stock Entry | `max(EMA20, Close − 0.25 × ATR)` |
-| Stock Stop | `EMA50 − 0.5 × ATR` |
-| Target 1 | `Entry + 1 × ATR` |
-| Target 2 | `Entry + 2 × ATR` |
+| Entry | `max(Fib 78.6%, Close − 0.25×ATR)` |
+| Stop | local 10-bar swing low vs 1.5×ATR vs 5% Close (tightest) |
+| T1 / T2 | **2R / 3R** of entry−stop risk |
 
-**SETUP_SHORT**
-
-| Level | Formula |
-| --- | --- |
-| Stock Entry | `min(EMA20, Close + 0.25 × ATR)` |
-| Stock Stop | `EMA50 + 0.5 × ATR` |
-| Target 1 | `Entry − 1 × ATR` |
-| Target 2 | `Entry − 2 × ATR` |
-
-**Important:** Target 1 is **+1 ATR from entry**, not necessarily **1R** relative to
-stop distance. Because the stop is anchored to EMA50 (often wider than 1 ATR below
-entry), actual R:R at Target 1 is frequently **less than 1.0** — see `trade_plan_helper`
-R:R columns and `pipeline_backtest.py` results.
+Full math: [`trade_plan_calculations.md`](../handbook/trade_plan_calculations.md).
 
 ### Options metadata
 
 | Mode | Contract column | Expiry window | Delta |
 | --- | --- | --- | --- |
 | `weekly` | LEAPS Type (CALL/PUT) | 12–24 months forward | Long: 0.65–0.80, Short: −0.80 to −0.65 |
-| `daily` | Options Type (CALL/PUT) | 1–3 months forward | Same delta bands |
-
-Expiry labels: `LEAPS Expiry Min/Max` (weekly) or `Options Expiry Min/Max` (daily).
-
-All plans include `Risk Notes`: *Stop based on EMA50; adjust if invalidated*.
+| `daily`, `high_beta` | Options Type (CALL/PUT) | 1–3 months forward | Same delta bands |
 
 ### Cleaned output (`trade_plan_helper.py`)
 
-Adds:
-
-- `Risk Per Share` = `Stock Entry − Stock Stop`
-- `R:R T1`, `R:R T2` = reward to target divided by risk per share
-- `Delta Min`, `Delta Max` parsed from `Suggested Delta`
-
-Expects today's `trade_plan_<date>.csv` when run standalone.
+- Direction-aware `Risk Per Share`, `R:R T1`, `R:R T2`
+- Drop risk > 5% of Close, cobra `Checks Met` < 5/7, or R:R T1 < 2.0
+- Rank by `Expected Value = R:R T2 × Score`, or `R:R T2 × max(ML_Pred_Return, 0)`
+  when the ML column is populated; ×1.25 propensity for cobra / tight-risk rows
+- Prefers today's plan; falls back to the newest dated `trade_plan_*.csv`
 
 ### Offline validation
 
@@ -109,7 +104,7 @@ and options/LEAPS metadata per signal.
 - Position sizing / % portfolio risk per trade
 - LEAPS strike selection from delta (metadata only today)
 - Portfolio constraints (max open trades, sector caps)
-- True 1R/2R targets relative to stop distance (vs current ATR-offset targets)
+- True R-multiple targets on **all** swing profiles (high_beta and Cobra already use 2R/3R; weekly/daily remain ATR offsets)
 
 ---
 

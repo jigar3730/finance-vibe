@@ -26,7 +26,7 @@ Project overview and run commands stay in the root [`README.md`](../README.md).
 | [`handbook/ta_interpretation.md`](handbook/ta_interpretation.md) | How to read SMA / RSI / CCI / MACD output |
 | [`handbook/swing_setup.md`](handbook/swing_setup.md) | Quality-swing long/short rules and geometry |
 | [`handbook/coiled_cobra_rubric.md`](handbook/coiled_cobra_rubric.md) | Coil → expansion 100-point scorecard |
-| [`handbook/trade_plan_calculations.md`](handbook/trade_plan_calculations.md) | Early ATR entry/stop/target illustration |
+| [`handbook/trade_plan_calculations.md`](handbook/trade_plan_calculations.md) | Live entry / stop / target math (swing + Cobra + helper) |
 
 ---
 

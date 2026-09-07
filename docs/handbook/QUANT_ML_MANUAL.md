@@ -20,7 +20,7 @@ Companion specs:
 | Target $Y$ | `Forward_Return_2w` | `TARGET_COL` |
 | Features $X$ | 6 pre-signal columns | `FEATURE_COLS` |
 | Leakage drop | Execution / outcome fields | `LEAKAGE_COLS` |
-| Split | Rolling 26w test / 26w val / rest train | `_temporal_split()` |
+| Split | Rolling 26w test / 26w val / rest train (from `max(Signal Date)`) | `_temporal_split()` |
 | Models | `XGBRegressor` + `LGBMRegressor` (MAE / L1) | `_train_and_report()` |
 | Inference | Soft rank only | `ml_ranker.py` |
 
@@ -42,9 +42,13 @@ discount hunter. The live rubric in `coiled_cobra.py` scores:
 | Coil width | `coil_width_score` | $N$-bar range / ATR — tight base before expansion |
 | MACD squeeze | `macd_compression_score` | Histogram compressing near zero with MACD line $> 0$ |
 | Relative strength vs QQQ | `rs_score` | Prefer names already leading the tape |
-| MA alignment | `structure_score` | $10$ EMA $> 20$ EMA $> 50$ SMA, not $> 1.5$ ATR from EMA20 |
-| Breakout RVOL | `rvol_trigger_score` | Execution trigger; full points at $\mathrm{RVOL} \ge 2.0\times$ |
-| Overhead clearance | `overhead_clearance_score` | Space to nearest supply ($\ge 3$ ATR for full 5 pts) |
+| MA alignment | `structure_score` | EMA20 $> $ EMA50; soft `Pct_From_EMA50` haircut (leaders to 0.50) |
+| Breakout RVOL | `rvol_trigger_score` | Additive bonus; trigger at $\mathrm{RVOL} \ge 1.2\times$ |
+| Overhead clearance | `overhead_clearance_score` | Open sky at $\ge 95\%$ of 52w/ATH, else $\ge 3$ ATR to supply |
+
+Market Gate fails only on `Close < EMA50` or negative 63d RS. Pillar
+floors are Checks Met counters, not binary drops. RVOL is never zeroed.
+Full pillar tables: [`coiled_cobra_rubric.md`](coiled_cobra_rubric.md).
 
 `add_macro_indicators()` builds the raw series the scorecard reads: EMA10/20/50/100,
 SMA50, MACD 12/26/9 + histogram, RSI 14, ATR 14, RVOL (volume / SMA20), rolling Fib 61.8 / 78.6.
@@ -69,10 +73,14 @@ Including both wastes split budget and injects collinearity. Inference rebuilds
 the same frame in `ml_ranker.build_feature_frame()` from either precomputed
 `Pct_From_*` columns or raw Close / EMA / Fib / ATR fields.
 
+`RVOL` and `Market Gate` are written on setup / trade CSVs for attribution.
+They are **not** in `FEATURE_COLS` and are not used at inference.
+
 Macro Vibe Score (`analysis_engine.build_features`) is a **separate** SMA-based
 layer: trend alignment, MACD/RSI momentum, pullback timing, CCI MAD, RSI caps.
-It is used for walk-forward gating in `pipeline_backtest.py`, not as an ML
-input today.
+It is **not** invoked by `run_vibe.py` (the orchestrator step is commented out).
+It is used for the swing scanner's soft vibe gate (daily / high_beta) and for
+walk-forward gating in `pipeline_backtest.py`, not as an ML input.
 
 ### 1.2 Data-science properties of this feature space
 
@@ -252,7 +260,11 @@ single expanding train + trailing holdout), not a multi-fold purged CV.
 `simulate_scaled_trade` (gap/slippage, 50% at 1R, runner to 2R). Optional
 macro gate via `analysis_engine.score_last_row`.
 
-Neither backtest is inside `run_vibe.py`.
+Neither backtest is inside `run_vibe.py`. The swing simulator **defaults to
+full exit** at `--target-r` (CLI default **1.5R**) with a `--trailing-atr-mult`
+(default **2.0**) high-water trail. Pass `--use-partials` for the legacy 50%
+at T1 / runner-to-T2 model. Coiled Cobra still uses `simulate_trade` (full
+exit at first stop/target, no slippage).
 
 ### 4.3 Purged walk-forward (specified, not shipped)
 

@@ -286,22 +286,35 @@ def check_coiled_cobra_market_gate(
     spy_df: pd.DataFrame | None = None,
     qqq_df: pd.DataFrame | None = None,
     as_of: object | None = None,
+    close: float | None = None,
+    ema50: float | None = None,
+    rs_63d: float | None = None,
 ) -> bool:
-    """Broad-market safety switch for Coiled Cobra high-conviction triggers.
+    """Ticker-level trend gate for Coiled Cobra scorecard admission.
 
-    True when SPY or QQQ is above its 21-bar EMA or 50-bar SMA as of *as_of*.
-    Fail-open (True) when neither frame is usable so callers that pass
-    ``benchmark_df=None`` keep their existing unit-test behavior.
+    Fails only on total trend failure:
+
+    * Close more than 10% below EMA50 (broken trend, not a coil under the 50)
+    * 63-day relative strength ≤ −15% (BA/DG-style lag)
+
+    Overextension (``Pct_From_EMA50``), Fib distance, low RVOL, slight RS
+    noise, and SPY/QQQ chop do **not** fail the gate — those are scorecard
+    deductions, not binary drops.
+
+    ``spy_df`` / ``qqq_df`` / ``as_of`` are accepted for call-site compatibility
+    but are not used for the pass/fail decision.
+
+    Fail-open (True) when no ticker trend inputs are provided so callers that
+    pass ``benchmark_df=None`` keep their existing unit-test behavior.
     """
-    results = [
-        result
-        for result in (
-            _index_above_ema21_or_sma50(spy_df, as_of),
-            _index_above_ema21_or_sma50(qqq_df, as_of),
-        )
-        if result is not None
-    ]
-    return True if not results else any(results)
+    del spy_df, qqq_df, as_of  # kept on the signature; not a drop condition
+    if close is not None and ema50 is not None and pd.notna(close) and pd.notna(ema50):
+        ema50_f = float(ema50)
+        if ema50_f > 0 and float(close) < 0.90 * ema50_f:
+            return False
+    if rs_63d is not None and pd.notna(rs_63d) and float(rs_63d) <= -0.15:
+        return False
+    return True
 
 
 def market_regime_ok(benchmark_df: pd.DataFrame, as_of: object | None) -> bool:

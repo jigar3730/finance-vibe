@@ -481,18 +481,16 @@ def run_scanner():
 
         results.append(setup_row)
 
-    if results:
-        df_out = pd.DataFrame(results).reindex(
-            columns=config.SETUP_ROW_COLUMNS).sort_values("Symbol")
+    today = datetime.now().strftime("%Y-%m-%d")
+    out_path = os.path.join(LOG_DIR, f"swing_setups_{today}.csv")
+    df_out = pd.DataFrame(results).reindex(columns=config.SETUP_ROW_COLUMNS)
+    if not df_out.empty:
+        df_out = df_out.sort_values("Symbol")
         print(df_out.to_markdown(index=False))
-
-        today = datetime.now().strftime("%Y-%m-%d")
-        out_path = os.path.join(LOG_DIR, f"swing_setups_{today}.csv")
-        df_out.to_csv(out_path, index=False)
-
-        logger.info(f"Archive created: {out_path}")
     else:
         logger.warning("No quality swing setups found for this timeframe window.")
+    df_out.to_csv(out_path, index=False)
+    logger.info(f"Archive created: {out_path} ({len(df_out)} setup(s))")
 
     logger.info("Scanner rejection summary:")
     for k, v in rejection_counts.items():

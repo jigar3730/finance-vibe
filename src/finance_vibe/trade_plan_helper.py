@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pandas.errors
 
 try:
     from finance_vibe import config
@@ -27,13 +28,41 @@ MIN_CHECKLIST_RATIO = 5 / 7
 TIGHT_COIL_PROPENSITY = 1.25
 TIGHT_RISK_PCT = 0.03
 
+CLEAN_EXPORT_COLUMNS = [
+    "Symbol",
+    "Setup Type",
+    "Source",
+    "Mode",
+    "AsOf Date",
+    "Score",
+    "Grade",
+    "Checks Met",
+    "RVOL",
+    "Market Gate",
+    "Close",
+    "Stock Entry",
+    "Stock Stop",
+    "Target 1",
+    "Target 2",
+    "Risk Per Share",
+    "R:R T1",
+    "R:R T2",
+    "ML_Pred_Return",
+    "ML_Rank",
+    "Expected Value",
+    "Priority",
+    "ATR",
+    "RSI",
+    "Fib 78.6%",
+]
+
 
 def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -> tuple[Path, Path]:
     """Locate a trade plan CSV under data/logs/{mode}/ or legacy flat dirs.
 
-    Prefers ``trade_plan_{today}.csv``; if that is missing, falls back to the
-    latest dated ``trade_plan_<date>.csv`` (excluding the ``_clean`` variant) so
-    the helper stays coupled to whatever date the planner actually produced.
+    Prefers ``trade_plan_{today}.csv`` (the planner always writes that stamp).
+    If it is missing — e.g. a helper-only rerun — fall back to the latest dated
+    ``trade_plan_<date>.csv`` (excluding the ``_clean`` variant).
     """
     today_str = today or datetime.now().strftime("%Y-%m-%d")
     filename = f"trade_plan_{today_str}.csv"
@@ -192,11 +221,27 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
     # fallback older than "today").
     resolved_date = scanner_csv.stem.split("_")[-1]
 
+    clean_csv = trade_plan_dir / f"trade_plan_clean_{resolved_date}.csv"
+
+    def _finish_empty() -> Path:
+        print("⚠️ Trade plan file is empty. Skipping processing cleanly.")
+        pd.DataFrame(columns=CLEAN_EXPORT_COLUMNS).to_csv(clean_csv, index=False)
+        print(f"✅ Cleaned trade plan saved: {clean_csv}")
+        return clean_csv
+
+    if scanner_csv.exists() and scanner_csv.stat().st_size == 0:
+        return _finish_empty()
+
     try:
         df = pd.read_csv(scanner_csv)
+    except pandas.errors.EmptyDataError:
+        return _finish_empty()
     except Exception as e:
         print(f"❌ Error loading file: {e}")
         raise SystemExit(1) from e
+
+    if df.empty:
+        return _finish_empty()
 
     df.columns = df.columns.str.strip()
     print("✅ Loaded CSV columns:", df.columns.tolist())
@@ -254,37 +299,8 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
     # Select essential columns for the cleaned file (only those that exist).
     # Both LEAPS/Options label variants are listed so mode-specific columns
     # survive the filter.
-    essential_cols = [
-        "Symbol",
-        "Setup Type",
-        "Source",
-        "Mode",           # swing profile (weekly/daily/high_beta)
-        "AsOf Date",
-        "Score",          # raw scanner score
-        "Grade",          # e.g. "A - Institutional Setup"
-        "Checks Met",     # e.g. "5/7"
-        "RVOL",
-        "Market Gate",
-        "Close",
-        "Stock Entry",
-        "Stock Stop",
-        "Target 1",
-        "Target 2",
-        "Risk Per Share",
-        "R:R T1",
-        "R:R T2",
-        "ML_Pred_Return",
-        "ML_Rank",
-        "Expected Value",
-        "Priority",
-        "ATR",
-        "RSI",
-        "Fib 78.6%",
-   
-    ]
-
     # Keep only columns that exist
-    keep_cols = [c for c in essential_cols if c in df.columns]
+    keep_cols = [c for c in CLEAN_EXPORT_COLUMNS if c in df.columns]
     df_clean = df[keep_cols].copy()
 
     print("\n📄 Cleaned Trade Plan Preview:")

@@ -1,97 +1,148 @@
-# 🧮 Trade Plan Architecture Documentation
+# Trade Plan Architecture
 
-> **Code of record:** mode-aware geometry lives in `config.get_swing_params` / `trade_planner.calculate_stock_levels` (weekly / daily / high_beta / Coiled Cobra Fib path). The ATR multiples below are an early daily-swing illustration — they do **not** match current weekly 1.25/2.25 ATR or high_beta 1R/2R targets. See [`swing_setup.md`](swing_setup.md) and [`trade_planner_worklog.md`](../architecture/trade_planner_worklog.md).
+**Code of record:** `config.get_swing_params` / `config.compute_swing_levels` /
+`trade_planner.calculate_stock_levels` / `trade_plan_helper.py`.
 
-This document outlines the systematic, mathematical pipeline used by the `quant-platform-scanner` ecosystem to transform raw market indicators into actionable, volatility-adjusted trade execution architectures.
+The planner merges **today's** `swing_setups_<date>.csv` and
+`coiled_cobra_setups_<date>.csv` from `config.get_log_dir(mode)` and writes
+`trade_plan_<date>.csv`. Row `Mode` is authoritative for swing geometry.
+
+```bash
+python src/finance_vibe/trade_planner.py weekly
+python src/finance_vibe/trade_planner.py daily
+python src/finance_vibe/trade_planner.py high_beta
+python src/finance_vibe/trade_plan_helper.py weekly
+```
 
 ---
 
-## 🧭 The Core Workflow Pipeline
-
-The execution architecture operates as a strict multi-step data processing lifecycle:
+## Pipeline
 
 ```mermaid
 graph TD
-    A([🌌 Market Universe]) 
-    A -->|swing_scanner.py| B[🎯 Curated Setup Matches]
-    B -->|trade_planner.py| C[📐 Architectural Leveling]
-    C -->|trade_plan_helper.py| D[⚙️ Options & Metrics Engine]
-
-    style A fill:#f9f,stroke:#333,stroke-width:1px
-    style B fill:#bbf,stroke:#333,stroke-width:1px
-    style C fill:#bfb,stroke:#333,stroke-width:1px
-    style D fill:#fbb,stroke:#333,stroke-width:1px
-
+    A([Raw OHLCV])
+    A -->|swing_scanner.py| B[Quality swing rows]
+    A -->|coiled_cobra.py| C[Coil rows]
+    B --> D[trade_planner.py]
+    C --> D
+    D -->|trade_plan_helper.py| E[Guardrails + EV rank]
 ```
 
-## 📐 Mathematical Formulas & Logic
-
-The trade planner uses the **Average True Range (ATR)** to dynamically scale risk based on an asset's unique underlying volatility, while anchoring protection to the **50 Exponential Moving Average (EMA50)**.
-
-### 1. Execution Entry Architecture
-Instead of chasing the current price, the engine bids slightly below the current close to maximize edge during active pullbacks:
-$$\text{Stock Entry} = \text{Close} - (0.25 \times \text{ATR})$$
-
-### 2. Risk Mitigation & Protection (Stop Loss)
-The stop loss utilizes structural moving average support cushioned further by a volatility premium padding factor:
-$$\text{Stock Stop} = \text{EMA50} - (0.50 \times \text{ATR})$$
-
-### 3. Target Distribution Vectors
-Take-profit levels are scaled linearly outwards based on standardized daily volatility expansions:
-$$\text{Target 1} = \text{Stock Entry} + (1.00 \times \text{ATR})$$
-$$\text{Target 2} = \text{Stock Entry} + (2.00 \times \text{ATR})$$
-
-### 4. Capital Efficiency Metrics
-Risk per share and Risk-to-Reward ($R:R$) ratios are computed linearly to evaluate trade viability before capital allocation:
-$$\text{Risk Per Share} = \text{Stock Entry} - \text{Stock Stop}$$
-$$\text{Risk-to-Reward (R:R)} = \frac{\text{Target Level} - \text{Stock Entry}}{\text{Risk Per Share}}$$
+`run_vibe.py` skips Coiled Cobra in `high_beta` mode. `analysis_engine.py` is
+not an orchestrator step.
 
 ---
 
-## 🔍 Case Study Workbook: HLT (Hilton) Blueprint
+## Shared constants
 
-To verify or audit internal calculation routines, reference this step-by-step mathematical translation using real scanner outputs.
-
-### Raw Scanner Inputs
-* **Close:** `342.89`
-* **EMA50:** `332.04`
-* **ATR:** `7.46`
-
-### Calculation Output Log
-1.  **Stock Entry:** $342.89 - (0.25 \times 7.46) = \mathbf{341.02}$
-2.  **Stock Stop:** $332.04 - (0.50 \times 7.46) = \mathbf{328.31}$
-3.  **Target 1:** $341.02 + 7.46 = \mathbf{348.48}$
-4.  **Target 2:** $341.02 + (2 \times 7.46) = \mathbf{355.94}$
-5.  **Risk Per Share:** $341.02 - 328.31 = \mathbf{12.71}$
-6.  **Target 1 R:R Ratio:** $\frac{348.48 - 341.02}{12.71} = \mathbf{0.59}$
-7.  **Target 2 R:R Ratio:** $\frac{355.94 - 341.02}{12.71} = \mathbf{1.17}$
+| Key | Value | Where |
+| --- | ----- | ----- |
+| `entry_atr` | 0.25 | all swing profiles |
+| `stop_buffer_atr` | 0.25 | all swing profiles |
+| `stop_atr_cap` | 1.5 | all swing profiles |
+| `MAX_RISK_PCT_OF_CLOSE` | 0.05 | `config.py` + helper |
+| Long delta | 0.65 – 0.80 | `DELTA_LONG` |
+| Short delta | −0.80 – −0.65 | `DELTA_SHORT` |
 
 ---
 
-## 🎭 Options Parameter Ruleset (Daily Swing Mode)
+## 1. Quality-swing path (`compute_swing_levels`)
 
-When parsing in **DAILY MODE**, the asset holds a multi-week expected duration. The `trade_plan_helper.py` script automatically overlays institutional options criteria based on fixed tracking logic:
+### Entry
 
-| Parameter | Assigned Value / Range | Operational Strategy Logic |
-| :--- | :--- | :--- |
-| **Options Type** | `CALL` | Assigned strictly for `SETUP_LONG` structures. |
-| **Suggested Delta** | `0.65 – 0.80` | Targets deep In-The-Money (ITM) positions to mimic underlying stock replacement closely while mitigating high theta decay. |
-| **Expiration Window** | `30 to 90 Days Out` | Matches market parameters dynamically (`Min: Current Month + 1` to `Max: Current Month + 3`). |
+**Long:** $\text{Entry} = \max(\text{EMA20},\; \text{Close} - 0.25 \times \text{ATR})$
+
+**Short:** $\text{Entry} = \min(\text{EMA20},\; \text{Close} + 0.25 \times \text{ATR})$
+
+### Stop (dual constraint)
+
+Local structure is swing low/high ± `0.25×ATR` (fallback EMA50). The stop is
+the tighter of that structure and `entry ± 1.5×ATR`, then capped at **5% of
+Close**. A minimum buffer of `0.25×ATR` from entry is always kept.
+
+`high_beta` then **rejects** the row if risk / ATR is outside **[0.5, 1.5]**.
+
+### Targets
+
+| Profile | T1 | T2 |
+| ------- | -- | -- |
+| `weekly` | Entry ± **1.25×ATR** | Entry ± **2.25×ATR** |
+| `daily` | Entry ± **0.85×ATR** | Entry ± **1.6×ATR** |
+| `high_beta` | Entry ± **2.0 × risk** | Entry ± **3.0 × risk** |
+
+`use_r_targets` is True only on `high_beta` (`t1_r=2.0`, `t2_r=3.0`).
 
 ---
-*Document Version: 1.0.0 | System Date Context: 2026-07-07*
+
+## 2. Coiled Cobra path (`calculate_stock_levels`)
+
+Used when `Source` is `coiled_cobra` / `cobra` **and** `Fib 78.6%` is present.
+Fib is **entry context only** — it does not widen the stop.
+
+**Entry:** $\max(\text{Fib }78.6\%,\; \text{Close} - 0.25 \times \text{ATR})$
+
+**Stop (triple constraint, tightest wins):**
+
+- local 10-session swing low − `0.25×ATR` (else `entry − 1.5×ATR`)
+- vol floor: `entry − 1.5×ATR`
+- price floor: `entry − 5\% \times \text{Close}`
+- never tighter than `entry − 0.25×ATR`
+
+**Targets:** T1 = entry + **2.0 × risk**, T2 = entry + **3.0 × risk**.
+
+`_export_levels` re-applies the 5% Close cap after rounding and, when the
+geometry was 2R/3R, rebuilds targets from the rounded risk.
 
 ---
 
-## 🛡️ Operational Safeguards & Exception Handling
+## 3. Options metadata
 
-### 1. Data Validation Gating
-Before any asset enters the calculation engine, it must pass a structural completeness gate inside `swing_scanner.py`. 
-* **`IGNORE` Classification:** The asset is healthy but does not meet the explicit entry profile (e.g., RSI is too high, or price is not interacting with the EMA20).
-* **`insufficient_data` Exception:** Triggered if a ticker lacks sufficient trading history to cleanly establish the backward-looking `EMA50` baseline. Assets failing this check are instantly aborted to prevent mathematical skew in volatile new listings or low-liquidity pairs.
+| Mode | Contract column | Expiry window | Delta |
+| ---- | --------------- | ------------- | ----- |
+| `weekly` | `LEAPS Type` | 12–24 months | Long 0.65–0.80 / Short −0.80 to −0.65 |
+| `daily`, `high_beta` | `Options Type` | 1–3 months | Same delta bands |
 
-### 2. Asset Suffix Standardization
-To maintain compatibility between internal log systems and downstream web services (such as Yahoo Finance asset tracking templates), the symbol tracking architecture mandates clean, un-suffixed global symbols (e.g., `SPY`, `HLT`). Global exchanges or market flags are handled at the UI rendering layer, keeping core data files pristine.
+---
 
-### 3. Dynamic Stop Invalidations
-As codified in the `Risk Notes` column output, the `Stock Stop` is directly dependent on structural moving average behavior. If a systemic market shift pushes the moving average line significantly away from the initial calculation print before order execution, the order parameters are considered structurally invalidated and must be manually or programmatically re-calculated.
+## 4. Helper guardrails (`trade_plan_helper.py`)
+
+After direction-aware R:R:
+
+| Gate | Rule |
+| ---- | ---- |
+| Risk | drop if `Risk Per Share / Close > 0.05` |
+| Checklist | drop Coiled Cobra rows with `Checks Met` ratio `< 5/7` (swing rows with a blank check pass) |
+| T1 R:R | drop if `R:R T1 < 2.0` |
+
+Survivors are ranked:
+
+- `Expected Value = R:R T2 × Score`
+- `Priority` = that EV × **1.25** propensity when `Source` is cobra **or** risk ≤ 3% of Close
+- If `ML_Pred_Return` is present: `Priority = R:R T2 × max(ML_Pred_Return, 0) × propensity`
+
+The helper prefers `trade_plan_{today}.csv`, then falls back to the newest
+dated `trade_plan_*.csv` in the mode log dir (including `high_beta`).
+
+---
+
+## Worked weekly long (ATR targets)
+
+Inputs: Close 100, EMA20 99, EMA50 95, ATR 4, swing low 96.
+
+1. Entry = max(99, 100 − 1.00) = **99.00**
+2. Structure stop = 96 − 1.00 = 95.00; vol floor = 99 − 6.00 = 93.00; price floor = 99 − 5.00 = 94.00 → stop = **95.00**
+3. T1 = 99 + 1.25×4 = **104.00**; T2 = 99 + 2.25×4 = **108.00**
+4. Risk = 4.00; R:R T1 = 1.25 (this weekly ATR path **fails** the helper's T1 ≥ 2.0 gate)
+
+A `high_beta` or Coiled Cobra 2R/3R path with the same 4.00 risk would print
+T1 = 107.00 / T2 = 111.00 and **pass** the helper T1 gate.
+
+---
+
+## Safeguards
+
+- Planner uses **today's** dated scanner files only (no silent reuse of last week's hits).
+- `IGNORE` in the scanner means the name is healthy but failed the setup profile.
+- `insufficient_data` / `MIN_SAVE_ROWS` (60) abort thin history before EMA50 is reliable.
+- If EMA50 or the local swing moves materially before the order is live, levels
+  must be recalculated (`Risk Notes` on older weekly plans).

@@ -37,6 +37,14 @@ def run_workflow():
         default="weekly",
         help="Execution profile (weekly, daily, or high_beta long-only single names)",
     )
+    parser.add_argument(
+        "--reuse-raw",
+        action="store_true",
+        help=(
+            "Keep existing data/raw/{mode} files; skip wipe, ticker refresh, "
+            "and yfinance ingest. Scanners still run on the files already on disk."
+        ),
+    )
     args = parser.parse_args()
     mode = args.mode.lower()
 
@@ -74,12 +82,24 @@ def run_workflow():
         print(f"🧬 Data timeframe: {data_mode} | Swing profile: {mode}")
     print()
 
-    # Clean the shared raw silo for the data timeframe.
-    clean_raw_folder(ROOT_DIR, data_mode)
+    skip_ingest = {
+        "src/finance_vibe/ticker_provider.py",
+        "src/finance_vibe/data_ingestor.py",
+    }
+
+    # Clean the shared raw silo unless the caller wants to reuse existing OHLCV.
+    if args.reuse_raw:
+        print(f"♻️  Reusing existing raw files in data/raw/{data_mode}/")
+        print()
+    else:
+        clean_raw_folder(ROOT_DIR, data_mode)
 
     for script in scripts_config:
         if mode in script.get("skip_modes", []):
             print(f"⏭️  Skipping {script['path']} for {mode} mode.\n")
+            continue
+        if args.reuse_raw and script["path"] in skip_ingest:
+            print(f"⏭️  Skipping {script['path']} (--reuse-raw).\n")
             continue
 
         script_path = os.path.join(ROOT_DIR, script["path"])

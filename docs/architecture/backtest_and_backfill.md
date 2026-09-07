@@ -142,6 +142,10 @@ mode                  weekly | daily | high_beta   (default: weekly)
 --short-max-score N   Hard macro gate for SETUP_SHORT (default: -2)
 --cooldown-bars N     Min bars after an exit before a new signal
                       (default: from swing profile)
+--no-partials         Default. Full exit at --target-r (CLI default 1.5)
+--use-partials        Legacy 50% scale-out at T1 / runner to T2
+--target-r N          Full-exit R multiple when --no-partials (default: 1.5)
+--trailing-atr-mult N High-water ATR trail (default: 2.0; 0 disables)
 ```
 
 Programmatic: `run_backtest(mode=..., tickers=..., long_min=..., ...)`.
@@ -163,14 +167,14 @@ From `config.get_swing_params(mode)`:
 
 | Parameter | Weekly | Daily | High-beta |
 | --------- | ------ | ----- | --------- |
-| Direction | long + short | long + short | **long-only** |
-| Soft Vibe | none | ≥ 5 (long) | ≥ 5 (long) |
+| Direction | long + short | **long only** (`short_max_vibe` unset) | **long-only** |
+| Soft Vibe | none | ≥ 5 (long); shorts disabled | ≥ 5 (long) |
 | EMA proximity | 1.5% | 2% | **0.5 × ATR** |
 | RSI long | 45–55 | 40–55 | **35–58** |
 | Confirm slack | 0 | 0 | **0.35 × ATR** |
 | Structure tolerance | 0.2% | 0.2% | **0.25 × ATR** |
-| Stop | structural, capped 1.25 ATR | capped 1.5 ATR | **uncapped structural; reject if risk ∉ [0.5, 2.5] ATR** |
-| T1 / T2 | 1.25 / 2.25 ATR | 0.85 / 1.6 ATR | **1R / 2R** (stop distance) |
+| Stop | dual-constraint, **1.5 ATR** floor | same **1.5 ATR** floor | same **1.5 ATR** floor; **reject if risk ∉ [0.5, 1.5] ATR** |
+| T1 / T2 | 1.25 / 2.25 ATR | 0.85 / 1.6 ATR | **2R / 3R** (`t1_r=2.0`, `t2_r=3.0`) |
 | Entry valid / max hold / cooldown | 4 / 12 / 4 | 6 / 20 / 8 | 6 / 20 / 10 |
 | Market regime | — | — | QQQ close > EMA50 & EMA100, EMA50 rising |
 | Relative strength | — | — | stock/QQQ ratio > 20d MA **and** +63d relative return |
@@ -178,28 +182,35 @@ From `config.get_swing_params(mode)`:
 
 High-beta is **experimental** until it clears the promotion gates below.
 
-### Execution model (scaled-out simulator)
+### Execution model (swing simulator)
 
-Used by the pipeline backtest for all modes. Legacy `simulate_trade()` (full exit at first target/stop, no slippage) remains for **Coiled Cobra** compatibility.
+**Default CLI:** `--no-partials` is on. The trade exits entirely at `--target-r`
+(default **1.5R**) or a high-water **ATR trailing stop**
+(`--trailing-atr-mult`, default **2.0** × risk below the running high / above
+the running low). Outcome `stopped_trailing` vs `stopped_full`.
+
+Pass `--use-partials` for the legacy scale-out: 50% off at T1, remainder to
+breakeven, runner to T2. Coiled Cobra still uses legacy `simulate_trade()`
+(full exit at first stop/target, no slippage).
 
 | Rule | Behavior |
 | ---- | -------- |
 | Entry | Limit at planned entry; fill when Low ≤ entry (long) / High ≥ entry (short) within `entry_valid_bars` |
 | Gap entry | If Open gaps through the limit, fill at Open (flagged `Gap Entry`) |
 | Slippage | Adverse `BACKTEST_SLIPPAGE_PCT` (default **0.05%**) on entry and stop exits |
-| Partial | **50%** off at T1 (1R when using R-targets) |
-| Runner | Remaining stop → **breakeven**; aim for T2 (2R) |
+| Default exit | Full position at `--target-r` or ATR trail |
+| `--use-partials` | **50%** off at T1; runner stop → **breakeven**; aim for T2 |
 | Same-bar ambiguity | Pessimistic: stop assumed before target |
 | Gap through stop | Exit at the worse Open (can be worse than −1R) |
-| Max hold | Mark-to-market at Close (`partial_expired` / `expired_no_partial`) |
+| Max hold | Mark-to-market at Close |
 
-**Blended R outcomes (50/50):**
+**Legacy blended R outcomes (`--use-partials`, 50/50):**
 
 | Path | Blended R (approx.) |
 | ---- | ------------------- |
 | Full stop before T1 | ≈ −1R (worse with gap/slippage) |
-| Partial @ 1R, runner @ BE | ≈ +0.5R |
-| Partial @ 1R, runner @ 2R | ≈ +1.5R |
+| Partial @ T1, runner @ BE | ≈ +0.5R when T1 is 1R |
+| Partial @ T1, runner @ T2 | ≈ +1.5R when T1/T2 are 1R/2R |
 
 ### Outcomes & counters
 
@@ -288,7 +299,7 @@ python src/finance_vibe/pipeline_backtest.py daily --cooldown-bars 12
 
 Separate from the quality-swing path. Uses Fib-anchored geometry (`Source=coiled_cobra`) and the **legacy** `simulate_trade` (full exit at first stop/target; no scale-out / slippage).
 
-Typically run on **weekly** data (macro reversal horizon).
+Typically run on **weekly** data (coil → expansion horizon).
 
 ### Signal backfill
 
@@ -331,7 +342,7 @@ Outcomes: `no_fill`, `stopped`, `target1`, `target2`, `expired` with a single `R
 | Identity | `Symbol`, `Signal Date`, `Setup Type` |
 | Pre-signal features | `Score`, `Grade`, `Pct_From_EMA20`, `Pct_From_EMA50`, `Pct_From_Fib618`, `Pct_From_Fib786`, `ATR_Pct` |
 | Execution / leakage | `Stock Entry`, `Stock Stop`, `Target 1`, `Target 2`, `Outcome`, `Exit Date`, `Exit Price`, `R Multiple`, `Target_Label`, `Target_R_Mult` |
-| Continuous targets | `Forward_Return_5w`, `Forward_Return_13w`, `Forward_Return_26w` |
+| Continuous targets | `Forward_Return_2w` (baseline $Y$), `Forward_Return_5w`, `Forward_Return_13w`, `Forward_Return_26w` |
 
 `Forward_Return_{Nw}` is `(Close[t+N] − Close[t]) / Close[t]` when enough future bars exist; otherwise `None` / NaN.
 
@@ -343,7 +354,7 @@ Outcomes: `no_fill`, `stopped`, `target1`, `target2`, `expired` with a single `R
 Consumes `coiled_cobra_backtest_trades_*.csv` to train XGBoost + LightGBM regressors on **`Forward_Return_2w`** (code of record in `coiled_cobra_ml_training.py`) with:
 
 - 6 pre-signal features (`Grade` excluded — collinear with `Score`)
-- Strict temporal split (train ≤2023 / val 2024 / test 2025–Jul 2026) — **no random K-fold**
+- Strict temporal split: rolling 26-week test / 26-week val / rest train on `Signal Date` — **no random K-fold**
 - Leakage columns dropped; `no_fill` rows kept
 - MAE objectives (`reg:absoluteerror` / `regression_l1`) + `ATR_Pct` sample weights
 

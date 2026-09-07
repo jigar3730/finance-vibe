@@ -18,7 +18,7 @@ just sharing credit inside a correlated cluster.
 | Feature contract | `FEATURE_COLS` in `src/finance_vibe/coiled_cobra_ml_training.py` |
 | Inference must match | `ml_ranker.build_feature_frame()` / `FEATURE_COLS` import |
 | Indicator construction | `coiled_cobra.add_macro_indicators()` |
-| Scorecard pillars **not** in $X$ | `macd_compression_score`, `coil_width_score`, `evaluate_volume_profile_shelf`, `rs_score` |
+| Scorecard pillars **not** in $X$ | `macd_compression_score`, `coil_width_score`, `evaluate_volume_profile_shelf`, `rs_score`, `rvol_trigger_score`, `overhead_clearance_score`, `Market Gate` |
 | Importance artifact | `data/logs/weekly/coiled_cobra_ml_feature_importance.png` |
 | Tests that pin the schema | `tests/test_ml_ranker.py` |
 

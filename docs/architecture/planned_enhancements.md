@@ -1,4 +1,10 @@
-  This is an exceptionally well-thought-out, institutional-grade rubric. You have successfully merged structural market geometry with options-specific Greeks—specifically targeting the "volatility tax" ($Vega$ risk) that ruins most retail LEAPS buyers.
+> **Historical critique (not the live spec).** Grade bands below (B = 75–84)
+> and the LEAPS/IV playbook describe an earlier options overlay. Live Cobra
+> grades are A ≥ 85 / B ≥ 70; live geometry is in
+> [`coiled_cobra_rubric.md`](../handbook/coiled_cobra_rubric.md) and
+> [`trade_plan_calculations.md`](../handbook/trade_plan_calculations.md).
+
+This is an exceptionally well-thought-out, institutional-grade rubric. You have successfully merged structural market geometry with options-specific Greeks—specifically targeting the "volatility tax" ($Vega$ risk) that ruins most retail LEAPS buyers.
 
 As a senior financial planner looking at capital preservation, and a market practitioner looking at edge, **I fully endorse this rubric.** Here is my institutional critique, followed by a professional, step-by-step execution playbook to operationalize this system.
 

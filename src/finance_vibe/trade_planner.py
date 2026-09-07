@@ -1,7 +1,9 @@
 """Trade plan generator: stock levels and options metadata from swing setups.
 
-Reads ``swing_setups_<date>.csv`` and writes ``trade_plan_<date>.csv`` with
-entry, stop, ATR targets, and LEAPS (weekly) or short-dated options (daily) fields.
+Reads today's ``swing_setups_<date>.csv`` / ``coiled_cobra_setups_<date>.csv``
+and writes ``trade_plan_<date>.csv`` with entry, stop, ATR targets, and LEAPS
+(weekly) or short-dated options (daily) fields. Stale archives from prior days
+are never reused.
 """
 from __future__ import annotations
 
@@ -41,6 +43,54 @@ SCANNER_DIR = Path(config.get_log_dir(mode))
 SCANNER_PREFIX = "swing_setups_"
 COILED_PREFIX = "coiled_cobra_setups_"
 OUTPUT_PREFIX = "trade_plan_"
+
+# Shared export schema so a zero-setup day still writes a header-only CSV
+# (pandas writes no columns for an empty DataFrame() and the helper then crashes).
+_PLAN_CORE_COLUMNS = [
+    "Symbol",
+    "Setup Type",
+    "Source",
+    "Mode",
+    "AsOf Date",
+    "Stock Entry",
+    "Stock Stop",
+    "Target 1",
+    "Target 2",
+    "Risk Per Share",
+    "Close",
+    "EMA20",
+    "EMA50",
+    "ATR",
+    "RSI",
+    "Swing Low",
+    "Swing High",
+    "Fib 61.8%",
+    "Fib 78.6%",
+    "Score",
+    "Grade",
+    "Checks Met",
+    "RVOL",
+    "Market Gate",
+    "ML_Pred_Return",
+    "ML_Rank",
+    "Notes",
+    "Delta Min",
+    "Delta Max",
+]
+
+
+def _plan_export_columns(*, short_dated: bool) -> list[str]:
+    """Column order for ``trade_plan_*.csv``, including mode-specific expiry labels."""
+    expiry_label_min = "Options Expiry Min" if short_dated else "LEAPS Expiry Min"
+    expiry_label_max = "Options Expiry Max" if short_dated else "LEAPS Expiry Max"
+    contract_label = "Options Type" if short_dated else "LEAPS Type"
+    return [
+        *_PLAN_CORE_COLUMNS,
+        contract_label,
+        expiry_label_min,
+        expiry_label_max,
+    ]
+
 
 # --------- HELPER FUNCTIONS ----------
 
@@ -178,36 +228,38 @@ def _calculate_options_expiry() -> tuple[str, str]:
 # --------- MAIN FUNCTION ----------
 
 
-def generate_trade_plan(scanner_csv_path: str | Path | None = None) -> pd.DataFrame | None:
-    """Build and export a trade plan CSV from the latest or provided scanner output."""
+def generate_trade_plan(
+    scanner_csv_path: str | Path | None = None,
+    *,
+    as_of: str | None = None,
+) -> pd.DataFrame | None:
+    """Build and export a trade plan CSV from today's (or provided) scanner output."""
+    today = as_of or datetime.now().strftime("%Y-%m-%d")
     print(
         f"--- STEP 5: Drafting Trade Execution Architectures [{mode.upper()} MODE] ---"
     )
+    print(f"As-of date: {today}")
 
-    # Auto-detect latest scanner CSVs inside isolated subdirectory if none provided
+    # Auto-detect *today's* scanner CSVs. Prior-day archives are ignored so a
+    # zero-hit scan cannot silently reuse last week's setups.
     if scanner_csv_path is None:
         if not SCANNER_DIR.exists():
             print(f"⚠️ Target scanner directory empty or non-existent: {SCANNER_DIR}")
             return None
 
-        # Find latest swing scanner file
-        swing_files = list(SCANNER_DIR.glob(f"{SCANNER_PREFIX}*.csv"))
-        swing_files.sort(key=lambda f: f.stem.split("_")[-1], reverse=True)
-        swing_csv_path = swing_files[0] if swing_files else None
+        swing_today = SCANNER_DIR / f"{SCANNER_PREFIX}{today}.csv"
+        cobra_today = SCANNER_DIR / f"{COILED_PREFIX}{today}.csv"
+        swing_csv_path = swing_today if swing_today.exists() else None
+        cobra_csv_path = cobra_today if cobra_today.exists() else None
 
-        # Find latest Coiled Cobra scanner file
-        cobra_files = list(SCANNER_DIR.glob(f"{COILED_PREFIX}*.csv"))
-        cobra_files.sort(key=lambda f: f.stem.split("_")[-1], reverse=True)
-        cobra_csv_path = cobra_files[0] if cobra_files else None
-
-        if swing_csv_path is None and cobra_csv_path is None:
-            print(
-                f"⚠️ No active setup archives discovered in {SCANNER_DIR}. Exiting plan generation."
-            )
-            return None
-
-        print(f"Using swing scanner file: {swing_csv_path}")
-        print(f"Using Coiled Cobra scanner file: {cobra_csv_path}")
+        if swing_csv_path is None:
+            print(f"⚠️ No swing archive for {today}: {swing_today.name}")
+        else:
+            print(f"Using swing scanner file: {swing_csv_path}")
+        if cobra_csv_path is None:
+            print(f"⚠️ No Coiled Cobra archive for {today}: {cobra_today.name}")
+        else:
+            print(f"Using Coiled Cobra scanner file: {cobra_csv_path}")
     else:
         # Explicit single-source path provided (treated as a swing-style file)
         swing_csv_path = Path(scanner_csv_path)
@@ -232,15 +284,24 @@ def generate_trade_plan(scanner_csv_path: str | Path | None = None) -> pd.DataFr
 
     # Combine into one DataFrame
     dfs = [df for df in [df_swing, df_cobra] if df is not None and not df.empty]
+    output_csv_path = SCANNER_DIR / f"{OUTPUT_PREFIX}{today}.csv"
+    os.makedirs(SCANNER_DIR, exist_ok=True)
+
+    short_dated = mode in _SHORT_DATED_MODES
+    export_columns = _plan_export_columns(short_dated=short_dated)
+
     if not dfs:
-        print("⚠️ All setup archives are empty. Skipping calculations.")
-        return None
+        print(
+            f"⚠️ No setups for {today}. Writing empty trade plan: {output_csv_path}"
+        )
+        empty_df = pd.DataFrame(columns=export_columns)
+        empty_df.to_csv(output_csv_path, index=False)
+        return empty_df
 
     df = pd.concat(dfs, ignore_index=True)
     print(f"Combined total setups: {len(df)}")
 
     plan_rows = []
-    short_dated = mode in _SHORT_DATED_MODES
     expiry_label_min = "Options Expiry Min" if short_dated else "LEAPS Expiry Min"
     expiry_label_max = "Options Expiry Max" if short_dated else "LEAPS Expiry Max"
     contract_label = "Options Type" if short_dated else "LEAPS Type"
@@ -298,19 +359,6 @@ def generate_trade_plan(scanner_csv_path: str | Path | None = None) -> pd.DataFr
 
     plan_df = pd.DataFrame(plan_rows)
 
-    # Auto-generate output filename within isolated directory block context
-    # Use the latest of the two detected files (swing or cobra)
-    latest_file = swing_csv_path or cobra_csv_path
-    if cobra_csv_path and swing_csv_path:
-        swing_date = swing_csv_path.stem.split("_")[-1]
-        cobra_date = cobra_csv_path.stem.split("_")[-1]
-        latest_file = swing_csv_path if swing_date >= cobra_date else cobra_csv_path
-
-    scanner_file = Path(latest_file)
-    date_str = scanner_file.stem.split("_")[-1]
-    output_csv_path = SCANNER_DIR / f"{OUTPUT_PREFIX}{date_str}.csv"
-
-    os.makedirs(SCANNER_DIR, exist_ok=True)
     plan_df.to_csv(output_csv_path, index=False)
     print(f"✅ Trade plan exported successfully to: {output_csv_path}")
     return plan_df

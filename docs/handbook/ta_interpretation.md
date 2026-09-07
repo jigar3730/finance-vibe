@@ -1,76 +1,112 @@
 # Technical Analysis & Trade Execution Guide (Finance Vibe Project)
 
-This guide outlines how to interpret macro Vibe Score output from `analysis_engine.py` and tactical setups from `swing_scanner.py`. The default weekly profile uses a **10-year weekly** lookback (`config.py` → `TIMEFRAME_PROFILES`). Full scoring rules: [`scoring_logic.md`](scoring_logic.md).
+How to read **macro Vibe Score** output from `analysis_engine.py` and
+**tactical setups** from `swing_scanner.py`. Live scoring rules:
+[`scoring_logic.md`](scoring_logic.md). Live swing geometry:
+[`swing_setup.md`](swing_setup.md). Coil scorecard:
+[`coiled_cobra_rubric.md`](coiled_cobra_rubric.md).
+
+Default weekly ingest is **10-year weekly** (`config.TIMEFRAME_PROFILES`).
+Daily is **5-year daily**. `high_beta` reuses daily OHLCV.
+
+---
 
 ## 1. The Trend Pillars (Moving Averages)
-Moving averages establish the baseline structural bias of an asset.
 
-| Metric | Definition | Technical Interpretation |
+Macro Vibe Score uses **SMA**. The swing and Coiled Cobra scanners use **EMA**.
+That split is intentional.
+
+| Metric | Used by | Interpretation |
 | :--- | :--- | :--- |
-| **SMA 20** | 20-Week Simple Moving Average | Represents the medium-term market equilibrium. |
-| **SMA 50** | 50-Week Simple Moving Average | Represents the primary, long-term structural trend. |
+| **SMA 20 / SMA 50** | `analysis_engine.build_features` | Medium-term equilibrium vs primary trend |
+| **EMA 20 / EMA 50 / EMA 100** | `swing_scanner.add_indicators` | Tactical pullback + regime (`Close > EMA100` for longs) |
+| **EMA 10 / SMA 50** | `coiled_cobra.structure_score` | Coil stack: 10 EMA > 20 EMA > 50 SMA |
 
-* **Structural Bull Market:** $\text{Close} > \text{SMA 20} > \text{SMA 50}$. This alignment confirms that short-term price discovery is outpacing long-term averages.
-* **Trend Weakness:** If $\text{Close} < \text{SMA 20}$, it serves as an early warning that the structural trend is pausing or reversing, even if $\text{Close} > \text{SMA 50}$.
+* **Structural bull (macro):** $\text{Close} > \text{SMA20} > \text{SMA50}$ → +4 Trend.
+* **Tactical bull (swing):** `EMA20 > EMA50` (rising), `Close > EMA100`, price inside the EMA20 proximity band.
 
 ---
 
 ## 2. Momentum & Boundaries (Oscillators)
-Oscillators quantify speed, velocity, and cyclical exhaustion points.
 
 ### Relative Strength Index (RSI 14)
-* **Scale:** 0 to 100
-* **Standard Overbought/Oversold:** $>70$ (Overbought), $<30$ (Oversold).
-* **Weekly Context:** In powerful macro uptrends, the RSI frequently becomes "embedded" above 50 and rarely drops below 40 during healthy pullbacks.
+
+Both layers use Wilder RSI(14).
+
+| Layer | Smoother / band |
+| ----- | --------------- |
+| Macro | `RSI_S` = **10-period SMA** of RSI (not an EMA-20) |
+| Swing weekly | long **45–55**, short **50–60** |
+| Swing daily | long **40–55** |
+| Swing high_beta | long **35–58** |
+
+Macro RSI risk: RSI > 80 caps the score at 5; 70 < RSI ≤ 80 is −1; RSI < 30 is +1.
 
 ### Commodity Channel Index (CCI 20)
-* **Scale:** Unbounded (typically fluctuates between -300 and +300)
-* **Cyclical Expansion:** Values $> +100$ indicate the stock is entering a strong, high-velocity cyclical impulse.
-* **Cyclical Contraction:** Values $< -100$ signal major downward velocity.
+
+Macro only. Typical price, **MAD** window, constant 0.015 (`_cci_fast`).
+`CCI_S` is a **10-period SMA** of CCI.
+
+* Constructive: −100 < CCI < 100 **and** CCI > CCI_S → +1
+* Exhaustion: CCI > 200 → −2; CCI < −200 → +1
 
 ---
 
-## 3. The Trend Accelerator (MACD 15, 30, 9)
-The Moving Average Convergence Divergence tracking is optimized with smoother windows (15, 30) for weekly analysis.
+## 3. MACD (12, 26, 9)
 
-* **MACD Line:** Measures the absolute distance between the fast and slow exponential moving averages.
-* **Interpretation:** 
-    * **Positive & Rising:** The structural spread is widening; upside momentum is accelerating.
-    * **Bearish Divergence:** If the asset price hits a new high but the MACD peak is lower than its previous peak, institutional accumulation is slowing down.
+Both layers use the **standard 12 / 26 / 9** parameterization — not 15 / 30 / 9.
 
----
-
-## 4. Signal Line Smoothers (EMA 20 Filters)
-Applying a 20-period Exponential Moving Average directly to your indicators (`EMA_20_RSI`, `EMA_20_CCI`, `EMA_20_MACD`) creates a dynamic, rolling baseline rather than static boundary lines.
-
-* **Bullish Crossover:** Indicator $>$ its respective `EMA_20`. This signals that immediate momentum is expanding relative to its recent historical window.
-* **Bearish Crossover:** Indicator $<$ its respective `EMA_20`. This indicates that the rate of change is slowing down (rolling over), even if the absolute values still look superficially high.
+| Layer | Series | Role |
+| ----- | ------ | ---- |
+| Macro | `MACD_H` = histogram; `MACD_S` = 9-EMA **of the histogram** | Momentum vs decay |
+| Swing | `MACD_Hist` (pandas_ta) | Early turn: rising two bars while still ≤ 0, and `< 2 × 20-bar hist std` |
+| Cobra | MACD line + hist / ATR | Squeeze state (0–15); deduct 5 if MACD line ≤ 0 |
 
 ---
 
-## 5. Tactical Order Execution Framework (Swing Levels)
+## 4. Signal smoothers (what actually ships)
 
-When `Entry_Signal` and `Exit_Signal` are both **False**, the asset is in a **No-Trade / Hold Zone**. During this phase, you use the raw dollar values of `Swing_High_4wk` and `Swing_Low_4wk` to set conditional pending orders.
+There are **no** `EMA_20_RSI` / `EMA_20_CCI` / `EMA_20_MACD` columns.
 
-### The Breakout Buy Blueprint (Entering Positions)
-Do not buy at market price when momentum is stagnant. Instead, wait for a breakout above the local 4-week ceiling to confirm that institutional buying has returned.
-* **Order Type:** Buy Stop Limit (or Buy Stop)
-* **Execution Trigger:** $\text{Price} \ge (\text{Swing\_High\_4wk} + \$0.50)$
-* **Objective:** Capture the sudden return of high-velocity macro momentum while protecting capital during sideways chop.
+| Column | Definition |
+| ------ | ---------- |
+| `RSI_S` | SMA(RSI, 10) |
+| `CCI_S` | SMA(CCI, 10) |
+| `MACD_S` | EMA(MACD_H, 9) |
 
-### The Structural Stop-Loss Blueprint (Risk Mitigation)
-To protect trading capital against a deep cyclical correction, use the 4-week floor as your ultimate line in the sand.
-* **Order Type:** Stop-Loss (or Stop Market)
-* **Execution Trigger:** $\text{Price} \le (\text{Swing\_Low\_4wk} - \$0.40)$
-* **Objective:** Automatically clear the position before a localized flush turns into a devastating multi-month structural breakdown.
+Bullish crossover language still applies to these smoothers: indicator above
+its smoother means the latest impulse is expanding versus its recent window.
 
 ---
 
-## Summary Cheat Sheet: The "Perfect Bullish Vibe"
+## 5. Tactical execution (swing levels)
 
-When verifying pipeline output records or dashboard dataframes, the ideal bullish momentum alignment is satisfied when:
+There are **no** `Entry_Signal` / `Exit_Signal` / `Swing_High_4wk` fields.
+Swing structure is a **10-bar** rolling low/high (`structure_bars=10`).
 
-1.  $$\text{Close} > \text{SMA 20} > \text{SMA 50}$$
-2.  $$\text{RSI} > \text{EMA 20 RSI}$$
-3.  $$\text{CCI} > \text{EMA 20 CCI}$$
-4.  $$\text{MACD} > \text{EMA 20 MACD}$$
+Quality-swing longs (after next-bar confirmation):
+
+* **Limit entry:** `max(EMA20, Close − 0.25×ATR)`
+* **Stop:** dual-constraint (local swing low vs `entry − 1.5×ATR`, 5% Close cap)
+* **Targets:** weekly 1.25 / 2.25 ATR; daily 0.85 / 1.6 ATR; high_beta **2R / 3R**
+
+Coiled Cobra rows use Fib 78.6% as an entry floor and the same 2R / 3R
+targets. Full formulas: [`trade_plan_calculations.md`](trade_plan_calculations.md).
+
+---
+
+## Summary cheat sheet: bullish alignment
+
+Macro Vibe (latest bar):
+
+1. $\text{Close} > \text{SMA20} > \text{SMA50}$
+2. $\text{RSI} > \text{RSI\_S}$ and $\text{MACD\_H} > \text{MACD\_S}$
+3. Distance to SMA20 in $[0, 5\%]$
+4. RSI not above 80; CCI not above 200
+
+Quality swing long:
+
+1. `EMA20 > EMA50` (rising), `Close > EMA100`
+2. Close inside the EMA20 proximity band
+3. RSI in the profile long band; MACD hist rising and ≤ 0
+4. Next bar confirms (close ≥ EMA20 and ≥ setup low − slack)

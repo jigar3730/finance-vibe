@@ -11,13 +11,14 @@ For tactical entry rules (EMA pullbacks), see [`swing_scanner.py`](../../src/fin
 | | |
 | --- | --- |
 | Module | `src/finance_vibe/analysis_engine.py` |
-| Pipeline step | **3** in `run_vibe.py` (after ingestion, before swing scanner) |
-| Input | All CSV files in `data/raw/{mode}/` |
-| Output | `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv` |
+| Live pipeline | **Not** in `run_vibe.py` (step is commented out) |
+| Used by | `swing_scanner._soft_vibe_gate` (daily / high_beta) and `pipeline_backtest.py` |
+| Manual run | Writes `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv` |
+| Input | All CSV files in `data/raw/{weekly\|daily}/` |
 
 ```bash
 python src/finance_vibe/analysis_engine.py weekly
-python src/finance_vibe/run_vibe.py
+python src/finance_vibe/analysis_engine.py daily
 ```
 
 Scoring uses the **latest bar** of each ticker file. Minimum history: **60 rows** (`MIN_ROWS`); shorter files are skipped.
@@ -31,8 +32,8 @@ Computed from `Close` (and `High` / `Low` when present for CCI):
 | Column | Definition |
 | ------ | ---------- |
 | **SMA20 / SMA50** | Simple moving average of `Close` (20 / 50 periods, `min_periods` = window) |
-| **MACD_H** | MACD histogram: EMA(12) − EMA(26) of `Close`, minus 9-period EMA of that line |
-| **MACD_S** | 9-period EMA of `MACD_H` |
+| **MACD_H** | MACD histogram: EMA(12) − EMA(26) of `Close`, minus 9-period EMA of that line (`_macd_hist`) |
+| **MACD_S** | 9-period EMA of **`MACD_H`** (histogram smoother — not the classic MACD signal line) |
 | **RSI** | 14-period Wilder RSI on `Close` |
 | **RSI_S** | 10-period SMA of `RSI` |
 | **CCI** | 20-period CCI on typical price using **mean absolute deviation** (constant 0.015) |
