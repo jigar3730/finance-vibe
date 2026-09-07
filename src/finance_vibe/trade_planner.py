@@ -281,6 +281,8 @@ def generate_trade_plan(scanner_csv_path: str | Path | None = None) -> pd.DataFr
                 "Score": row.get("Score", None),
                 "Grade": row.get("Grade", None),
                 "Checks Met": row.get("Checks Met", None),
+                "RVOL": row.get("RVOL", None),
+                "Market Gate": row.get("Market Gate", None),
                 # Offline-model ranking signal (soft; null when no model ran)
                 "ML_Pred_Return": row.get("ML_Pred_Return", None),
                 "ML_Rank": row.get("ML_Rank", None),

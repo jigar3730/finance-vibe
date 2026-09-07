@@ -1,7 +1,7 @@
 # Coiled Cobra Scanner
 ## Scoring Rubric & Technical Design
 
-Version: 2.0 (Coil → Expansion)
+Version: 3.0 (Coil → Expansion + RVOL trigger)
 
 Implementation: [`coiled_cobra.py`](../../src/finance_vibe/coiled_cobra.py). Theory and ML mapping: [`QUANT_ML_MANUAL.md`](QUANT_ML_MANUAL.md). Historical trade archive: [`backtest_and_backfill.md`](../architecture/backtest_and_backfill.md).
 
@@ -15,11 +15,12 @@ The **Coiled Cobra Scanner** identifies **compressed leaders ready to expand**
 It looks for securities that are:
 
 - Sitting in a volume / accumulation shelf
-- Compressing on MACD (tight MACD−Signal spread) — MACD may be ≥ 0
-- Holding healthy structure (price above a rising EMA50 / EMA100 stack)
+- Compressing on MACD (histogram squeeze near zero, MACD line > 0)
+- Holding aligned structure (10 EMA > 20 EMA > 50 SMA, not overextended)
 - Showing positive relative strength vs QQQ
-- Coiling in a tight N-bar range (low range / ATR)
-- Optionally printing an early bullish MACD cross
+- Coiling in a tight N-bar range (range / ATR ≤ 1.5 for full coil points)
+- Printing expansion volume (RVOL ≥ 2.0×) as the execution trigger
+- Clearing overhead supply (space to the next high)
 
 Deep markdown under EMA20 was **removed** — it systematically filtered out
 high-base coils (NVDA / APP / MU-class) that the scanner is meant to catch
@@ -30,22 +31,26 @@ Only setups scoring ≥ 70 are returned.
 
 ---
 
-# Overall Scoring Matrix (v2 — Coil)
+# Overall Scoring Matrix (v3 — Coil)
 
-| Category | Weight | Purpose |
-|----------|---------:|---------|
-| Volume Profile Shelf | 20 | Accumulation zone |
-| MACD Compression (ATR-normalized) | 20 | Coiled energy (no MACD &lt; 0) |
-| Structure (rising EMA stack) | 20 | Leader still healthy |
-| Relative Strength vs QQQ | 15 | Prefer names already leading |
-| Coil Width (range / ATR) | 15 | Tight base before expansion |
-| Bullish MACD Crossover | 10 | Early trigger |
-| Fib bonus (optional) | 5 | Context only — not a gate |
+| Category | Weight | `Parts` key |
+|----------|---------:|-------------|
+| Volume Profile Shelf | 20 | `volume_shelf` |
+| Volatility Coil (range / ATR ≤ 1.5) | 20 | `coil_width` |
+| MACD Squeeze State | 15 | `macd_compression` |
+| Relative Strength vs QQQ | 15 | `relative_strength` |
+| MA Alignment & ATR Proximity | 15 | `structure` |
+| Breakout RVOL Trigger | 10 | `rvol_trigger` |
+| Overhead Clearance / Space | 5 | `overhead_clearance` |
+
+Deprecated v2 keys **`macd_cross`** and **`fib_bonus`** are no longer written.
+CSV extras: **`RVOL`** (raw volume / SMA20) and **`Market Gate`** (SPY/QQQ above 21-EMA or 50-SMA). These are not ML `FEATURE_COLS`.
 
 Maximum Score = **100**
 
-Hard gates: MACD compression ≥ 5, structure ≥ 8, **and relative strength ≥ 12**
+Hard gates: MACD squeeze ≥ 5, structure ≥ 8, **and relative strength ≥ 12**
 (full RS pass vs QQQ). Negative-RS coils that only look tight (BA/DG-class) are rejected.
+A failed SPY/QQQ market gate zeros RVOL points, subtracts 15, and caps Grade at B.
 
 ---
 
@@ -66,52 +71,68 @@ Hard gates: MACD compression ≥ 5, structure ≥ 8, **and relative strength ≥
 Auction-market bins over the lookback window. Scores topology near high-volume
 nodes, proximity to the POC, and close holding above the bin center.
 
-## 2. MACD Compression (20 Points)
+## 2. Volatility Coil (20 Points)
+
+N-bar High−Low range / ATR14 (weekly N=8, daily N=30):
+
+| width | Points |
+|-------|-------:|
+| ≤ 1.5 ATR | 20 |
+| ≤ 2.5 ATR | 15 |
+| ≤ 4.0 ATR | 10 |
+| ≤ 6.0 ATR | 5 |
+
+## 3. MACD Squeeze State (15 Points)
 
 ```
-spread = abs(MACD - Signal) / ATR
+spread = abs(MACD_Hist) / ATR
 ```
 
 | spread | Points |
 |--------|-------:|
-| ≤ 0.05 | 20 |
-| ≤ 0.10 | 15 |
-| ≤ 0.18 | 10 |
-| ≤ 0.30 | 5 |
+| ≤ 0.05 | 15 |
+| ≤ 0.10 | 11 |
+| ≤ 0.18 | 7 |
+| ≤ 0.30 | 4 |
 | else | 0 |
 
-No requirement that MACD &lt; 0 — uptrend coils compress near or above zero.
-
-## 3. Structure (20 Points)
-
-- Close &gt; EMA50 → +8
-- EMA50 rising → +6
-- EMA50 &gt; EMA100 → +6
-
-Replaces the old deep-markdown pillar.
+Deduct 5 if the MACD line is ≤ 0. Crossover is not scored (`macd_cross` retired).
 
 ## 4. Relative Strength vs QQQ (15 Points)
 
 Stock/QQQ ratio above its MA and positive lookback relative return
 (weekly: 13 bars / 5-bar MA; daily: 63 / 20). Stronger RS (&gt; +10%) scores full 15.
 
-## 5. Coil Width (15 Points)
+## 5. MA Alignment & ATR Proximity (15 Points)
 
-N-bar range / ATR (weekly N=8, daily N=30):
+- 10 EMA &gt; 20 EMA → +5
+- 20 EMA &gt; 50 SMA → +5
+- Close &gt; 20 EMA → +5
+- If $\lvert\mathrm{Close}-20\,\mathrm{EMA}\rvert > 1.5 \times \mathrm{ATR}_{14}$, cap at 8
 
-| width | Points |
-|-------|-------:|
-| ≤ 4 ATR | 15 |
-| ≤ 6 ATR | 10 |
-| ≤ 8 ATR | 5 |
+## 6. Breakout RVOL Trigger (10 Points)
 
-## 6. Bullish MACD Cross (10 Points)
+$RVOL = \mathrm{Volume} / \mathrm{SMA}_{20}(\mathrm{Volume})$
 
-Prior bar MACD ≤ Signal and current MACD &gt; Signal.
+| RVOL | Points |
+|------|-------:|
+| ≥ 2.0× | 10 |
+| ≥ 1.5× | 6 |
+| ≥ 1.2× | 3 |
 
-## 7. Fib Bonus (0–5 Points)
+Zeroed when the broad-market gate fails.
 
-Optional proximity to rolling Fib 61.8 / 78.6 (ATR-normalized). Not required.
+## 7. Overhead Clearance (5 Points)
+
+Distance from close to the nearest lookback high above price, in ATR:
+
+| distance | Points |
+|----------|-------:|
+| ≥ 3 ATR or clear air | 5 |
+| ≥ 2 ATR | 3 |
+| ≥ 1 ATR | 1 |
+
+`fibonacci_score()` remains in code but is not summed (`fib_bonus` retired).
 
 ---
 

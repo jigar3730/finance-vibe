@@ -11,12 +11,20 @@ import pandas_ta as ta
 # --- PACKAGE IMPORT ---
 try:
     from finance_vibe import config
-    from finance_vibe.analysis_engine import load_benchmark_frame, relative_strength
+    from finance_vibe.analysis_engine import (
+        check_coiled_cobra_market_gate,
+        load_benchmark_frame,
+        relative_strength,
+    )
 except ImportError:
     sys.path.append(os.path.abspath(
         os.path.join(os.path.dirname(__file__), "..")))
     from finance_vibe import config
-    from finance_vibe.analysis_engine import load_benchmark_frame, relative_strength
+    from finance_vibe.analysis_engine import (
+        check_coiled_cobra_market_gate,
+        load_benchmark_frame,
+        relative_strength,
+    )
 
 # =========================
 # PROFILE CONFIGURATION
@@ -37,6 +45,7 @@ STRUCTURE_STOP_BARS = 10
 RS_LOOKBACK = 63 if mode == "daily" else 13
 RS_RATIO_MA = 20 if mode == "daily" else 5
 BENCHMARK = "QQQ"
+SPY_BENCHMARK = "SPY"
 
 
 def local_swing_low(df: pd.DataFrame, bars: int = STRUCTURE_STOP_BARS) -> float:
@@ -51,6 +60,7 @@ GRADE_A_SCORE = 85
 MIN_COMPRESSION = 5
 MIN_STRUCTURE = 8
 MIN_RS_POINTS = 12  # requires full RS pass (ratio > MA and positive rel-return)
+MACRO_PENALTY = 15  # subtracted when SPY/QQQ fail the 21-EMA / 50-SMA gate
 
 # =========================
 # PATHS
@@ -76,15 +86,18 @@ logger = logging.getLogger(__name__)
 
 
 def add_macro_indicators(df: pd.DataFrame, lookback=LOOKBACK) -> pd.DataFrame:
-    """EMA stack, MACD, RSI, ATR, and rolling Fib levels for coil scoring."""
+    """EMA stack, MACD, RSI, ATR, RVOL, and rolling Fib levels for coil scoring."""
     out = df.copy()
+    out["EMA10"] = ta.ema(out["Close"], length=10)
     out["EMA20"] = ta.ema(out["Close"], length=20)
     out["EMA50"] = ta.ema(out["Close"], length=50)
     out["EMA100"] = ta.ema(out["Close"], length=100)
+    out["SMA50"] = ta.sma(out["Close"], length=50)
 
     macd = ta.macd(out["Close"])
     out["MACD"] = macd["MACD_12_26_9"]
     out["MACD_Signal"] = macd["MACDs_12_26_9"]
+    out["MACD_Hist"] = macd["MACDh_12_26_9"]
 
     out["RSI"] = ta.rsi(out["Close"], length=14)
 
@@ -94,6 +107,9 @@ def add_macro_indicators(df: pd.DataFrame, lookback=LOOKBACK) -> pd.DataFrame:
     out["Fib_618"] = rolling_max - ((rolling_max - rolling_min) * 0.618)
 
     out["ATR"] = ta.atr(out["High"], out["Low"], out["Close"], length=14)
+
+    out["VOL_SMA20"] = ta.sma(out["Volume"], length=20)
+    out["RVOL"] = out["Volume"] / out["VOL_SMA20"]
 
     # Coil scoring needs EMA50; Fib may be NaN early but is optional now.
     out.dropna(subset=["EMA20", "EMA50", "MACD", "ATR"], inplace=True)
@@ -186,66 +202,120 @@ def fibonacci_score(
     return round(best_score, 2)
 
 
-def macd_compression_score(macd: float, macd_signal: float, atr: float) -> int:
-    """ATR-normalized MACD-signal compression (0-20). No MACD < 0 requirement.
+def macd_compression_score(
+    macd: float,
+    macd_signal: float,
+    atr: float,
+    macd_hist: Optional[float] = None,
+) -> int:
+    """MACD squeeze state (0-15). Highest when histogram is tight and MACD > 0.
 
-    A tight spread relative to ATR is the coil — works for bases in uptrends
-    as well as washed-out reversals.
+    Name kept so existing unit tests can monkeypatch this symbol.
     """
     if atr <= 0:
         return 0
-    spread = abs(macd - macd_signal) / atr
+    hist = float(macd - macd_signal) if macd_hist is None else float(macd_hist)
+    spread = abs(hist) / atr
     if spread <= 0.05:
-        return 20
-    if spread <= 0.10:
-        return 15
-    if spread <= 0.18:
-        return 10
-    if spread <= 0.30:
-        return 5
-    return 0
+        base = 15
+    elif spread <= 0.10:
+        base = 11
+    elif spread <= 0.18:
+        base = 7
+    elif spread <= 0.30:
+        base = 4
+    else:
+        return 0
+    if macd <= 0:
+        base = max(0, base - 5)
+    return base
 
 
 def coil_width_score(df: pd.DataFrame, atr: float, coil_bars: int = COIL_BARS) -> int:
-    """Tight N-bar range vs ATR (0-15). Coiled energy before expansion."""
+    """Tight N-bar range vs ATR (0-20). Coiled energy before expansion."""
     if atr <= 0 or len(df) < coil_bars:
         return 0
     window = df.iloc[-coil_bars:]
     rng = float(window["High"].max() - window["Low"].min())
     width_atr = rng / atr
-    # Weekly 8-bar coil ≈ 2 months; daily 30-bar ≈ 6 weeks
-    if width_atr <= 4.0:
+    if width_atr <= 1.5:
+        return 20
+    if width_atr <= 2.5:
         return 15
-    if width_atr <= 6.0:
+    if width_atr <= 4.0:
         return 10
-    if width_atr <= 8.0:
+    if width_atr <= 6.0:
         return 5
     return 0
 
 
 def structure_score(df: pd.DataFrame) -> int:
-    """Healthy trend structure for a leader coil (0-20).
+    """MA alignment and ATR proximity for a leader coil (0-15).
 
-    Prefers price holding a rising EMA50, ideally with EMA50 > EMA100.
-    Replaces the old deep-markdown requirement that filtered out coiled leaders.
+    Full stack is 10 EMA > 20 EMA > 50 SMA with close holding EMA20.
+    Overextension (|Close − EMA20| > 1.5 × ATR14) caps the pillar at 8.
     """
-    if len(df) < 3:
+    if len(df) < 2:
         return 0
     latest = df.iloc[-1]
-    prev = df.iloc[-2]
     close = float(latest["Close"])
-    ema50 = float(latest["EMA50"])
-    prev_ema50 = float(prev["EMA50"])
-    ema100 = latest.get("EMA100")
+    ema20 = float(latest["EMA20"])
+    atr = float(latest["ATR"]) if pd.notna(latest.get("ATR")) else 0.0
+    ema10 = latest.get("EMA10")
+    sma50 = latest.get("SMA50")
     score = 0
 
-    if close > ema50:
-        score += 8
-    if ema50 > prev_ema50:
-        score += 6
-    if ema100 is not None and pd.notna(ema100) and ema50 > float(ema100):
-        score += 6
+    if ema10 is not None and pd.notna(ema10) and float(ema10) > ema20:
+        score += 5
+    if sma50 is not None and pd.notna(sma50) and ema20 > float(sma50):
+        score += 5
+    if close > ema20:
+        score += 5
+    if atr > 0 and abs(close - ema20) > 1.5 * atr:
+        score = min(score, 8)
     return score
+
+
+def rvol_trigger_score(df: pd.DataFrame) -> tuple[int, Optional[float]]:
+    """Breakout relative-volume trigger (0-10). Full points at RVOL ≥ 2.0×."""
+    if df.empty or "RVOL" not in df.columns:
+        return 0, None
+    rvol = df.iloc[-1].get("RVOL")
+    if rvol is None or pd.isna(rvol):
+        return 0, None
+    rvol_f = float(rvol)
+    if rvol_f >= 2.0:
+        pts = 10
+    elif rvol_f >= 1.5:
+        pts = 6
+    elif rvol_f >= 1.2:
+        pts = 3
+    else:
+        pts = 0
+    return pts, rvol_f
+
+
+def overhead_clearance_score(
+    df: pd.DataFrame,
+    price: float,
+    atr: float,
+    lookback: int = 50,
+) -> float:
+    """Distance to nearest supply high in ATR units (0-5). Clear air scores 5."""
+    if atr <= 0 or df.empty:
+        return 0.0
+    window = df.iloc[-lookback:] if len(df) >= lookback else df
+    above = window.loc[window["High"] > price, "High"]
+    if above.empty:
+        return 5.0
+    dist_atr = (float(above.min()) - price) / atr
+    if dist_atr >= 3.0:
+        return 5.0
+    if dist_atr >= 2.0:
+        return 3.0
+    if dist_atr >= 1.0:
+        return 1.0
+    return 0.0
 
 
 def rs_score(
@@ -280,27 +350,39 @@ def rs_score(
 def evaluate_coiled_cobra(
     df: pd.DataFrame,
     benchmark_df: Optional[pd.DataFrame] = None,
+    *,
+    spy_df: Optional[pd.DataFrame] = None,
+    qqq_df: Optional[pd.DataFrame] = None,
+    apply_market_gate: bool = True,
 ) -> Optional[dict]:
     """100-point coil scorecard: catch compressed leaders before they expand.
 
-    Pillars (approx weights):
-      Volume shelf 20 · MACD compression 20 · Structure 20 ·
-      Relative strength 15 · Coil width 15 · MACD cross 10 · Fib bonus 5
-    Hard gates: compression, structure, and full RS vs QQQ (no lagging coils).
+    Pillars (v3):
+      Volume shelf 20 · Coil width 20 · MACD squeeze 15 · RS 15 ·
+      MA alignment 15 · RVOL trigger 10 · Overhead clearance 5
+    Hard gates: squeeze, structure, and full RS vs QQQ (no lagging coils).
+    Failed market gate zeros RVOL, subtracts MACRO_PENALTY, and caps Grade A.
     """
     if len(df) < max(COIL_BARS + 2, 25):
         return None
 
     latest = df.iloc[-1]
-    prev = df.iloc[-2]
 
     current_price = float(latest["Close"])
     atr = float(latest["ATR"])
     macd = float(latest["MACD"])
     macd_signal = float(latest["MACD_Signal"])
-    prev_macd = float(prev["MACD"])
-    prev_macd_signal = float(prev["MACD_Signal"])
+    macd_hist = latest.get("MACD_Hist")
+    hist_v = float(macd_hist) if macd_hist is not None and pd.notna(macd_hist) else None
     as_of = latest["Date"] if "Date" in df.columns else None
+
+    gate_ok = True
+    if apply_market_gate:
+        gate_ok = check_coiled_cobra_market_gate(
+            spy_df=spy_df,
+            qqq_df=qqq_df if qqq_df is not None else benchmark_df,
+            as_of=as_of,
+        )
 
     parts: dict[str, float] = {}
     checks_passed = 0
@@ -311,16 +393,16 @@ def evaluate_coiled_cobra(
     if vp >= 10:
         checks_passed += 1
 
-    # 2. MACD compression (0-20) — no MACD < 0 requirement
-    comp = macd_compression_score(macd, macd_signal, atr)
-    parts["macd_compression"] = comp
-    if comp >= 10:
+    # 2. Volatility coil (0-20)
+    coil = coil_width_score(df, atr)
+    parts["coil_width"] = coil
+    if coil >= 10:
         checks_passed += 1
 
-    # 3. Structure / rising stack (0-20)
-    struct = structure_score(df)
-    parts["structure"] = struct
-    if struct >= 12:
+    # 3. MACD squeeze state (0-15)
+    comp = macd_compression_score(macd, macd_signal, atr, macd_hist=hist_v)
+    parts["macd_compression"] = comp
+    if comp >= 7:
         checks_passed += 1
 
     # 4. Relative strength vs QQQ (0-15)
@@ -329,37 +411,33 @@ def evaluate_coiled_cobra(
     if rs_pts >= 12:
         checks_passed += 1
 
-    # 5. Coil width (0-15)
-    coil = coil_width_score(df, atr)
-    parts["coil_width"] = coil
-    if coil >= 10:
+    # 5. MA alignment & ATR proximity (0-15)
+    struct = structure_score(df)
+    parts["structure"] = struct
+    if struct >= 10:
         checks_passed += 1
 
-    # 6. Bullish MACD cross trigger (0-10)
-    crossed = prev_macd <= prev_macd_signal and macd > macd_signal
-    cross_pts = 10 if crossed else 0
-    parts["macd_cross"] = cross_pts
-    if crossed:
+    # 6. Breakout RVOL trigger (0-10) — zeroed when the macro gate fails
+    rvol_pts, rvol = rvol_trigger_score(df)
+    if not gate_ok:
+        rvol_pts = 0
+    parts["rvol_trigger"] = rvol_pts
+    if rvol_pts >= 6:
         checks_passed += 1
 
-    # 7. Optional Fib bonus (0-5) — context only, not a gate
-    fib_618 = latest.get("Fib_618")
-    fib_786 = latest.get("Fib_786")
-    fib_score = 0.0
-    if pd.notna(fib_618) and pd.notna(fib_786) and atr > 0:
-        fib_score = fibonacci_score(
-            current_price,
-            {float(fib_618): 4.5, float(fib_786): 5.0},
-            atr,
-            max_atr_distance=0.75,
-        )
-    parts["fib_bonus"] = fib_score
+    # 7. Overhead clearance (0-5). Fib is kept off the sum (CSV still emits 0.0).
+    overhead = overhead_clearance_score(df, current_price, atr, lookback=LOOKBACK)
+    parts["overhead_clearance"] = overhead
+    if overhead >= 3:
+        checks_passed += 1
 
     score = sum(parts.values())
+    if not gate_ok:
+        score -= MACRO_PENALTY
 
     # Hard gates for "ready to run":
     #   compression — coiled energy
-    #   structure   — healthy / rising stack (not a broken decline)
+    #   structure   — healthy / aligned stack (not a broken decline)
     #   RS          — leading QQQ (kills BA/DG-style negative-RS coils)
     if (
         comp < MIN_COMPRESSION
@@ -368,7 +446,7 @@ def evaluate_coiled_cobra(
     ):
         return None
 
-    if score >= GRADE_A_SCORE:
+    if score >= GRADE_A_SCORE and gate_ok:
         grade = "A - Coil Ready"
     elif score >= MIN_PASS_SCORE:
         grade = "B - Valid Coil"
@@ -378,10 +456,12 @@ def evaluate_coiled_cobra(
     return {
         "Score": round(score, 2),
         "Grade": grade,
-        "Checks Met": f"{checks_passed}/6",
-        "Fib Score": fib_score,
+        "Checks Met": f"{checks_passed}/7",
+        "Fib Score": 0.0,
         "Parts": parts,
         "RS 63d": rs_rel,
+        "RVOL": None if rvol is None else round(rvol, 4),
+        "Market Gate": gate_ok,
     }
 
 
@@ -407,10 +487,15 @@ def run_scanner():
     raw_files = [f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")]
     logger.info(f"Found {len(raw_files)} historical files to analyze in target silo.")
 
-    benchmark_df = load_benchmark_frame(BENCHMARK, mode)
-    if benchmark_df is None:
+    qqq_df = load_benchmark_frame(BENCHMARK, mode)
+    spy_df = load_benchmark_frame(SPY_BENCHMARK, mode)
+    if qqq_df is None:
         logger.warning(
             f"Benchmark {BENCHMARK} unavailable in {mode} raw data — RS pillar will score 0."
+        )
+    if spy_df is None:
+        logger.warning(
+            f"Benchmark {SPY_BENCHMARK} unavailable in {mode} raw data — market gate uses QQQ only."
         )
 
     results = []
@@ -446,7 +531,9 @@ def run_scanner():
 
         try:
             df = add_macro_indicators(df)
-            setup = evaluate_coiled_cobra(df, benchmark_df)
+            setup = evaluate_coiled_cobra(
+                df, qqq_df, spy_df=spy_df, qqq_df=qqq_df
+            )
 
             if not setup:
                 rejection_counts["IGNORE"] = rejection_counts.get("IGNORE", 0) + 1
@@ -496,6 +583,9 @@ def run_scanner():
                 "Pct_From_Fib618": round((close_v - fib618_v) / fib618_v, 4) if fib618_v else None,
                 "Pct_From_Fib786": round((close_v - fib786_v) / fib786_v, 4) if fib786_v else None,
                 "ATR_Pct": round(atr_v / close_v, 4) if close_v else None,
+                "RVOL": setup.get("RVOL"),
+                "Market Gate": setup.get("Market Gate"),
+                "Regime OK": setup.get("Market Gate"),
             })
             results.append(row)
 

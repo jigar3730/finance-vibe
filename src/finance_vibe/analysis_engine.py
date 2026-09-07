@@ -228,8 +228,8 @@ def _select_benchmark_path(benchmark: str, data_mode: str) -> Optional[str]:
 def load_benchmark_frame(benchmark: str, data_mode: str) -> Optional[pd.DataFrame]:
     """Load and enrich a benchmark OHLC frame for regime/RS checks.
 
-    Returns a Date-sorted frame with causal EMA50/EMA100 and an ``EMA50_rising``
-    flag, or None when the benchmark CSV is unavailable.
+    Returns a Date-sorted frame with causal EMA21/EMA50/EMA100, SMA50, and an
+    ``EMA50_rising`` flag, or None when the benchmark CSV is unavailable.
     """
     path = _select_benchmark_path(benchmark, data_mode)
     if not path:
@@ -242,10 +242,66 @@ def load_benchmark_frame(benchmark: str, data_mode: str) -> Optional[pd.DataFram
     df["Date"] = pd.to_datetime(df["Date"])
     df = df.sort_values("Date").reset_index(drop=True)
     close = df["Close"].astype(float)
+    df["EMA21"] = ema(close, 21)
     df["EMA50"] = ema(close, 50)
     df["EMA100"] = ema(close, 100)
+    df["SMA50"] = close.rolling(50, min_periods=50).mean()
     df["EMA50_rising"] = df["EMA50"] > df["EMA50"].shift(1)
     return df
+
+
+def _index_above_ema21_or_sma50(
+    frame: pd.DataFrame | None, as_of: object | None = None
+) -> bool | None:
+    """Causal check: index close is above its 21-bar EMA or 50-bar SMA.
+
+    Returns None when the frame is missing or the latest as-of bar has no
+    usable EMA21/SMA50 yet (insufficient history).
+    """
+    if frame is None or frame.empty:
+        return None
+    as_of_ts = pd.to_datetime(as_of) if as_of is not None else None
+    sub = frame if as_of_ts is None else frame[frame["Date"] <= as_of_ts]
+    if sub.empty:
+        return None
+    last = sub.iloc[-1]
+    close = last.get("Close")
+    if close is None or pd.isna(close):
+        return None
+    close_f = float(close)
+    checks: list[bool] = []
+    ema21 = last.get("EMA21")
+    if ema21 is not None and pd.notna(ema21):
+        checks.append(close_f > float(ema21))
+    sma50 = last.get("SMA50")
+    if sma50 is not None and pd.notna(sma50):
+        checks.append(close_f > float(sma50))
+    if not checks:
+        return None
+    return any(checks)
+
+
+def check_coiled_cobra_market_gate(
+    *,
+    spy_df: pd.DataFrame | None = None,
+    qqq_df: pd.DataFrame | None = None,
+    as_of: object | None = None,
+) -> bool:
+    """Broad-market safety switch for Coiled Cobra high-conviction triggers.
+
+    True when SPY or QQQ is above its 21-bar EMA or 50-bar SMA as of *as_of*.
+    Fail-open (True) when neither frame is usable so callers that pass
+    ``benchmark_df=None`` keep their existing unit-test behavior.
+    """
+    results = [
+        result
+        for result in (
+            _index_above_ema21_or_sma50(spy_df, as_of),
+            _index_above_ema21_or_sma50(qqq_df, as_of),
+        )
+        if result is not None
+    ]
+    return True if not results else any(results)
 
 
 def market_regime_ok(benchmark_df: pd.DataFrame, as_of: object | None) -> bool:

@@ -39,15 +39,15 @@ discount hunter. The live rubric in `coiled_cobra.py` scores:
 | Pillar | Function | Finance rationale |
 | ------ | -------- | ----------------- |
 | Volume profile shelf | `evaluate_volume_profile_shelf` | Auction-market accumulation (high-volume node / POC) |
-| MACD compression | `macd_compression_score` | Tight $\lvert\mathrm{MACD}-\mathrm{Signal}\rvert / \mathrm{ATR}$ = coiled energy |
-| Structure | `structure_score` | Close above a rising EMA50, ideally EMA50 > EMA100 |
-| Relative strength vs QQQ | `rs_score` | Prefer names already leading the tape |
 | Coil width | `coil_width_score` | $N$-bar range / ATR — tight base before expansion |
-| MACD cross (optional trigger) | rubric add-on | Early expansion tell |
-| Fib bonus | `fibonacci_score` | Context only; demoted from a hard gate |
+| MACD squeeze | `macd_compression_score` | Histogram compressing near zero with MACD line $> 0$ |
+| Relative strength vs QQQ | `rs_score` | Prefer names already leading the tape |
+| MA alignment | `structure_score` | $10$ EMA $> 20$ EMA $> 50$ SMA, not $> 1.5$ ATR from EMA20 |
+| Breakout RVOL | `rvol_trigger_score` | Execution trigger; full points at $\mathrm{RVOL} \ge 2.0\times$ |
+| Overhead clearance | `overhead_clearance_score` | Space to nearest supply ($\ge 3$ ATR for full 5 pts) |
 
-`add_macro_indicators()` builds the raw series the scorecard reads: EMA20/50/100,
-MACD 12/26/9, RSI 14, ATR 14, rolling Fib 61.8 / 78.6.
+`add_macro_indicators()` builds the raw series the scorecard reads: EMA10/20/50/100,
+SMA50, MACD 12/26/9 + histogram, RSI 14, ATR 14, RVOL (volume / SMA20), rolling Fib 61.8 / 78.6.
 
 The **ML feature set is a strict subset** of that geometry. Trees never see the
 volume histogram, RS, or coil-width score directly — only the six numeric

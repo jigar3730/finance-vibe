@@ -20,8 +20,9 @@ except ImportError:
 # Ingestion guardrails (Part 3): drop broken / unprofitable rows before ranking.
 MAX_RISK_PCT_OF_CLOSE = config.MAX_RISK_PCT_OF_CLOSE
 MIN_RR_T1 = 2.0
-# Allow one missed soft pillar (5/6); hard gates already ran in the scanner.
-MIN_CHECKLIST_RATIO = 5 / 6
+# Allow one missed soft pillar on the v3 7-check card (5/7). Legacy 5/6 CSVs
+# still pass because 5/6 > 5/7. Hard gates already ran in the scanner.
+MIN_CHECKLIST_RATIO = 5 / 7
 # Static propensity boost for tight coils until adaptive CDH weighting exists.
 TIGHT_COIL_PROPENSITY = 1.25
 TIGHT_RISK_PCT = 0.03
@@ -72,7 +73,7 @@ def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -
 
 
 def _checklist_fully_passed(value: Any) -> bool:
-    """True when Checks Met is missing (swing) or meets the soft baseline (≥5/6)."""
+    """True when Checks Met is missing (swing) or meets the soft baseline (≥5/7)."""
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return True
     text = str(value).strip()
@@ -232,7 +233,7 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         traceback.print_exc()
         raise SystemExit(1) from None
 
-    print("🛡️ Applying ingestion guardrails (risk ≤5%, checklist ≥5/6, R:R T1 ≥ 2)...")
+    print("🛡️ Applying ingestion guardrails (risk ≤5%, checklist ≥5/7, R:R T1 ≥ 2)...")
     df, filter_stats = _apply_ingestion_filters(df)
     print(
         f"   kept {filter_stats['kept']}/{filter_stats['input']} "
@@ -261,7 +262,9 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         "AsOf Date",
         "Score",          # raw scanner score
         "Grade",          # e.g. "A - Institutional Setup"
-        "Checks Met",     # e.g. "4/5"
+        "Checks Met",     # e.g. "5/7"
+        "RVOL",
+        "Market Gate",
         "Close",
         "Stock Entry",
         "Stock Stop",

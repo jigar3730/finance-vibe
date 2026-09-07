@@ -21,6 +21,7 @@ try:
     from finance_vibe.coiled_cobra import (
         BENCHMARK,
         LOOKBACK,
+        SPY_BENCHMARK,
         add_macro_indicators,
         evaluate_coiled_cobra,
         local_swing_low,
@@ -35,6 +36,7 @@ except ImportError:  # pragma: no cover
     from finance_vibe.coiled_cobra import (
         BENCHMARK,
         LOOKBACK,
+        SPY_BENCHMARK,
         add_macro_indicators,
         evaluate_coiled_cobra,
         local_swing_low,
@@ -47,6 +49,7 @@ def detect_cobra_setup_at_bar(
     df: pd.DataFrame,
     symbol: str,
     benchmark_df=None,
+    spy_df=None,
 ) -> Optional[dict]:
     """Evaluate the latest bar in a history window for a Coiled Cobra coil setup."""
     if len(df) < LOOKBACK // 2 + 15:
@@ -61,7 +64,9 @@ def detect_cobra_setup_at_bar(
     if len(window) < 2:
         return None
 
-    setup = evaluate_coiled_cobra(window, benchmark_df)
+    setup = evaluate_coiled_cobra(
+        window, benchmark_df, spy_df=spy_df, qqq_df=benchmark_df
+    )
     if not setup:
         return None
 
@@ -72,6 +77,10 @@ def detect_cobra_setup_at_bar(
     atr = float(latest["ATR"])
     fib_618 = float(latest["Fib_618"]) if pd.notna(latest.get("Fib_618")) else None
     fib_786 = float(latest["Fib_786"]) if pd.notna(latest.get("Fib_786")) else None
+    rvol_raw = latest.get("RVOL")
+    rvol_v = setup.get("RVOL")
+    if rvol_v is None and rvol_raw is not None and pd.notna(rvol_raw):
+        rvol_v = round(float(rvol_raw), 4)
 
     return {
         "Symbol": symbol.upper(),
@@ -94,6 +103,8 @@ def detect_cobra_setup_at_bar(
         "Checks Met": setup["Checks Met"],
         "Source": "coiled_cobra",
         "RS 63d": setup.get("RS 63d"),
+        "RVOL": rvol_v,
+        "Market Gate": setup.get("Market Gate"),
     }
 
 
@@ -160,6 +171,7 @@ def backtest_ticker(
     entry_valid: int,
     max_hold: int,
     benchmark_df=None,
+    spy_df=None,
 ) -> tuple[list[dict], dict]:
     """Walk-forward simulate one ticker using Coiled Cobra signals."""
     symbol = ticker_from_filename(path)
@@ -179,7 +191,9 @@ def backtest_ticker(
     min_bars = LOOKBACK // 2 + 15
     for idx in range(min_bars, len(df) - 1):
         window = df.iloc[: idx + 1]
-        setup_row = detect_cobra_setup_at_bar(window, symbol, benchmark_df=benchmark_df)
+        setup_row = detect_cobra_setup_at_bar(
+            window, symbol, benchmark_df=benchmark_df, spy_df=spy_df
+        )
         if not setup_row:
             continue
 
@@ -243,6 +257,8 @@ def backtest_ticker(
                 "Pct_From_Fib618": setup_row["Pct_From_Fib618"],
                 "Pct_From_Fib786": setup_row["Pct_From_Fib786"],
                 "ATR_Pct": setup_row["ATR_Pct"],
+                "RVOL": setup_row.get("RVOL"),
+                "Market Gate": setup_row.get("Market Gate"),
                 "Stock Entry": round(entry, 2),
                 "Stock Stop": round(stop, 2),
                 "Target 1": round(t1, 2),
@@ -267,12 +283,14 @@ def backtest_ticker(
 
 # Per-process cache: loaded once in the worker initializer, never pickled from parent.
 _WORKER_BENCHMARK_DF = None
+_WORKER_SPY_DF = None
 
 
 def _init_cobra_worker(mode: str) -> None:
     """Load benchmark OHLC once per worker process."""
-    global _WORKER_BENCHMARK_DF
+    global _WORKER_BENCHMARK_DF, _WORKER_SPY_DF
     _WORKER_BENCHMARK_DF = load_benchmark_frame(BENCHMARK, mode)
+    _WORKER_SPY_DF = load_benchmark_frame(SPY_BENCHMARK, mode)
 
 
 def _backfill_ticker_worker(path: str) -> tuple[str, list[dict]]:
@@ -289,7 +307,10 @@ def _backfill_ticker_worker(path: str) -> tuple[str, list[dict]]:
     try:
         for idx in range(min_bars, len(df)):
             setup = detect_cobra_setup_at_bar(
-                df.iloc[: idx + 1], symbol, benchmark_df=_WORKER_BENCHMARK_DF
+                df.iloc[: idx + 1],
+                symbol,
+                benchmark_df=_WORKER_BENCHMARK_DF,
+                spy_df=_WORKER_SPY_DF,
             )
             if setup:
                 rows.append(setup)
@@ -314,6 +335,7 @@ def _backtest_ticker_worker(
             entry_valid,
             max_hold,
             benchmark_df=_WORKER_BENCHMARK_DF,
+            spy_df=_WORKER_SPY_DF,
         )
         return symbol, trades, counts
     except Exception as exc:

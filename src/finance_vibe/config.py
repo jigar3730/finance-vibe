@@ -431,6 +431,9 @@ SETUP_ROW_COLUMNS = [
     # Offline-model ranking outputs (soft signal; null when no model available)
     "ML_Pred_Return",
     "ML_Rank",
+    # Coiled Cobra v3 attribution (not in FEATURE_COLS / ML inference)
+    "RVOL",
+    "Market Gate",
 ]
 
 

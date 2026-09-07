@@ -77,6 +77,19 @@ def test_setup_schema_includes_ml_feature_and_rank_columns():
         assert col in config.SETUP_ROW_COLUMNS, f"missing feature col {col}"
     assert "ML_Pred_Return" in config.SETUP_ROW_COLUMNS
     assert "ML_Rank" in config.SETUP_ROW_COLUMNS
+    # v3 attribution columns are on the setup row but must stay out of X.
+    assert "RVOL" in config.SETUP_ROW_COLUMNS
+    assert "Market Gate" in config.SETUP_ROW_COLUMNS
+    assert "RVOL" not in FEATURE_COLS
+    assert "Market Gate" not in FEATURE_COLS
+    assert FEATURE_COLS == [
+        "Score",
+        "Pct_From_EMA20",
+        "Pct_From_EMA50",
+        "Pct_From_Fib618",
+        "Pct_From_Fib786",
+        "ATR_Pct",
+    ]
 
 
 # ---------------------------------------------------------------------------
