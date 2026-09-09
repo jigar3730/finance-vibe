@@ -3,6 +3,7 @@
 Runs ingestion, macro scoring, tactical scanning, and trade plan generation
 in sequence for a given timeframe profile (weekly or daily).
 """
+
 import argparse
 from pathlib import Path
 import shutil
@@ -10,13 +11,14 @@ import subprocess
 import sys
 import os
 
+
 def clean_raw_folder(root_dir, mode):
     """Remove all files in data/raw/{mode}/ before a fresh ingestion run."""
     raw_dir = Path(root_dir) / "data" / "raw" / mode
     if not raw_dir.exists():
         print(f"⚠️ Raw '{mode}' folder does not exist. Skipping cleanup.")
         return
-        
+
     for item in raw_dir.iterdir():
         try:
             if item.is_file() or item.is_symlink():
@@ -25,8 +27,9 @@ def clean_raw_folder(root_dir, mode):
                 shutil.rmtree(item)
         except Exception as e:
             print(f"❌ Failed to delete {item}: {e}")
-            
+
     print(f"🧹 Raw '{mode}' folder cleaned.\n")
+
 
 def run_workflow():
     """Parse CLI args and execute each pipeline stage as a subprocess."""
@@ -66,14 +69,47 @@ def run_workflow():
     #   profile -> swing profile (weekly/daily/high_beta); drives geometry + logs
     # high_beta skips Coiled Cobra (LEAPS-oriented, not part of the long-only swing).
     scripts_config = [
-        {"path": "src/finance_vibe/ticker_provider.py", "pass_mode": False, "scope": "data"},
-        {"path": "src/finance_vibe/data_ingestor.py", "pass_mode": True, "scope": "data"},
-        #{"path": "src/finance_vibe/analysis_engine.py", "pass_mode": True, "scope": "data"},
-        {"path": "src/finance_vibe/swing_scanner.py", "pass_mode": True, "scope": "profile"},
-        {"path": "src/finance_vibe/coiled_cobra.py", "pass_mode": True, "scope": "data",
-         "skip_modes": ["high_beta"]},
-        {"path": "src/finance_vibe/trade_planner.py", "pass_mode": True, "scope": "profile"},
-        {"path": "src/finance_vibe/trade_plan_helper.py", "pass_mode": True, "scope": "profile"},
+        {
+            "path": "src/finance_vibe/ticker_provider.py",
+            "pass_mode": False,
+            "scope": "data",
+        },
+        {
+            "path": "src/finance_vibe/data_ingestor.py",
+            "pass_mode": True,
+            "scope": "data",
+        },
+        {
+            "path": "src/finance_vibe/analysis_engine.py",
+            "pass_mode": True,
+            "scope": "data",
+        },
+        {
+            "path": "src/finance_vibe/swing_scanner.py",
+            "pass_mode": True,
+            "scope": "profile",
+        },
+        {
+            "path": "src/finance_vibe/coiled_cobra.py",
+            "pass_mode": True,
+            "scope": "data",
+            "skip_modes": ["high_beta"],
+        },
+        {
+            "path": "src/finance_vibe/breakout_scanner.py",
+            "pass_mode": True,
+            "scope": "profile",
+        },
+        {
+            "path": "src/finance_vibe/trade_planner.py",
+            "pass_mode": True,
+            "scope": "profile",
+        },
+        {
+            "path": "src/finance_vibe/trade_plan_helper.py",
+            "pass_mode": True,
+            "scope": "profile",
+        },
     ]
 
     print(f"🚀 Starting Finance-Vibe Pipeline [{mode.upper()} MODE]...")
@@ -122,6 +158,7 @@ def run_workflow():
 
     print("🏁 Workflow Complete!")
     print(f"📁 Reports saved to: {os.path.join(ROOT_DIR, 'data', 'logs', mode)}")
+
 
 if __name__ == "__main__":
     run_workflow()
