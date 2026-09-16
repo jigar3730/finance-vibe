@@ -36,6 +36,7 @@ CLEAN_EXPORT_COLUMNS = [
     "AsOf Date",
     "Score",
     "Grade",
+    "Tier",
     "Checks Met",
     "RVOL",
     "Market Gate",

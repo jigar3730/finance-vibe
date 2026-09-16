@@ -1,313 +1,287 @@
 # Coiled Cobra Scanner
-## Scoring Rubric & Technical Design
+## Rubric v4.0 — Weekly-Only, 10-Year Lookback, Hard-Gated
 
-Version: 3.1 (High-beta coil + ticker-level Market Gate)
-
-Implementation: [`coiled_cobra.py`](../../src/finance_vibe/coiled_cobra.py). Theory and ML mapping: [`QUANT_ML_MANUAL.md`](QUANT_ML_MANUAL.md). Historical trade archive: [`backtest_and_backfill.md`](../architecture/backtest_and_backfill.md).
+Supersedes v3.1. Target: identify coils likely to break out within 1-2 weekly
+bars, scanned against 10 years of weekly OHLCV history.
 
 ---
 
-# Overview
+# What changed from v3.1 and why
 
-The **Coiled Cobra Scanner** identifies **compressed leaders ready to expand**
-(coil → breakout), not swing pullbacks and not deep-discount mean reversion.
+| Change | Reason |
+|---|---|
+| Added a **Long-Term Trend Template** hard gate (30w/40w EMA stack, both rising) | v3.1 only checked EMA20/50 — a short-term construct. Nothing stopped a coil from passing inside a dead or declining multi-year trend. |
+| `Checks Met` is now a **hard AND condition**, not a display-only counter | v3.1's fully additive scoring let strong unrelated pillars compensate for a pillar that outright failed (e.g. `structure = 0`, `coil_width = 0`), producing false positives. |
+| `structure` and `coil_width` can each **independently disqualify** a setup | Same reason — these two pillars *are* the definition of "coiled," so a zero on either should not be recoverable via volume/RS/RVOL. |
+| Volatility compression now measured with **Bollinger Band Width percentile**, not MACD | MACD is a momentum/trend indicator, not a volatility indicator. Using `|Hist|/ATR` as a "squeeze" score conflated momentum convergence with range contraction and produced false compression reads. |
+| BBWidth percentile is computed over a **rolling 2-3 year window**, not the full 10-year history | Regime drift (2020 crash, 2022 bear) would otherwise distort what "tight" means for a given stock. The 10-year history is used for ATH/overhead detection instead. |
+| MACD demoted to a **small binary directional filter** | Keeps a genuinely useful, cheap check (is momentum net-positive) without double-counting volatility. |
+| Coil tightness bands **tightened**; the old 2.2-4.0 ATR "high-beta pause" credit removed | That band was rewarding non-compression as if it were a coil variant — the single largest source of noise in v3.1. |
+| EMA-extension soft-haircut ceiling **lowered** (was: leaders could extend 50% above EMA50 with minor deduction) | 50%-extended names are stage-2 markup, not fresh coils. Early-detection scanners should punish extension harder. |
+| RS scoring **smoothed**; flat "-15% to 0%" plateau removed; added **RS-line-new-high** bonus | The old step function couldn't distinguish a stock lagging by 1% from one lagging by 14%. RS-line cresting is a leading tell IBD/O'Neil-style traders rely on. |
+| Fibonacci retracement/extension **removed from scoring** (kept only as an informational column) | Almost always redundant with the open-sky override; not carrying independent signal. |
+| Output now splits into **Watchlist vs. Actionable** | Score ≥70 alone conflated "well-coiled, no trigger yet" with "breaking out today." These need to be visibly different tiers. |
 
-It looks for securities that are:
+---
 
-- Sitting in a volume / accumulation shelf
-- Compressing on MACD (histogram squeeze near zero, MACD line > 0)
-- Holding aligned structure (EMA20 > EMA50; 10 EMA > 20 EMA preferred)
-- Showing positive relative strength vs QQQ (full RS pillar at +15% / 63d)
-- Coiling in a tight N-bar range (range / ATR ≤ 1.5 for full coil points)
-- Printing expansion volume (RVOL ≥ 1.2×) as an *additive* trigger
-- Clearing overhead supply, or sitting in open sky (≥ 95% of 52-week / ATH)
+# Data requirements
 
-Deep markdown under EMA20 was **removed** — it systematically filtered out
-high-base coils (NVDA / APP / MU-class) that the scanner is meant to catch
-before a monster run. EMA50 extension above 25% is a **soft deduction**,
-not a Market Gate fail; RS leaders may extend to 50%.
+- 10 years of weekly OHLCV (~520 bars) per ticker.
+- QQQ (primary) and SPY (secondary) weekly series, same length, for RS.
+- Optional (recommended, not yet required): a sector/industry group proxy
+  (ETF or custom basket) for group RS — see Known Limitations.
 
-The scanner produces a maximum score of **100 points**.
-Only setups scoring ≥ 70 are returned.
+Minimum bars to evaluate: `max(COIL_BARS + 2, 60)`. Full scoring (ATH,
+30w/40w EMA, BBWidth percentile) requires at least 160 bars (~3 years);
+tickers with less history are flagged `Insufficient History`, not scored.
 
-CLI accepts **`weekly`** or **`daily`** only. `run_vibe.py --mode high_beta`
-skips this scanner (`skip_modes: ["high_beta"]`).
+---
 
-```bash
-python src/finance_vibe/coiled_cobra.py weekly
-python src/finance_vibe/coiled_cobra.py daily
+# Stage 1 — Hard Gates (pass/fail, before any scoring)
+
+All four must pass. Any failure = `Rejected`, reason recorded, row excluded
+from live scan output (kept only if `include_rejects=True`, same as v3.1).
+
+## Gate A — Long-Term Trend Template
 ```
+Close > EMA30w > EMA40w
+EMA40w rising over trailing 8 weeks (EMA40w[t] > EMA40w[t-8])
+```
+Rationale: this is the weekly analog of Minervini's daily 50/150/200-SMA
+stack. It filters names that are coiling *inside* a long-term downtrend or
+dead sideways market — the single biggest gap in v3.1.
+
+## Gate B — Ticker Market Gate (retained from v3.1, unchanged thresholds)
+```
+Close ≥ 0.90 × EMA50w   (fails if more than 10% below the 50)
+RS_13w > -15%           (fails only on outright multi-quarter lag)
+```
+Fail-open (`True`) when benchmark data is unavailable, same as v3.1.
+
+## Gate C — Coil Integrity (new — replaces implicit additive credit)
+```
+coil_width_score  ≥ 10   (i.e. range/ATR at or below the "partial" band)
+structure_score   ≥ 8    (i.e. EMA10w/20w/40w alignment check passed)
+```
+Both must individually clear their own check threshold. A stock that isn't
+actually coiling, or isn't in aligned short-term structure, is rejected
+regardless of how well it scores elsewhere. This is the direct fix for the
+v3.1 failure mode where a non-coiling name reached 65-70+ on unrelated
+pillars.
+
+## Gate D — Breadth (`Checks Met`)
+```
+Checks Met ≥ 5 of 6 scored pillars (see Stage 2)
+```
+Previously cosmetic; now load-bearing. A name can score ≥70 on raw points
+but still fail if it's only clearing 3-4 of 6 checks — that pattern
+indicates one or two pillars are being carried by outliers rather than
+genuine multi-factor confluence.
 
 ---
 
-# Calibration constants (`coiled_cobra.py`)
-
-| Constant | Weekly | Daily |
-| -------- | -----: | ----: |
-| `LOOKBACK` (volume shelf + Fib + overhead) | 52 | 252 |
-| `COIL_BARS` | 8 | 30 |
-| `STRUCTURE_STOP_BARS` (local swing-low for planner) | 10 | 10 |
-| `RS_LOOKBACK` | 13 | 63 |
-| `RS_RATIO_MA` | 5 | 20 |
-| `BENCHMARK` / `SPY_BENCHMARK` | QQQ / SPY | QQQ / SPY |
-| `MIN_PASS_SCORE` | 70 | 70 |
-| `GRADE_A_SCORE` | 85 | 85 |
-| `MIN_COMPRESSION` | 5 (Checks Met only) | 5 |
-| `MIN_STRUCTURE` | 8 (Checks Met only) | 8 |
-| `MIN_RS_POINTS` | 12 (Checks Met only) | 12 |
-| `MACRO_PENALTY` | 0 (unused; gate no longer haircuts) | 0 |
-| `OPEN_SKY_PCT` | 0.95 | 0.95 |
-| `EMA50_SOFT_EXT` / `EMA50_MOMENTUM_EXT` | 0.25 / 0.50 | 0.25 / 0.50 |
-| `RS_FULL_SCORE` | 0.15 | 0.15 |
-| `COIL_FULL_ATR` / `COIL_PARTIAL_ATR` | 1.5 / 2.2 | 1.5 / 2.2 |
-| `RVOL_BONUS` | 1.2 | 1.2 |
-
-Minimum bars to evaluate a bar: `max(COIL_BARS + 2, 25)`. Live scan also
-requires `max(LOOKBACK // 2, COIL_BARS + 40)` rows of history.
-
----
-
-# Overall Scoring Matrix (v3.1 — Coil)
+# Stage 2 — Scoring (100 points, only run on gate-passing names)
 
 | Category | Weight | `Parts` key |
-|----------|---------:|-------------|
-| Volume Profile Shelf | 20 | `volume_shelf` |
-| Volatility Coil (range / ATR ≤ 1.5) | 20 | `coil_width` |
-| MACD Squeeze State | 15 | `macd_compression` |
-| Relative Strength vs QQQ | 15 | `relative_strength` |
-| MA Alignment & ATR Proximity | 15 | `structure` |
-| Breakout RVOL Trigger | 10 | `rvol_trigger` |
-| Overhead Clearance / Space | 5 | `overhead_clearance` |
+|---|---:|---|
+| Volatility Contraction (BBWidth percentile) | 25 | `vol_contraction` |
+| Structure & MA Alignment | 20 | `structure` |
+| Relative Strength vs QQQ (+ RS-line, + group) | 20 | `relative_strength` |
+| Volume Profile Shelf | 15 | `volume_shelf` |
+| Overhead Clearance / Open Sky | 10 | `overhead_clearance` |
+| RVOL Breakout Trigger | 10 | `rvol_trigger` |
 
-Deprecated v2 keys **`macd_cross`** and **`fib_bonus`** are no longer written.
-CSV extras: **`RVOL`** (raw volume / SMA20) and **`Market Gate`** (ticker
-Close ≥ EMA50 and RS 63d ≥ 0). These are not ML `FEATURE_COLS`.
+`MIN_PASS_SCORE = 70` (unchanged). `GRADE_A_SCORE = 85` (unchanged).
 
-`fibonacci_score()` remains in the module but is **not summed**. The CSV still
-emits `Fib Score = 0.0`.
+MACD is **not** a scored pillar in v4.0 — see "MACD directional filter" below,
+applied as a small pre-score modifier instead.
 
-Maximum Score = **100**
+---
 
-Market Gate is the **only** pre-filter, and it fails only on total trend
-break: `Close < EMA50` or `RS 63d < 0`. Pillar floors above are **Checks
-Met** counters, not binary drops. Extension (`Pct_From_EMA50`), Fib
-distance, and `RVOL < 1.0` never fail the gate.
+## 1. Volatility Contraction (25 Points)
 
-A failed gate records `Market Gate = False` and `Grade = Rejected - Trend
-Fail`. The scorecard is still computed (`include_rejects=True`); the live
-scanner / backtest omit the row. RVOL is **never** zeroed and no −15
-macro haircut is applied.
+Replaces `macd_compression` + folds `coil_width`'s old role into one
+properly-measured pillar.
+
+```
+BBWidth = (UpperBB20 - LowerBB20) / MiddleBB20      # weekly, 20-period, 2 std
+percentile = rank of current BBWidth within trailing 104-156 week window
+```
+
+| BBWidth percentile (own history) | Points |
+|---|---:|
+| ≤ 10th percentile | 25 |
+| ≤ 20th percentile | 20 |
+| ≤ 35th percentile | 12 |
+| ≤ 50th percentile | 6 |
+| > 50th percentile | 0 |
+
+Additionally require the percentile to have been **declining over the
+trailing `COIL_BARS` (8 weeks)** — i.e. contraction is a trend, not a
+snapshot — or halve the points. This is the actual VCP-style check that
+v3.1's static ATR ratio never performed.
+
+Check counted when `vol_contraction ≥ 12`. This check is also one half of
+Gate C (see above — must independently clear ≥10 pts equivalent).
+
+## 2. MACD directional filter (not scored — gate modifier only)
+
+```
+MACD line (12,26,9) > 0   → no penalty
+MACD line ≤ 0             → -8 pt penalty applied to Stage 2 total, floor 0
+```
+Keeps the cheap, legitimate part of the old check (is momentum net-positive)
+without treating MACD as a squeeze detector.
+
+## 3. Structure & MA Alignment (20 Points)
+
+```
+Required: EMA10w ≥ 0.98 × EMA20w ≥ 0.98 × EMA40w   → else 0 (hard fail, Gate C)
+```
+| Condition | Points |
+|---|---:|
+| Full stack aligned (above) | 10 |
+| Close ≥ 0.98 × EMA20w | +5 |
+| EMA20w > EMA40w | +5 |
+
+**Soft extension haircut** (tightened from v3.1):
+| `Pct_From_EMA50w` | Deduction |
+|---|---:|
+| ≤ 0.20 | none |
+| 0.20 - 0.30 | scaled, max -4 |
+| 0.30 - 0.40 | max -8 (leader) / -12 (laggard) |
+| > 0.40 | floor at 0 — treat as extended, not a coil |
+
+Check counted when `structure ≥ 8`. Independently gates via Gate C.
+
+## 4. Relative Strength vs QQQ (20 Points)
+
+```
+RS_13w = 13-week relative return vs QQQ (causal, Date <= as_of)
+RS_ratio_5wMA = 5-week MA of stock/QQQ ratio
+RS_line = cumulative stock/QQQ ratio series
+```
+
+Smoothed scoring (replaces the old flat "-15% to 0%" plateau):
+
+| Condition | Points |
+|---|---:|
+| RS_13w ≥ +15% | 20 |
+| ratio > 5wMA and RS_13w > +10% | 18 |
+| ratio > 5wMA and RS_13w > 0 | 14 |
+| RS_13w between 0% and +10%, ratio ≤ 5wMA | linear 6 → 12 |
+| RS_13w between -15% and 0% | linear 0 → 6 (was a flat 5 in v3.1) |
+| RS_13w < -15% | 0 (also fails Gate B) |
+
+**+2 bonus** if `RS_line` is at a new 13-week high concurrent with the
+price coil (RS-line cresting into a base — a leading institutional-
+accumulation tell, previously not checked at all).
+
+Check counted when `relative_strength ≥ 14`.
+
+## 5. Volume Profile Shelf (15 Points, scaled down from v3.1's 20)
+
+Unchanged methodology (30-bin, volume-weighted-on-Close, over full
+available history now that 10yr is on hand — was capped at 52-week
+`LOOKBACK`):
+
+| Sub-score | Max | Rule |
+|---|---:|---|
+| Topology | 6 | `min(6, (bin_vol/avg_neighbor_vol) * 2)` |
+| Auction value vs POC | 6 | ≤3 bins from POC = 6; ≤6 bins = 3; else 0 |
+| Behavior | 3 | Close above bin center = 3, else 1 |
+
+Check counted when `volume_shelf ≥ 8`.
+
+## 6. Overhead Clearance / Open Sky (10 Points, Fib removed)
+
+```
+lookback_high = max(Close) over full available history (up to 10yr)
+prior_swing_high = nearest prior swing high above current price
+```
+
+| Condition | Points |
+|---|---:|
+| Open sky: Close ≥ 0.95 × all-time-high | 10 |
+| ≥ 3 ATR to nearest prior swing high | 8 |
+| ≥ 2 ATR | 5 |
+| ≥ 1 ATR | 2 |
+| < 1 ATR | 0 |
+
+Fib 61.8%/78.6% levels are **dropped from scoring**; retained only as an
+informational CSV column (`Fib_Ref`) for manual chart review.
+
+Check counted when `overhead_clearance ≥ 5`.
+
+## 7. RVOL Breakout Trigger (10 Points, additive — unchanged intent)
+
+```
+RVOL = Volume / SMA20w(Volume)
+```
+| RVOL | Points |
+|---|---:|
+| ≥ 2.0× | 10 |
+| ≥ 1.5× | 8 |
+| ≥ 1.2× | 6 |
+| ≥ 1.0× | 4 |
+| < 1.0× on a confirmed tight coil (`vol_contraction ≥ 20`) | 4 (quiet-coil credit) |
+| else | 0 |
+
+Check counted when `rvol_trigger ≥ 6`. Never gates — same non-gating
+philosophy as v3.1, this pillar is about timing, not candidate quality.
+
+---
+
+# Stage 3 — Output Tiering (new)
+
+All gate-passing, score ≥70, Checks Met ≥5/6 rows split into two tiers on
+the CSV:
+
+| Tier | Condition |
+|---|---|
+| **Actionable** | Above, AND `rvol_trigger ≥ 6` AND Close breaking above the `COIL_BARS`-window high |
+| **Watchlist** | Above, but no volume trigger yet / still inside the coil range |
+
+This directly fixes the v3.1 problem of well-coiled-but-not-yet-firing
+names being visually indistinguishable from names breaking out today.
+
+**Recommended pipeline:** run this weekly scorecard to produce the
+candidate list, then re-check `Actionable` names against **daily** bars for
+the specific trigger day/price — weekly bars pick the setup, daily bars
+confirm the exact entry. Weekly-only scanning can tell you "this stock is
+coiled and ready," but the precise day it clears the range is a daily-bar
+question.
 
 ---
 
 # Grade Classification
 
-| Score | Grade | Meaning |
-|--------:|-------|---------|
-| 85-100 **and** market gate pass | A - Coil Ready | High-confluence pre-expansion |
-| 70-84 **and** market gate pass | B - Valid Coil | Actionable coil |
-| Gate fail (Close < EMA50 or RS 63d < 0) | Rejected - Trend Fail | Filtered after scoring |
-| Below 70 with gate pass | Rejected - Below Threshold | Insufficient confluence |
+| Score | Grade |
+|---:|---|
+| 85-100, all gates pass, Actionable tier | A - Coil Ready |
+| 85-100, all gates pass, Watchlist tier | A - Watch |
+| 70-84, all gates pass, Actionable tier | B - Valid Coil |
+| 70-84, all gates pass, Watchlist tier | B - Watch |
+| Any gate fail | Rejected - Gate Fail (A/B/C/D recorded) |
+| Score < 70 with gates passed | Rejected - Below Threshold |
 
 ---
 
-# Indicator Details
+# Known Limitations / Follow-ups
 
-## 1. Volume Profile Shelf (20 Points)
-
-`evaluate_volume_profile_shelf(df, price, lookback=LOOKBACK)` — 30 bins over
-the lookback window, volume-weighted on Close.
-
-| Sub-score | Max | Rule |
-| --------- | --: | ---- |
-| Topology | 8 | `min(8, int((bin_vol / avg_neighbor_vol) * 2.5))` |
-| Auction value vs POC | 8 | ≤ 3 bins from POC (including at POC) = 8; ≤ 6 bins = 4; else 0 |
-| Behavior | 4 | Close above bin center = 4, else 1 |
-
-Check counted when `volume_shelf ≥ 10`.
-
-## 2. Volatility Coil (20 Points)
-
-`coil_width_score` — N-bar High−Low range / ATR14 (`COIL_BARS`). The
-signal bar is excluded when history allows so a breakout day does not
-inflate the coil. Quiet volume (`RVOL < 1.0`) inside the base is valid
-compression and is **not** a drop.
-
-The tightest of several short windows is kept (daily: 3/5/8/13; weekly:
-3/5/8), signal bar excluded.
-
-| width | Points |
-|-------|-------:|
-| ≤ 1.5 ATR | 20 |
-| 1.5 – 2.2 ATR | linear 20 → 10 |
-| 2.2 – 4.0 ATR | residual 10 → 4 (high-beta pause) |
-| > 4.0 ATR | 0 |
-
-Check counted when `coil_width ≥ 10`.
-
-## 3. MACD Squeeze State (15 Points)
-
-`macd_compression_score` — pandas_ta MACD **12 / 26 / 9**.
-
-```
-hist = MACD_Hist   # or MACD − Signal if hist missing
-spread = abs(hist) / ATR
-```
-
-| spread | Points |
-|--------|-------:|
-| ≤ 0.05 | 15 |
-| ≤ 0.10 | 11 |
-| ≤ 0.18 | 7 |
-| ≤ 0.30 | 4 |
-| else | 0 |
-
-Deduct 5 if the MACD **line** is ≤ 0 (floor at 0). Crossover is not scored
-(`macd_cross` retired). Check counted when `macd_compression ≥ 7`.
-
-## 4. Relative Strength vs QQQ (15 Points)
-
-`rs_score` → `relative_strength()` (causal, `Date <= as_of`):
-
-Full pass (`ok`) requires stock/QQQ **ratio > its MA** and **positive**
-lookback relative return.
-
-| Condition | Points |
-| --------- | -----: |
-| rel-return ≥ +15% (even if QQQ is choppy / ratio < MA) | 15 |
-| `ok` and rel-return > +10% | 15 |
-| `ok` (ratio > MA and rel-return > 0) | 12 |
-| not `ok` but rel-return > 0 | 5 |
-| −15% < rel-return ≤ 0 (noise / mild lag) | 5 |
-| else / no benchmark | 0 |
-
-Weekly: 13 bars / 5-bar MA. Daily: 63 / 20. Negative 63d RS fails the
-Market Gate. Check counted when `relative_strength ≥ 12`.
-
-## 5. MA Alignment & ATR Proximity (15 Points)
-
-`structure_score(df, rs_rel=None)`:
-
-- **Required:** EMA20 ≥ 0.98 × EMA50 (2% slack so a flat coil still scores).
-  Else 0. SMA50 only if EMA50 is missing.
-- 10 EMA ≥ 0.98 × 20 EMA → +5
-- EMA20 > EMA50 (after slack) → +5
-- Close ≥ 0.98 × 20 EMA → +5
-- Soft `Pct_From_EMA50` haircut (never a reject or Market Gate fail):
-  - ≤ 0.25 → no deduction
-  - 0.25 – 0.50 → scaled deduction (max 5 if `RS 63d > 0.10`, else max 8)
-  - > 0.50 → 7-pt (leader) or 10-pt (laggard) haircut, floor at 0
-
-Check counted when `structure ≥ 10`.
-
-## 6. Breakout RVOL Trigger (10 Points)
-
-`rvol_trigger_score` — `RVOL = Volume / SMA20(Volume)`. Additive bonus
-only. `RVOL < 1.0` on a tight coil does **not** fail the Market Gate.
-
-| RVOL | Points |
-|------|-------:|
-| ≥ 2.0× | 10 |
-| ≥ 1.5× | 8 |
-| ≥ 1.2× | 6 |
-| ≥ 1.0× | 4 |
-| < 1.0× on a tight coil (`coil_width ≥ 15`) | 4 (quiet-coil credit) |
-| else | 0 |
-
-Never zeroed by the gate. Check counted when `rvol_trigger ≥ 6`.
-
-## 7. Overhead Clearance (5 Points)
-
-`overhead_clearance_score(df, price, atr, lookback=LOOKBACK)` — **Open sky
-first:** if `Close ≥ 0.95 ×` the lookback high (52-week on daily) **or**
-the series ATH, award the full 5 regardless of Fib 78.6% / 61.8% distance.
-Otherwise, distance from close to the nearest High above price, in ATR.
-
-| condition | Points |
-|-----------|-------:|
-| Open sky (`Close ≥ 0.95 × 52w/ATH`) or no high above | 5 |
-| ≥ 3 ATR to nearest supply | 5 |
-| ≥ 2 ATR | 3 |
-| ≥ 1 ATR | 1 |
-
-Check counted when `overhead_clearance ≥ 3`.
-
----
-
-# Market gate (`check_coiled_cobra_market_gate`)
-
-True unless the **ticker** has suffered a total trend failure:
-
-- `Close < 0.90 × EMA50` (more than 10% below the 50 — a coil *at* the
-  50 still passes), or
-- 63-day relative strength `≤ −15%` (BA/DG-style lag; −2% noise does not drop)
-
-Fail-open (`True`) when `close` / `ema50` / `rs_63d` are not provided
-(unit tests that pass `benchmark_df=None` keep working).
-
-**Not** drop conditions: `Pct_From_EMA50` (including > 0.25),
-`Pct_From_Fib786`, `RVOL < 1.0`, or SPY/QQQ sitting below their 21-EMA /
-50-SMA. Those stay on the scorecard (soft structure haircut, open-sky
-space, RVOL bonus).
-
-`spy_df` / `qqq_df` remain on the signature for call-site compatibility
-and are not used for the pass/fail decision.
-
-`Regime OK` on the CSV is a copy of `Market Gate`.
-
----
-
-# Output contract
-
-Live scan writes `data/logs/{weekly|daily}/coiled_cobra_setups_<YYYY-MM-DD>.csv`
-using `config.SETUP_ROW_COLUMNS`. Soft ML ranks (`ML_Pred_Return`, `ML_Rank`)
-are attached by `ml_ranker.attach_ml_ranks()` when artifacts exist; otherwise
-rows sort by `Score`.
-
-`Checks Met` is `{passed}/7` using the check thresholds above (not the hard
-gates).
-
----
-
-# Scanner Philosophy
-
-Favor:
-
-- Compression before expansion
-- Relative-strength leaders
-- Structural health
-- Accumulation shelves
-- Expansion volume at the trigger bar
-
-Avoid:
-
-- Chasing vertical breakouts already extended more than 50% above EMA50
-- Requiring deep discounts that miss high-base coils
-- Treating yearly Fib retracements or low RVOL as a mandatory gate
-- Scoring MACD crossovers as the entry trigger
-- Dropping RS leaders because QQQ is choppy
-
----
-
-# Known Limitations
-
-- Trade planner still uses Fib-anchored bounce geometry for Cobra rows
-  (`max(Fib 78.6%, Close − 0.25×ATR)` entry, local 10-bar swing-low stop,
-  2R / 3R targets). Coil-breakout entry/stop logic is a follow-up.
-- IPO / short-history names (GEV, APP early years) may lack EMA100 / RS history.
-- Weekly is the primary horizon for multi-month monster runs; daily is secondary.
-
----
-
-# Legacy notes
-
-v1 scored deep markdown + MACD < 0 + heavy yearly Fib (macro reversal).
-v2 introduced the coil scorecard but still scored MACD crossover and an
-optional Fib bonus. v3 added RVOL, overhead, and a SPY/QQQ penalty gate.
-Live code is the **v3.1** scorecard above: ticker-level Market Gate, open-sky
-space, RS ≥ 15% full credit, and a soft EMA50-extension haircut.
-
-The CMT recommendations that originally motivated v3 (MACD as squeeze *state*,
-RVOL as an additive trigger, overhead / open-sky space, EMA alignment with
-a soft extension allowance) are **implemented** in the pillars and gates
-above — they are not a future wishlist.
+- **Group/sector RS is not yet implemented.** Recommend adding a
+  sector-ETF or custom-basket relative-strength column as a secondary
+  (non-gating, informational-then-scored-later) check — leadership within
+  a hot group is a meaningfully different signal than absolute RS vs. QQQ
+  alone, and this rubric doesn't yet capture it.
+- **BBWidth percentile window (104-156w) is a starting heuristic**, not
+  back-tested here — worth validating against your existing trade archive
+  (`backtest_and_backfill.md`) before fully replacing the old ATR-ratio
+  method in production.
+- **IPO / short-history names** still can't pass Stage 2 in full (need
+  ≥160 weekly bars for EMA40w and 10yr ATH context) — same limitation as
+  v3.1, now formalized as an explicit `Insufficient History` status rather
+  than silently scoring on partial data.
+- Daily-bar trigger confirmation (mentioned in Stage 3) is a **process
+  recommendation**, not implemented in this rubric — it's a second, smaller
+  scanner pass, not a rewrite of this one.

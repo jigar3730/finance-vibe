@@ -100,6 +100,7 @@ def detect_cobra_setup_at_bar(
         "ATR_Pct": round(atr / close, 4),
         "Score": setup["Score"],
         "Grade": setup["Grade"],
+        "Tier": setup.get("Tier"),
         "Checks Met": setup["Checks Met"],
         "Source": "coiled_cobra",
         "RS 63d": setup.get("RS 63d"),

@@ -413,6 +413,7 @@ SETUP_ROW_COLUMNS = [
     "Notes",
     "Score",
     "Grade",
+    "Tier",
     "Checks Met",
     "Fib 61.8%",
     "Fib 78.6%",

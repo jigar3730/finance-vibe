@@ -57,13 +57,9 @@ SPY_BENCHMARK = "SPY"
 
 # Open-sky / extension allowances (daily-calibrated fractions; used on both TFs)
 OPEN_SKY_PCT = 0.95          # Close >= 95% of 52-week / ATH → full space score
-EMA50_SOFT_EXT = 0.25        # no structure penalty at or below this extension
-EMA50_MOMENTUM_EXT = 0.50    # RS leaders may extend this far with a scaled haircut
-RS_FULL_SCORE = 0.15         # 63d RS at/above this earns a full 15 regardless of chop
-RS_LEADER_EXT = 0.10         # RS above this unlocks the 0.50 EMA50 allowance
-COIL_FULL_ATR = 1.5          # range / ATR for a full coil score
-COIL_PARTIAL_ATR = 2.2       # last width that still earns partial coil points
-RVOL_BONUS = 1.2             # additive breakout-volume bonus (not a drop)
+RS_FULL_SCORE = 0.15         # 63d/13w RS at/above this earns a full pillar score
+RS_LEADER_EXT = 0.10         # RS above this = "leader" for extension-haircut purposes
+RVOL_BONUS = 1.2             # RVOL threshold for the quiet-coil credit check
 
 
 def local_swing_low(df: pd.DataFrame, bars: int = STRUCTURE_STOP_BARS) -> float:
@@ -71,20 +67,82 @@ def local_swing_low(df: pd.DataFrame, bars: int = STRUCTURE_STOP_BARS) -> float:
     window = df.iloc[-bars:] if len(df) >= bars else df
     return float(window["Low"].min())
 
+
+# =====================================================================
+# RUBRIC v4.0 CALIBRATION
+# =====================================================================
+# Weekly-native periods per docs/handbook/coiled_cobra_rubric.md, scaled 5x
+# for daily/high_beta bars (5 trading days ~= 1 week). This 5x rule is not
+# arbitrary: 10w*5=50d, 30w*5=150d, 40w*5=200d land exactly on Minervini's
+# classic daily 50/150/200-SMA trend template -- the rubric explicitly names
+# Gate A as "the weekly analog" of that daily template, so the scaling is
+# self-consistent rather than an independent daily calibration.
+_WK_TO_BAR = 5 if _is_daily_bars else 1
+
+# Trend-template EMAs (Gate A + Structure pillar). Prefixed TT_ to keep them
+# distinct from the pre-existing bar-count EMA10/20/50/100 columns, which
+# stay native-bar-length (used for Pct_From_EMA20/50 ML features, output
+# columns, etc.) and are NOT week-scaled.
+TT_EMA_S1 = 10 * _WK_TO_BAR     # structure stack: fast
+TT_EMA_S2 = 20 * _WK_TO_BAR     # structure stack: mid
+TT_EMA_FAST = 30 * _WK_TO_BAR   # Gate A fast (== Minervini 150-SMA on daily)
+TT_EMA_SLOW = 40 * _WK_TO_BAR   # Gate A slow / structure's third anchor (== Minervini 200-SMA on daily)
+TREND_RISING_LOOKBACK = 8 * _WK_TO_BAR   # bars EMA_SLOW must be rising over
+
+# BBWidth percentile rolling window: rubric specifies 104-156 weeks (2-3y);
+# 130w midpoint, same 5x daily scaling.
+BBWIDTH_WINDOW = 130 * _WK_TO_BAR
+
+# History floors. MIN_BARS_TO_EVALUATE: rubric's max(COIL_BARS+2, 60w).
+# MIN_BARS_FULL_SCORE: rubric's 160w floor for ATH/trend-template/BBWidth
+# context -- tickers between the two are flagged "Insufficient History"
+# rather than silently scored on partial data.
+MIN_BARS_TO_EVALUATE = max(COIL_BARS + 2, 60 * _WK_TO_BAR)
+MIN_BARS_FULL_SCORE = 160 * _WK_TO_BAR
+
+# Stage 1 hard-gate thresholds (Gate C reuses the same per-pillar thresholds
+# that drive Gate D's Checks-Met counter -- see each pillar's docstring).
+GATE_C_VOL_CONTRACTION_MIN = 12
+GATE_C_STRUCTURE_MIN = 8
+MIN_CHECKS_MET = 5     # of 6 scored pillars (Gate D)
+N_SCORED_PILLARS = 6
+
+# MACD is a small binary directional filter (not a scored pillar in v4.0).
+MACD_DIRECTIONAL_PENALTY = 8
+
 # Soft pass floors (scorecard still sums to 100)
 MIN_PASS_SCORE = 70
 GRADE_A_SCORE = 85
-# Soft check floors (counted in Checks Met; not binary drops)
-MIN_COMPRESSION = 5
-MIN_STRUCTURE = 8
-MIN_RS_POINTS = 12
-# Retained for CSV/docs compatibility. v3.1 no longer subtracts this — Market
-# Gate only filters Close < EMA50 or negative 63d RS.
-MACRO_PENALTY = 0
+
+
+def _calibrate(is_daily_bars: bool) -> None:
+    """Recompute every mode-derived constant from a single ``is_daily_bars``
+    flag. Shared by module load and ``apply_timeframe`` so the two never
+    drift out of sync.
+    """
+    global LOOKBACK, COIL_BARS, RS_LOOKBACK, RS_RATIO_MA, _WK_TO_BAR
+    global TT_EMA_S1, TT_EMA_S2, TT_EMA_FAST, TT_EMA_SLOW, TREND_RISING_LOOKBACK
+    global BBWIDTH_WINDOW, MIN_BARS_TO_EVALUATE, MIN_BARS_FULL_SCORE
+
+    LOOKBACK = 252 if is_daily_bars else 52
+    COIL_BARS = 30 if is_daily_bars else 8
+    RS_LOOKBACK = 63 if is_daily_bars else 13
+    RS_RATIO_MA = 20 if is_daily_bars else 5
+
+    _WK_TO_BAR = 5 if is_daily_bars else 1
+    TT_EMA_S1 = 10 * _WK_TO_BAR
+    TT_EMA_S2 = 20 * _WK_TO_BAR
+    TT_EMA_FAST = 30 * _WK_TO_BAR
+    TT_EMA_SLOW = 40 * _WK_TO_BAR
+    TREND_RISING_LOOKBACK = 8 * _WK_TO_BAR
+    BBWIDTH_WINDOW = 130 * _WK_TO_BAR
+    MIN_BARS_TO_EVALUATE = max(COIL_BARS + 2, 60 * _WK_TO_BAR)
+    MIN_BARS_FULL_SCORE = 160 * _WK_TO_BAR
 
 
 def apply_timeframe(tf: str) -> str:
-    """Set coil / RS / shelf lookbacks for ``weekly``, ``daily``, or ``high_beta``.
+    """Set every mode-derived calibration constant for ``weekly``, ``daily``,
+    or ``high_beta``.
 
     Import-time defaults follow ``sys.argv`` (scanner CLI). Historical
     benchmarks and library callers should set the timeframe explicitly so
@@ -92,14 +150,10 @@ def apply_timeframe(tf: str) -> str:
     shares ``daily``'s bar-frequency calibration (only the live pipeline's
     log silo differs; this function does not touch paths).
     """
-    global mode, LOOKBACK, COIL_BARS, RS_LOOKBACK, RS_RATIO_MA
+    global mode
     tf_l = str(tf).lower()
     mode = tf_l if tf_l in ("daily", "high_beta") else "weekly"
-    is_daily_bars = mode in ("daily", "high_beta")
-    LOOKBACK = 252 if is_daily_bars else 52
-    COIL_BARS = 30 if is_daily_bars else 8
-    RS_LOOKBACK = 63 if is_daily_bars else 13
-    RS_RATIO_MA = 20 if is_daily_bars else 5
+    _calibrate(mode in ("daily", "high_beta"))
     return mode
 
 # =========================
@@ -129,7 +183,7 @@ logger = logging.getLogger(__name__)
 
 
 def add_macro_indicators(df: pd.DataFrame, lookback=None) -> pd.DataFrame:
-    """EMA stack, MACD, RSI, ATR, RVOL, and rolling Fib levels for coil scoring."""
+    """EMA stack, MACD, RSI, ATR, RVOL, BBWidth, and rolling Fib levels for coil scoring."""
     lookback = LOOKBACK if lookback is None else lookback
     out = df.copy()
     out["EMA10"] = ta.ema(out["Close"], length=10)
@@ -137,6 +191,14 @@ def add_macro_indicators(df: pd.DataFrame, lookback=None) -> pd.DataFrame:
     out["EMA50"] = ta.ema(out["Close"], length=50)
     out["EMA100"] = ta.ema(out["Close"], length=100)
     out["SMA50"] = ta.sma(out["Close"], length=50)
+
+    # Rubric v4.0 trend-template EMAs (Gate A + Structure pillar) -- distinct
+    # from the bar-count EMA10/20/50/100 above, which stay untouched since
+    # they drive Pct_From_EMA20/50 ML features and other output columns.
+    out["TT_EMA_S1"] = ta.ema(out["Close"], length=TT_EMA_S1)
+    out["TT_EMA_S2"] = ta.ema(out["Close"], length=TT_EMA_S2)
+    out["TT_EMA_FAST"] = ta.ema(out["Close"], length=TT_EMA_FAST)
+    out["TT_EMA_SLOW"] = ta.ema(out["Close"], length=TT_EMA_SLOW)
 
     macd = ta.macd(out["Close"])
     out["MACD"] = macd["MACD_12_26_9"]
@@ -155,7 +217,20 @@ def add_macro_indicators(df: pd.DataFrame, lookback=None) -> pd.DataFrame:
     out["VOL_SMA20"] = ta.sma(out["Volume"], length=20)
     out["RVOL"] = out["Volume"] / out["VOL_SMA20"]
 
-        # Keep early rows so RS / 52-week windows still see full history.
+    # Bollinger Band Width (20-period, 2 std) and its percentile rank within
+    # its own trailing BBWIDTH_WINDOW history -- true volatility contraction,
+    # not the MACD-spread proxy v3.1 used. min_periods kept generous (a
+    # quarter of the window) so shorter histories still get a reading.
+    sma20 = ta.sma(out["Close"], length=20)
+    std20 = out["Close"].rolling(20, min_periods=20).std()
+    bbwidth = (4 * std20) / sma20.replace(0, np.nan)
+    out["BBWidth"] = bbwidth
+    bb_min_periods = max(40, BBWIDTH_WINDOW // 4)
+    out["BBWidth_Pctile"] = (
+        bbwidth.rolling(BBWIDTH_WINDOW, min_periods=bb_min_periods).rank(pct=True) * 100
+    )
+
+    # Keep early rows so RS / lookback windows still see full history.
     return out
 
 
@@ -165,7 +240,7 @@ def add_macro_indicators(df: pd.DataFrame, lookback=None) -> pd.DataFrame:
 
 
 def _volume_shelf_once(df: pd.DataFrame, current_price: float, lookback: int) -> int:
-    """Score one lookback window against its POC / HVN."""
+    """Score one lookback window against its POC / HVN (0-15)."""
     recent_data = df.iloc[-lookback:] if len(df) >= lookback else df
     v_min = float(recent_data["Low"].min())
     v_max = float(recent_data["High"].max())
@@ -186,194 +261,135 @@ def _volume_shelf_once(df: pd.DataFrame, current_price: float, lookback: int) ->
     right_idx = min(len(binned_volume) - 1, price_bin + 1)
     avg_neighbor_vol = (binned_volume[left_idx] + binned_volume[right_idx]) / 2
     current_vol = binned_volume[price_bin]
-    if avg_neighbor_vol > 0:
-        topology_score = min(8, max(3, int((current_vol / avg_neighbor_vol) * 2.5)))
-    else:
-        topology_score = 3
+    topology_score = min(6.0, (current_vol / avg_neighbor_vol) * 2) if avg_neighbor_vol > 0 else 0.0
 
     poc_bin = int(np.argmax(binned_volume))
     distance_from_poc = abs(price_bin - poc_bin)
     if distance_from_poc <= 3:
-        value_score = 8
-    elif distance_from_poc <= 6:
         value_score = 6
-    elif price_bin >= poc_bin:
-        value_score = 5  # launched from / holding above the node
-    elif distance_from_poc <= 10:
-        value_score = 4  # accumulating under value
+    elif distance_from_poc <= 6:
+        value_score = 3
     else:
-        value_score = 2
+        value_score = 0
 
     bin_center = (bin_edges[price_bin] + bin_edges[min(price_bin + 1, len(bin_edges) - 1)]) / 2
-    behavior_score = 4 if float(recent_data["Close"].iloc[-1]) > bin_center or price_bin >= poc_bin else 2
-    return int(topology_score + value_score + behavior_score)
+    behavior_score = 3 if float(recent_data["Close"].iloc[-1]) > bin_center else 1
+
+    return int(round(topology_score + value_score + behavior_score))
 
 
 def evaluate_volume_profile_shelf(
     df: pd.DataFrame, current_price: float, lookback=None
 ) -> int:
-    """
-    Auction-market volume shelf score (0-20).
+    """Auction-market volume shelf score (0-15).
 
-    Rewards price sitting near the Point of Control / high-volume node —
-    proximity to the recent coil shelf, not clearance of a historical peak.
-    Takes the better of a short coil window and the RS lookback.
+    Rewards price sitting near the Point of Control / high-volume node.
+    Takes the better of a short coil window and the full available history
+    (previously capped at the 52-week LOOKBACK; now that 10y history is on
+    hand, the long window uses everything).
     """
-    if lookback is None:
-        lookback = RS_LOOKBACK
-    short = 20 if lookback >= 20 else max(5, lookback)
+    short = 20
+    long_lookback = len(df) if lookback is None else lookback
     return max(
         _volume_shelf_once(df, current_price, short),
-        _volume_shelf_once(df, current_price, lookback),
+        _volume_shelf_once(df, current_price, long_lookback),
     )
 
 
-# =========================
-# FIB SCORE (optional bonus, demoted)
-# =========================
-def fibonacci_score(
-    current_price: float,
-    fib_levels: dict,
-    atr: float,
-    max_atr_distance: float = 0.5,
-) -> float:
-    """Optional Fib proximity bonus (0-5). Demoted from the old 30-pt gate."""
-    if not isinstance(fib_levels, dict) or atr <= 0:
-        return 0.0
+def macd_directional_penalty(macd: float) -> int:
+    """Binary MACD directional filter (not a scored pillar in v4.0).
 
-    best_score = 0.0
-    for level_price, max_possible_score in fib_levels.items():
-        atr_distance = abs(current_price - level_price) / atr
-        if atr_distance >= max_atr_distance:
-            continue
-        level_score = max_possible_score * (1 - (atr_distance / max_atr_distance) ** 2)
-        if level_score > best_score:
-            best_score = level_score
-    return round(best_score, 2)
-
-
-def macd_compression_score(
-    macd: float,
-    macd_signal: float,
-    atr: float,
-    macd_hist: Optional[float] = None,
-) -> int:
-    """MACD squeeze state (0-15). Highest when histogram is tight and MACD > 0.
-
-    Name kept so existing unit tests can monkeypatch this symbol.
+    v3.1 scored MACD-histogram "squeeze" as a 15-pt volatility proxy, which
+    conflated momentum convergence with actual range contraction (now
+    measured properly by ``vol_contraction_score``'s BBWidth percentile).
+    MACD is demoted to a small penalty: net-negative momentum costs
+    ``MACD_DIRECTIONAL_PENALTY`` points off the Stage-2 total.
     """
-    if atr <= 0:
-        return 0
-    hist = float(macd - macd_signal) if macd_hist is None else float(macd_hist)
-    spread = abs(hist) / atr
-    if spread <= 0.05:
-        base = 15
-    elif spread <= 0.10:
-        base = 11
-    elif spread <= 0.18:
-        base = 7
-    elif spread <= 0.30:
-        base = 4
-    else:
-        return 0
-    if macd <= 0:
-        base = max(0, base - 5)
-    return base
+    return 0 if macd > 0 else MACD_DIRECTIONAL_PENALTY
 
 
-def _coil_points_for_width(width_atr: float) -> int:
-    """Map a single range/ATR reading onto the 20-point coil ladder."""
-    if width_atr <= COIL_FULL_ATR:
-        return 20
-    if width_atr <= COIL_PARTIAL_ATR:
-        # 20 at 1.5 ATR → 10 at 2.2 ATR
-        t = (width_atr - COIL_FULL_ATR) / (COIL_PARTIAL_ATR - COIL_FULL_ATR)
-        return max(1, int(round(20 - 10 * t)))
-    # High-beta residual: a pause after a vertical leg can still be a coil.
-    if width_atr <= 4.0:
-        t = (width_atr - COIL_PARTIAL_ATR) / (4.0 - COIL_PARTIAL_ATR)
-        return max(1, int(round(10 - 6 * t)))
-    return 0
+def vol_contraction_score(df: pd.DataFrame) -> tuple[int, Optional[float]]:
+    """BBWidth-percentile volatility contraction (0-25).
 
-
-def coil_width_score(df: pd.DataFrame, atr: float, coil_bars: int = None) -> int:
-    """Tight N-bar range vs ATR (0-20). Coiled energy before expansion.
-
-    Full score when range / ATR ≤ 1.5. Partial credit through 2.2, with a
-    small residual band to 4.0 ATR for high-beta pauses. The signal bar is
-    excluded and the tightest of several short windows is kept so a breakout
-    day does not inflate the coil. Quiet volume (RVOL < 1.0) is valid
-    compression and is not used here as a drop.
+    Replaces v3.1's MACD-spread "squeeze" proxy and ATR-ratio coil_width with
+    a true range-contraction measure: current Bollinger Band Width's
+    percentile rank within its own trailing ``BBWIDTH_WINDOW`` history.
+    Halves the points unless that percentile has been declining over the
+    trailing ``COIL_BARS`` -- contraction must be a trend, not a snapshot.
     """
-    coil_bars = COIL_BARS if coil_bars is None else coil_bars
-    if atr <= 0 or df.empty:
-        return 0
-    if coil_bars >= 20:
-        windows = (3, 5, 8, 13)
+    if df.empty or "BBWidth_Pctile" not in df.columns:
+        return 0, None
+    pct = df["BBWidth_Pctile"].iloc[-1]
+    if pd.isna(pct):
+        return 0, None
+    pct_f = float(pct)
+
+    if pct_f <= 10:
+        base = 25
+    elif pct_f <= 20:
+        base = 20
+    elif pct_f <= 35:
+        base = 12
+    elif pct_f <= 50:
+        base = 6
     else:
-        windows = tuple(sorted({3, 5, coil_bars}))
-    best = 0
-    for n in windows:
-        if len(df) < n:
-            continue
-        if len(df) >= n + 1:
-            window = df.iloc[-(n + 1):-1]
-        else:
-            window = df.iloc[-n:]
-        rng = float(window["High"].max() - window["Low"].min())
-        best = max(best, _coil_points_for_width(rng / atr))
-        if best == 20:
-            return 20
-    return best
+        base = 0
+
+    if base > 0 and len(df) > COIL_BARS:
+        prior = df["BBWidth_Pctile"].iloc[-(COIL_BARS + 1)]
+        if pd.notna(prior) and pct_f > float(prior):
+            base = base // 2
+
+    return base, pct_f
 
 
-def _ema50_extension_penalty(pct_ema50: float, rs_rel: Optional[float]) -> int:
-    """Soft haircut for EMA50 extension. Never a binary reject."""
-    if pct_ema50 <= EMA50_SOFT_EXT:
+def _trend_extension_penalty(pct_from_slow: float, rs_rel: Optional[float]) -> int:
+    """Soft haircut for extension above TT_EMA_SLOW (tightened vs v3.1's
+    EMA50-based bands). Floors the whole structure pillar at 0 past 40%
+    extension -- the rubric treats that as stage-2 markup, not a fresh coil.
+    """
+    if pct_from_slow <= 0.20:
         return 0
     leader = rs_rel is not None and rs_rel > RS_LEADER_EXT
-    if pct_ema50 <= EMA50_MOMENTUM_EXT:
-        t = (pct_ema50 - EMA50_SOFT_EXT) / (EMA50_MOMENTUM_EXT - EMA50_SOFT_EXT)
-        max_pen = 5 if leader else 8
-        return int(round(max_pen * t))
-    return 7 if leader else 10
+    if pct_from_slow <= 0.30:
+        t = (pct_from_slow - 0.20) / 0.10
+        return int(round(4 * t))
+    if pct_from_slow <= 0.40:
+        t = (pct_from_slow - 0.30) / 0.10
+        max_pen = 8 if leader else 12
+        return int(round(4 + (max_pen - 4) * t))
+    return 999  # forces structure_score's max(0, ...) floor
 
 
 def structure_score(df: pd.DataFrame, rs_rel: Optional[float] = None) -> int:
-    """MA alignment and EMA50-extension proximity for a leader coil (0-15).
+    """MA alignment and long-term-EMA extension proximity (0-20).
 
-    Requires EMA20 > EMA50. Overextension is a scaled deduction — RS leaders
-    (RS 63d > 0.10) may sit up to 50% above EMA50 without a zero or gate fail.
+    Requires TT_EMA_S1 >= 0.98x TT_EMA_S2 >= 0.98x TT_EMA_SLOW, else 0 -- this
+    hard requirement is also Gate C's structural half (see
+    ``GATE_C_STRUCTURE_MIN``).
     """
     if len(df) < 2:
         return 0
     latest = df.iloc[-1]
     close = float(latest["Close"])
-    ema20 = float(latest["EMA20"])
-    ema10 = latest.get("EMA10")
-    ema50 = latest.get("EMA50")
-    sma50 = latest.get("SMA50")
+    s1 = latest.get("TT_EMA_S1")
+    s2 = latest.get("TT_EMA_S2")
+    slow = latest.get("TT_EMA_SLOW")
+    if any(v is None or pd.isna(v) for v in (s1, s2, slow)):
+        return 0
+    s1, s2, slow = float(s1), float(s2), float(slow)
 
-    ma50 = None
-    if ema50 is not None and pd.notna(ema50):
-        ma50 = float(ema50)
-    elif sma50 is not None and pd.notna(sma50):
-        ma50 = float(sma50)
-
-    # Enforce EMA20 > EMA50 with 2% slack so a flat coil under the 50 still
-    # scores (PLTR-style pre-gap bases). SMA50 is only a fallback.
-    if ma50 is None or ema20 < ma50 * 0.98:
+    if not (s1 >= 0.98 * s2 and s2 >= 0.98 * slow):
         return 0
 
-    score = 0
-    if ema10 is not None and pd.notna(ema10) and float(ema10) >= ema20 * 0.98:
+    score = 10
+    if close >= 0.98 * s2:
         score += 5
-    score += 5  # EMA20 > EMA50
-    if close >= ema20 * 0.98:
+    if s2 > slow:
         score += 5
 
-    pct_ema50 = (close - ma50) / ma50 if ma50 else 0.0
-    score -= _ema50_extension_penalty(pct_ema50, rs_rel)
+    pct_from_slow = (close - slow) / slow if slow else 0.0
+    score -= _trend_extension_penalty(pct_from_slow, rs_rel)
     return max(0, score)
 
 
@@ -408,10 +424,9 @@ def overhead_clearance_score(
     atr: float,
     lookback: int = 50,
 ) -> float:
-    """Room to run (0-5). Open sky near 52-week / ATH scores a full 5.
-
-    If Close ≥ 95% of the lookback high or the series ATH, Fib extension
-    distance is ignored and the full space weight is awarded.
+    """Room to run (0-10). Open sky near the lookback high or ATH scores a
+    full 10. Fib levels are informational-only (see the v4.0 rubric doc) --
+    this pillar is pure price-structure clearance.
     """
     if df.empty:
         return 0.0
@@ -420,62 +435,99 @@ def overhead_clearance_score(
         return 0.0
     high_52 = float(window["High"].max())
     ath = float(df["High"].max())
-    # Open sky: within 5% of the 52-week or all-time high — ignore Fib distance.
+    # Open sky: within 5% of the lookback or all-time high — full points.
     if high_52 > 0 and price >= OPEN_SKY_PCT * high_52:
-        return 5.0
+        return 10.0
     if ath > 0 and price >= OPEN_SKY_PCT * ath:
-        return 5.0
-    # Local open sky: within 5% of the recent range high (63-bar shelf window).
+        return 10.0
+    # Local open sky: within 5% of the recent range high (RS-lookback shelf).
     local_n = RS_LOOKBACK if RS_LOOKBACK else 63
     local = df.iloc[-local_n:] if len(df) >= local_n else df
     local_high = float(local["High"].max()) if not local.empty else 0.0
     if local_high > 0 and price >= OPEN_SKY_PCT * local_high:
-        return 5.0
+        return 10.0
     if atr <= 0:
         return 0.0
-    # Room to the significant high, not the nearest one-bar wick.
     if high_52 <= price or local_high <= price:
-        return 5.0
+        return 10.0
     room_atr = (min(high_52, local_high) - price) / atr
     if room_atr >= 3.0:
-        return 5.0
+        return 8.0
     if room_atr >= 2.0:
-        return 3.0
+        return 5.0
     if room_atr >= 1.0:
-        return 1.0
+        return 2.0
     return 0.0
 
 
-def rs_score(
+def _rs_line_new_high(
+    stock_df: pd.DataFrame,
+    benchmark_df: Optional[pd.DataFrame],
+    as_of=None,
+    lookback: int = 13,
+) -> bool:
+    """True when the stock/benchmark ratio (RS line) is at its own trailing
+    ``lookback`` high on the as-of bar -- RS-line cresting into a base, a
+    leading institutional-accumulation tell not checked at all in v3.1.
+    """
+    if benchmark_df is None or benchmark_df.empty:
+        return False
+    s = stock_df[["Date", "Close"]].copy()
+    s["Date"] = pd.to_datetime(s["Date"])
+    b = benchmark_df[["Date", "Close"]].rename(columns={"Close": "Bench"}).copy()
+    b["Date"] = pd.to_datetime(b["Date"])
+    if as_of is not None:
+        cutoff = pd.to_datetime(as_of)
+        s = s[s["Date"] <= cutoff]
+        b = b[b["Date"] <= cutoff]
+    merged = s.merge(b, on="Date", how="inner").sort_values("Date")
+    if len(merged) < lookback:
+        return False
+    ratio = merged["Close"].astype(float) / merged["Bench"].astype(float)
+    window = ratio.tail(lookback)
+    return bool(window.iloc[-1] >= window.max() - 1e-12)
+
+
+def relative_strength_score(
     stock_df: pd.DataFrame,
     benchmark_df: Optional[pd.DataFrame],
     as_of=None,
 ) -> tuple[int, Optional[float]]:
-    """Relative strength vs QQQ (0-15). 63-day (daily) / 13-bar (weekly) RS.
+    """Relative strength vs QQQ (0-20), smoothed bands + RS-line-new-high bonus.
 
-    Full 15 points when 63d relative return ≥ +15%, even if QQQ is choppy
-    and the ratio fails its moving-average test.
+    Replaces v3.1's flat "-15% to 0%" plateau with a linear ramp so a stock
+    lagging by 1% isn't scored identically to one lagging by 14%, and adds a
+    +2 bonus when the RS line is cresting to a new lookback high.
     """
     if benchmark_df is None:
         return 0, None
     ok, rel = relative_strength(
-        stock_df,
-        benchmark_df,
-        as_of=as_of,
-        lookback=RS_LOOKBACK,
-        ratio_ma_bars=RS_RATIO_MA,
+        stock_df, benchmark_df, as_of=as_of,
+        lookback=RS_LOOKBACK, ratio_ma_bars=RS_RATIO_MA,
     )
-    if rel is not None and rel >= RS_FULL_SCORE:
-        return 15, rel
-    if ok and rel is not None and rel > RS_LEADER_EXT:
-        return 15, rel
-    if ok:
-        return 12, rel
-    if rel is not None and rel > 0:
-        return 5, rel
-    if rel is not None and rel > -0.15:
-        return 5, rel  # mild lag / noise — not a BA/DG washout
-    return 0, rel
+    if rel is None:
+        return 0, None
+
+    if rel >= RS_FULL_SCORE:
+        pts = 20.0
+    elif ok and rel > 0.10:
+        pts = 18.0
+    elif ok and rel > 0:
+        pts = 14.0
+    elif rel > 0:
+        # ratio <= its MA (choppy) but RS still positive -- linear 6 -> 12;
+        # clamped flat at 12 beyond +10% (rubric leaves that combination
+        # undefined, this is the interpolation choice made here).
+        pts = 6.0 + min(rel, 0.10) / 0.10 * 6.0
+    elif rel > -0.15:
+        pts = (rel + 0.15) / 0.15 * 6.0
+    else:
+        pts = 0.0
+
+    if pts > 0 and _rs_line_new_high(stock_df, benchmark_df, as_of=as_of, lookback=RS_LOOKBACK):
+        pts = min(20.0, pts + 2.0)
+
+    return int(round(pts)), rel
 
 
 # =========================
@@ -492,95 +544,98 @@ def evaluate_coiled_cobra(
     apply_market_gate: bool = True,
     include_rejects: bool = False,
 ) -> Optional[dict]:
-    """100-point coil scorecard: catch compressed leaders before they expand.
+    """100-point coil scorecard v4.0: catch compressed leaders before they expand.
 
-    Pillars (v3.1):
-      Volume shelf 20 · Coil width 20 · MACD squeeze 15 · RS 15 ·
-      MA alignment 15 · RVOL trigger 10 · Overhead clearance 5
-    Market Gate filters only total trend failure (Close < EMA50 or RS 63d < 0).
-    Extension, Fib distance, low RVOL, and SPY/QQQ chop are scorecard items.
+    Pillars (v4.0): Volatility contraction 25 (BBWidth percentile) ·
+    Structure 20 · Relative strength 20 · Volume shelf 15 ·
+    Overhead clearance 10 · RVOL trigger 10. MACD is a small (-8) directional
+    penalty, not a scored pillar.
+
+    Four Stage-1 hard gates (all must pass, else rejected):
+      A. Long-term trend template (TT_EMA_FAST/SLOW stack, slow rising)
+      B. Ticker market gate (Close vs EMA50, 63d/13w RS) -- unchanged from v3.1
+      C. Coil integrity (vol_contraction AND structure each independently
+         clear their own Checks-Met threshold)
+      D. Breadth (Checks Met >= MIN_CHECKS_MET of N_SCORED_PILLARS)
+
+    Below ``MIN_BARS_FULL_SCORE`` bars of history, returns None unconditionally
+    (not scored, regardless of ``include_rejects``) -- see the rubric's
+    "Insufficient History" status.
+
+    Full spec: docs/handbook/coiled_cobra_rubric.md (v4.0).
     """
-    if len(df) < max(COIL_BARS + 2, 25):
+    if len(df) < MIN_BARS_FULL_SCORE:
         return None
 
     latest = df.iloc[-1]
-    if any(pd.isna(latest.get(col)) for col in ("Close", "EMA20", "EMA50", "MACD", "ATR")):
+    required_cols = ("Close", "EMA50", "MACD", "ATR", "TT_EMA_S1", "TT_EMA_S2", "TT_EMA_FAST", "TT_EMA_SLOW")
+    if any(pd.isna(latest.get(col)) for col in required_cols):
         return None
 
     current_price = float(latest["Close"])
     atr = float(latest["ATR"])
     macd = float(latest["MACD"])
-    macd_signal = float(latest["MACD_Signal"])
-    macd_hist = latest.get("MACD_Hist")
-    hist_v = float(macd_hist) if macd_hist is not None and pd.notna(macd_hist) else None
     as_of = latest["Date"] if "Date" in df.columns else None
     ema50_f = float(latest["EMA50"])
 
+    gate_fails: list[str] = []
+
+    # --- Gate A: long-term trend template ---------------------------------
+    tt_fast, tt_slow = float(latest["TT_EMA_FAST"]), float(latest["TT_EMA_SLOW"])
+    prior_slow = (
+        df["TT_EMA_SLOW"].iloc[-(TREND_RISING_LOOKBACK + 1)]
+        if len(df) > TREND_RISING_LOOKBACK else None
+    )
+    trend_ok = (
+        prior_slow is not None and pd.notna(prior_slow)
+        and current_price > tt_fast > tt_slow
+        and tt_slow > float(prior_slow)
+    )
+    if not trend_ok:
+        gate_fails.append("A")
+
+    # --- Stage 2: six scored pillars ---------------------------------------
     parts: dict[str, float] = {}
     checks_passed = 0
 
-    # 1. Volume shelf (0-20) — proximity to POC / HVN
-    vp = evaluate_volume_profile_shelf(df, current_price)
-    parts["volume_shelf"] = vp
-    if vp >= 10:
+    vol_c, bbwidth_pct = vol_contraction_score(df)
+    parts["vol_contraction"] = vol_c
+    if vol_c >= GATE_C_VOL_CONTRACTION_MIN:
         checks_passed += 1
 
-    # 2. Volatility coil (0-20) — low RVOL inside the coil is valid compression
-    coil = coil_width_score(df, atr)
-    parts["coil_width"] = coil
-    if coil >= 10:
-        checks_passed += 1
-
-    # 3. MACD squeeze state (0-15) — tightest hist in the last 8 bars so a
-    # breakout bar that just released the squeeze still gets credit.
-    comp = macd_compression_score(macd, macd_signal, atr, macd_hist=hist_v)
-    look = df.iloc[-8:] if len(df) >= 8 else df
-    for _, row in look.iterrows():
-        row_atr = row.get("ATR")
-        row_macd = row.get("MACD")
-        row_sig = row.get("MACD_Signal")
-        row_hist = row.get("MACD_Hist")
-        if pd.isna(row_atr) or pd.isna(row_macd) or pd.isna(row_sig) or float(row_atr) <= 0:
-            continue
-        h = None if pd.isna(row_hist) else float(row_hist)
-        comp = max(comp, macd_compression_score(float(row_macd), float(row_sig), float(row_atr), macd_hist=h))
-    if comp == 0 and macd > 0:
-        comp = 7  # momentum-leader floor; wide hist is not a drop
-    elif comp == 0:
-        comp = 4  # washed-out squeeze still has a histogram
-    parts["macd_compression"] = comp
-    if comp >= 7:
-        checks_passed += 1
-
-    # 4. Relative strength vs QQQ (0-15) — full score at RS 63d ≥ 0.15
-    rs_pts, rs_rel = rs_score(df, benchmark_df, as_of=as_of)
+    rs_pts, rs_rel = relative_strength_score(df, benchmark_df, as_of=as_of)
     parts["relative_strength"] = rs_pts
-    if rs_pts >= 12:
+    if rs_pts >= 14:
         checks_passed += 1
 
-    # 5. MA alignment & EMA50 proximity (0-15) — soft extension haircut
     struct = structure_score(df, rs_rel=rs_rel)
     parts["structure"] = struct
-    if struct >= 10:
+    if struct >= GATE_C_STRUCTURE_MIN:
         checks_passed += 1
 
-    # 6. Breakout RVOL bonus (0-10) — never zeroed by the gate.
-    # Quiet volume on a tight coil is valid compression, not a zero.
+    vp = evaluate_volume_profile_shelf(df, current_price)
+    parts["volume_shelf"] = vp
+    if vp >= 8:
+        checks_passed += 1
+
+    overhead = overhead_clearance_score(df, current_price, atr, lookback=LOOKBACK)
+    parts["overhead_clearance"] = overhead
+    if overhead >= 5:
+        checks_passed += 1
+
+    # RVOL bonus — never zeroed by the gate. Quiet volume on a confirmed
+    # tight coil (vol_contraction >= 20) is valid compression, credited 4.
     rvol_pts, rvol = rvol_trigger_score(df)
-    if rvol_pts == 0 and coil >= 15 and rvol is not None and rvol < RVOL_BONUS:
+    if rvol_pts == 0 and vol_c >= 20 and rvol is not None and rvol < RVOL_BONUS:
         rvol_pts = 4
     parts["rvol_trigger"] = rvol_pts
     if rvol_pts >= 6:
         checks_passed += 1
 
-    # 7. Overhead clearance (0-5). Open sky awards the full 5.
-    overhead = overhead_clearance_score(df, current_price, atr, lookback=LOOKBACK)
-    parts["overhead_clearance"] = overhead
-    if overhead >= 3:
-        checks_passed += 1
+    macd_penalty = macd_directional_penalty(macd)
+    score = max(0.0, sum(parts.values()) - macd_penalty)
 
-    score = sum(parts.values())
-
+    # --- Gate B: ticker market gate (unchanged from v3.1) ------------------
     gate_ok = True
     if apply_market_gate:
         gate_ok = check_coiled_cobra_market_gate(
@@ -591,30 +646,53 @@ def evaluate_coiled_cobra(
             ema50=ema50_f,
             rs_63d=rs_rel,
         )
+    if not gate_ok:
+        gate_fails.append("B")
 
-    if score >= GRADE_A_SCORE and gate_ok:
-        grade = "A - Coil Ready"
-    elif score >= MIN_PASS_SCORE and gate_ok:
-        grade = "B - Valid Coil"
-    elif not gate_ok:
-        grade = "Rejected - Trend Fail"
-    else:
+    # --- Gate C: coil integrity (structure/vol_contraction each independently) ---
+    if vol_c < GATE_C_VOL_CONTRACTION_MIN or struct < GATE_C_STRUCTURE_MIN:
+        gate_fails.append("C")
+
+    # --- Gate D: breadth -----------------------------------------------------
+    if checks_passed < MIN_CHECKS_MET:
+        gate_fails.append("D")
+
+    all_gates_ok = not gate_fails
+    passes_threshold = score >= MIN_PASS_SCORE
+
+    # --- Stage 3: Actionable vs Watchlist tiering ---------------------------
+    coil_window = df.iloc[-(COIL_BARS + 1):-1] if len(df) > COIL_BARS else df.iloc[:-1]
+    coil_high = float(coil_window["High"].max()) if not coil_window.empty else None
+    breaking_out = coil_high is not None and current_price > coil_high
+    tier = None
+    if all_gates_ok and passes_threshold:
+        tier = "Actionable" if (rvol_pts >= 6 and breaking_out) else "Watchlist"
+
+    if not all_gates_ok:
+        grade = f"Rejected - Gate Fail ({'/'.join(gate_fails)})"
+    elif not passes_threshold:
         grade = "Rejected - Below Threshold"
+    elif score >= GRADE_A_SCORE:
+        grade = "A - Coil Ready" if tier == "Actionable" else "A - Watch"
+    else:
+        grade = "B - Valid Coil" if tier == "Actionable" else "B - Watch"
 
     result = {
         "Score": round(score, 2),
         "Grade": grade,
-        "Checks Met": f"{checks_passed}/7",
+        "Tier": tier,
+        "Checks Met": f"{checks_passed}/{N_SCORED_PILLARS}",
         "Fib Score": 0.0,
         "Parts": parts,
         "RS 63d": rs_rel,
         "RVOL": None if rvol is None else round(rvol, 4),
         "Market Gate": gate_ok,
+        "BBWidth Pctile": None if bbwidth_pct is None else round(bbwidth_pct, 2),
     }
 
     if include_rejects:
         return result
-    if not gate_ok or score < MIN_PASS_SCORE:
+    if not all_gates_ok or not passes_threshold:
         return None
     return result
 
@@ -634,7 +712,7 @@ def evaluate_as_of(
     work["Date"] = pd.to_datetime(work["Date"])
     cutoff = pd.to_datetime(as_of)
     work = work[work["Date"] <= cutoff]
-    if len(work) < max(COIL_BARS + 2, 25):
+    if len(work) < MIN_BARS_FULL_SCORE:
         return None
     try:
         work = add_macro_indicators(work)
@@ -697,7 +775,10 @@ def run_scanner():
     results = []
     rejection_counts = {}
 
-    min_required_history = max(LOOKBACK // 2, COIL_BARS + 40)
+    # Cheap file-level pre-filter (evaluate_coiled_cobra's own MIN_BARS_FULL_SCORE
+    # check is the real "not scored below this floor" gate; this just skips
+    # files with almost no data before paying the indicator-computation cost).
+    min_required_history = MIN_BARS_TO_EVALUATE
 
     for file in raw_files:
         symbol = file.split(".")[0].split("_")[0].upper()
@@ -766,6 +847,7 @@ def run_scanner():
                 "Notes": setup["Grade"],
                 "Score": setup["Score"],
                 "Grade": setup["Grade"],
+                "Tier": setup.get("Tier"),
                 "Checks Met": setup["Checks Met"],
                 "Fib 61.8%": round(fib618_v, 2) if fib618_v is not None else None,
                 "Fib 78.6%": round(fib786_v, 2) if fib786_v is not None else None,

@@ -113,7 +113,10 @@ all three (`high_beta` reads daily OHLCV and writes to its own
 ### `coiled_cobra.py` (primary signal engine: coil → expansion)
 
 - Filters to symbols in `active_tickers.csv`
-- 100-pt v3 scorecard; hard gates compression / structure / RS vs QQQ
+- 100-pt v4.0 scorecard, hard-gated: long-term trend template, ticker market
+  gate, coil integrity (structure/volatility-contraction independently
+  gating), and breadth (Checks Met >= 5/6); BBWidth-percentile volatility
+  contraction replaces the old MACD-spread squeeze proxy
 - Profiles: `weekly`, `daily`, `high_beta` (`high_beta` reads daily OHLCV via
   `config.resolve_pipeline_mode()`, same bar-frequency calibration as
   `daily`, own `data/logs/high_beta/` silo)
