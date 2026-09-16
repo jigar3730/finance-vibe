@@ -66,8 +66,10 @@ def run_workflow():
     # 4. SCRIPT CONFIGURATION
     # "scope" selects the argument each stage receives:
     #   data    -> data timeframe (weekly/daily); shares raw data silo
-    #   profile -> swing profile (weekly/daily/high_beta); drives geometry + logs
-    # high_beta skips Coiled Cobra (LEAPS-oriented, not part of the long-only swing).
+    #   profile -> signal profile (weekly/daily/high_beta); drives geometry + logs
+    # Coiled Cobra is the primary signal engine and runs for every profile,
+    # including high_beta (reads daily OHLCV, writes its own high_beta log silo
+    # via config.resolve_pipeline_mode()).
     scripts_config = [
         {
             "path": "src/finance_vibe/ticker_provider.py",
@@ -85,15 +87,9 @@ def run_workflow():
             "scope": "data",
         },
         {
-            "path": "src/finance_vibe/swing_scanner.py",
-            "pass_mode": True,
-            "scope": "profile",
-        },
-        {
             "path": "src/finance_vibe/coiled_cobra.py",
             "pass_mode": True,
-            "scope": "data",
-            "skip_modes": ["high_beta"],
+            "scope": "profile",
         },
         {
             "path": "src/finance_vibe/breakout_scanner.py",

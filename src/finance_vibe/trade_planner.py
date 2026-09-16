@@ -1,9 +1,9 @@
-"""Trade plan generator: stock levels and options metadata from swing setups.
+"""Signal-ranking stage: stock-level context from Coiled Cobra setups.
 
-Reads today's ``swing_setups_<date>.csv`` / ``coiled_cobra_setups_<date>.csv``
-and writes ``trade_plan_<date>.csv`` with entry, stop, ATR targets, and LEAPS
-(weekly) or short-dated options (daily) fields. Stale archives from prior days
-are never reused.
+Reads today's ``coiled_cobra_setups_<date>.csv`` and writes
+``trade_plan_<date>.csv`` with entry, stop, and ATR target context for each
+signal (informational, not a trade-execution plan). Stale archives from prior
+days are never reused.
 """
 from __future__ import annotations
 
@@ -31,22 +31,21 @@ else:
     mode = "weekly"
 
 # --------- CONFIG ----------
+# Retained internally by calculate_stock_levels()'s return signature (still
+# consumed by coiled_cobra_backtest.py); no longer written to trade_plan
+# output now that this stage generates signals, not options trade plans.
 DELTA_LONG = (0.65, 0.80)
 DELTA_SHORT = (-0.80, -0.65)
-
-# Short-dated options profiles vs long-dated LEAPS profiles.
-_SHORT_DATED_MODES = {"daily", "high_beta"}
 
 # Dynamic path resolution according to isolation architecture.
 # high_beta gets its own log silo via config.get_log_dir.
 SCANNER_DIR = Path(config.get_log_dir(mode))
-SCANNER_PREFIX = "swing_setups_"
 COILED_PREFIX = "coiled_cobra_setups_"
 OUTPUT_PREFIX = "trade_plan_"
 
-# Shared export schema so a zero-setup day still writes a header-only CSV
-# (pandas writes no columns for an empty DataFrame() and the helper then crashes).
-_PLAN_CORE_COLUMNS = [
+# Export schema so a zero-setup day still writes a header-only CSV (pandas
+# writes no columns for an empty DataFrame() and the helper then crashes).
+_PLAN_EXPORT_COLUMNS = [
     "Symbol",
     "Setup Type",
     "Source",
@@ -74,22 +73,7 @@ _PLAN_CORE_COLUMNS = [
     "ML_Pred_Return",
     "ML_Rank",
     "Notes",
-    "Delta Min",
-    "Delta Max",
 ]
-
-
-def _plan_export_columns(*, short_dated: bool) -> list[str]:
-    """Column order for ``trade_plan_*.csv``, including mode-specific expiry labels."""
-    expiry_label_min = "Options Expiry Min" if short_dated else "LEAPS Expiry Min"
-    expiry_label_max = "Options Expiry Max" if short_dated else "LEAPS Expiry Max"
-    contract_label = "Options Type" if short_dated else "LEAPS Type"
-    return [
-        *_PLAN_CORE_COLUMNS,
-        contract_label,
-        expiry_label_min,
-        expiry_label_max,
-    ]
 
 
 # --------- HELPER FUNCTIONS ----------
@@ -207,24 +191,6 @@ def _export_levels(
     return entry_r, stop_r, round(t1, 2), round(t2, 2), round(abs(entry_r - stop_r), 2)
 
 
-def _calculate_options_expiry() -> tuple[str, str]:
-    """Return (min, max) expiry labels for the active planner mode.
-
-    Weekly uses LEAPS (12–24 months); daily/high_beta use 1–3 month swings.
-    """
-    today = datetime.today()
-    if mode in _SHORT_DATED_MODES:
-        # Standard swing option cycle boundaries (1 to 3 months forward lookahead)
-        expiry_min = today + pd.DateOffset(months=1)
-        expiry_max = today + pd.DateOffset(months=3)
-    else:
-        # Legacy LEAPS macro cycles (12 to 24 months forward lookahead)
-        expiry_min = today + pd.DateOffset(months=12)
-        expiry_max = today + pd.DateOffset(months=24)
-
-    return expiry_min.strftime("%b-%Y"), expiry_max.strftime("%b-%Y")
-
-
 # --------- MAIN FUNCTION ----------
 
 
@@ -235,84 +201,52 @@ def generate_trade_plan(
 ) -> pd.DataFrame | None:
     """Build and export a trade plan CSV from today's (or provided) scanner output."""
     today = as_of or datetime.now().strftime("%Y-%m-%d")
-    print(
-        f"--- STEP 5: Drafting Trade Execution Architectures [{mode.upper()} MODE] ---"
-    )
+    print(f"--- STEP 5: Ranking Coiled Cobra Signals [{mode.upper()} MODE] ---")
     print(f"As-of date: {today}")
 
-    # Auto-detect *today's* scanner CSVs. Prior-day archives are ignored so a
-    # zero-hit scan cannot silently reuse last week's setups.
+    # Auto-detect *today's* Coiled Cobra archive. Prior-day archives are
+    # ignored so a zero-hit scan cannot silently reuse last week's setups.
     if scanner_csv_path is None:
         if not SCANNER_DIR.exists():
             print(f"⚠️ Target scanner directory empty or non-existent: {SCANNER_DIR}")
             return None
 
-        swing_today = SCANNER_DIR / f"{SCANNER_PREFIX}{today}.csv"
         cobra_today = SCANNER_DIR / f"{COILED_PREFIX}{today}.csv"
-        swing_csv_path = swing_today if swing_today.exists() else None
         cobra_csv_path = cobra_today if cobra_today.exists() else None
 
-        if swing_csv_path is None:
-            print(f"⚠️ No swing archive for {today}: {swing_today.name}")
-        else:
-            print(f"Using swing scanner file: {swing_csv_path}")
         if cobra_csv_path is None:
             print(f"⚠️ No Coiled Cobra archive for {today}: {cobra_today.name}")
         else:
             print(f"Using Coiled Cobra scanner file: {cobra_csv_path}")
     else:
-        # Explicit single-source path provided (treated as a swing-style file)
-        swing_csv_path = Path(scanner_csv_path)
-        cobra_csv_path = None
-        print(f"Using provided scanner file: {swing_csv_path}")
+        cobra_csv_path = Path(scanner_csv_path)
+        print(f"Using provided scanner file: {cobra_csv_path}")
 
-    # Load swing setups
-    df_swing = None
-    if swing_csv_path:
-        df_swing = pd.read_csv(swing_csv_path)
-        if "Source" not in df_swing.columns:
-            df_swing["Source"] = "swing"
-        print(f"Loaded {len(df_swing)} swing setups.")
-
-    # Load Coiled Cobra setups
-    df_cobra = None
-    if cobra_csv_path:
-        df_cobra = pd.read_csv(cobra_csv_path)
-        if "Source" not in df_cobra.columns:
-            df_cobra["Source"] = "coiled_cobra"
-        print(f"Loaded {len(df_cobra)} Coiled Cobra setups.")
-
-    # Combine into one DataFrame
-    dfs = [df for df in [df_swing, df_cobra] if df is not None and not df.empty]
     output_csv_path = SCANNER_DIR / f"{OUTPUT_PREFIX}{today}.csv"
     os.makedirs(SCANNER_DIR, exist_ok=True)
 
-    short_dated = mode in _SHORT_DATED_MODES
-    export_columns = _plan_export_columns(short_dated=short_dated)
-
-    if not dfs:
-        print(
-            f"⚠️ No setups for {today}. Writing empty trade plan: {output_csv_path}"
-        )
-        empty_df = pd.DataFrame(columns=export_columns)
+    if cobra_csv_path is None:
+        print(f"⚠️ No setups for {today}. Writing empty trade plan: {output_csv_path}")
+        empty_df = pd.DataFrame(columns=_PLAN_EXPORT_COLUMNS)
         empty_df.to_csv(output_csv_path, index=False)
         return empty_df
 
-    df = pd.concat(dfs, ignore_index=True)
-    print(f"Combined total setups: {len(df)}")
+    df = pd.read_csv(cobra_csv_path)
+    if "Source" not in df.columns:
+        df["Source"] = "coiled_cobra"
+    print(f"Loaded {len(df)} Coiled Cobra setups.")
+
+    if df.empty:
+        print(f"⚠️ No setups for {today}. Writing empty trade plan: {output_csv_path}")
+        empty_df = pd.DataFrame(columns=_PLAN_EXPORT_COLUMNS)
+        empty_df.to_csv(output_csv_path, index=False)
+        return empty_df
 
     plan_rows = []
-    expiry_label_min = "Options Expiry Min" if short_dated else "LEAPS Expiry Min"
-    expiry_label_max = "Options Expiry Max" if short_dated else "LEAPS Expiry Max"
-    contract_label = "Options Type" if short_dated else "LEAPS Type"
-
-    # Expiry window depends only on mode, so compute it once per run.
-    expiry_min, expiry_max = _calculate_options_expiry()
-
     for _, row in df.iterrows():
         # Row Mode is authoritative (mode=None) so high_beta setups keep their
         # geometry even when the planner runs under a different CLI mode.
-        entry, stop, t1, t2, opt_type, delta_range = calculate_stock_levels(row, mode=None)
+        entry, stop, t1, t2, _opt_type, _delta_range = calculate_stock_levels(row, mode=None)
         entry_r, stop_r, t1_r, t2_r, risk_per_share = _export_levels(
             entry, stop, t1, t2, row.get("Close", entry), row["Setup Type"],
         )
@@ -348,12 +282,6 @@ def generate_trade_plan(
                 "ML_Pred_Return": row.get("ML_Pred_Return", None),
                 "ML_Rank": row.get("ML_Rank", None),
                 "Notes": row.get("Notes", None),
-                # Options / LEAPS metadata (now persisted, previously dropped)
-                contract_label: opt_type,
-                "Delta Min": delta_range[0],
-                "Delta Max": delta_range[1],
-                expiry_label_min: expiry_min,
-                expiry_label_max: expiry_max,
             }
         )
 

@@ -26,7 +26,7 @@ try:
         evaluate_coiled_cobra,
         local_swing_low,
     )
-    from finance_vibe.pipeline_backtest import simulate_trade
+    from finance_vibe.trade_simulator import simulate_trade
     from finance_vibe.trade_planner import calculate_stock_levels
 except ImportError:  # pragma: no cover
     # Package lives under src/; repo root alone is not enough for `finance_vibe`.
@@ -41,7 +41,7 @@ except ImportError:  # pragma: no cover
         evaluate_coiled_cobra,
         local_swing_low,
     )
-    from finance_vibe.pipeline_backtest import simulate_trade
+    from finance_vibe.trade_simulator import simulate_trade
     from finance_vibe.trade_planner import calculate_stock_levels
 
 

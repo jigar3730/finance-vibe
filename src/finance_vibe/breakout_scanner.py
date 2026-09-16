@@ -15,8 +15,6 @@ Weekly raw data is resampled to monthly only — it does not pretend to contain
 daily information. Intraday (4H/1H) is out of scope until the raw dataset
 includes those bars.
 
-Run alongside ``swing_scanner.py``; this module is not part of ``run_vibe.py``.
-
 Usage::
 
     python src/finance_vibe/breakout_scanner.py weekly

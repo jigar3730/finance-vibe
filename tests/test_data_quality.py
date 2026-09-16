@@ -308,25 +308,6 @@ def test_row_mode_authoritative_when_mode_none():
 
 
 # ---------------------------------------------------------------------------
-# ATR structure tolerance
-# ---------------------------------------------------------------------------
-
-def test_structure_tolerance_atr_vs_pct():
-    from finance_vibe import swing_scanner as ss
-    n = 5
-    # Latest low undercuts the prior swing low by ~0.4 ATR.
-    df = pd.DataFrame({
-        "Low": [100.0, 100.0, 100.0, 100.0, 100.0, 99.6],
-        "High": [101.0] * 6,
-        "ATR": [1.0] * 6,
-    })
-    # Legacy 0.2% band (~0.2) rejects a 0.4 undercut...
-    assert ss._structure_held_long(df, n, structure_slack_atr=None) is False
-    # ...but a 0.5-ATR slack (0.5) tolerates it.
-    assert ss._structure_held_long(df, n, structure_slack_atr=0.5) is True
-
-
-# ---------------------------------------------------------------------------
 # benchmark: no-lookahead regime + relative strength
 # ---------------------------------------------------------------------------
 
@@ -504,10 +485,10 @@ def test_helper_ingestion_guardrails_drop_bad_rows(tmp_path, monkeypatch):
 def test_generate_trade_plan_with_explicit_path(tmp_path, monkeypatch):
     scanner_dir = tmp_path / "logs" / "weekly"
     scanner_dir.mkdir(parents=True)
-    src = scanner_dir / "swing_setups_2099-03-03.csv"
+    src = scanner_dir / "coiled_cobra_setups_2099-03-03.csv"
     pd.DataFrame([
         {
-            "Symbol": "AAPL", "Setup Type": "SETUP_LONG", "Source": "swing",
+            "Symbol": "AAPL", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
             "Close": 100.0, "EMA20": 98.0, "EMA50": 95.0, "ATR": 2.0, "RSI": 55.0,
         }
     ]).to_csv(src, index=False)
@@ -521,25 +502,21 @@ def test_generate_trade_plan_with_explicit_path(tmp_path, monkeypatch):
 
 
 def test_generate_trade_plan_uses_today_not_stale_archives(tmp_path, monkeypatch):
-    """A daily run must not merge last week's swing file with yesterday's cobra."""
+    """A daily run must not reuse a stale Coiled Cobra archive from an earlier date."""
     scanner_dir = tmp_path / "logs" / "daily"
     scanner_dir.mkdir(parents=True)
     today = "2026-09-06"
 
     stale_row = {
-        "Symbol": "STALE", "Setup Type": "SETUP_LONG", "Source": "swing",
+        "Symbol": "OLDCOBRA", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
         "Close": 100.0, "EMA20": 98.0, "EMA50": 95.0, "ATR": 2.0, "RSI": 55.0,
     }
     today_row = {
         "Symbol": "TODAY", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
         "Close": 50.0, "EMA20": 49.0, "EMA50": 48.0, "ATR": 1.5, "RSI": 60.0,
     }
-    pd.DataFrame([stale_row]).to_csv(scanner_dir / "swing_setups_2026-09-02.csv", index=False)
-    pd.DataFrame([{**stale_row, "Source": "coiled_cobra", "Symbol": "OLDCOBRA"}]).to_csv(
+    pd.DataFrame([stale_row]).to_csv(
         scanner_dir / "coiled_cobra_setups_2026-09-05.csv", index=False
-    )
-    pd.DataFrame(columns=config.SETUP_ROW_COLUMNS).to_csv(
-        scanner_dir / f"swing_setups_{today}.csv", index=False
     )
     pd.DataFrame([today_row]).to_csv(
         scanner_dir / f"coiled_cobra_setups_{today}.csv", index=False
@@ -559,7 +536,7 @@ def test_generate_trade_plan_writes_empty_today_when_no_archives(tmp_path, monke
     scanner_dir.mkdir(parents=True)
     today = "2026-09-06"
     pd.DataFrame([{"Symbol": "STALE"}]).to_csv(
-        scanner_dir / "swing_setups_2026-09-02.csv", index=False
+        scanner_dir / "coiled_cobra_setups_2026-09-02.csv", index=False
     )
     monkeypatch.setattr(trade_planner, "SCANNER_DIR", scanner_dir)
 

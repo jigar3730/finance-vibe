@@ -387,16 +387,13 @@ REQUIRED_OHLCV = ["Date", "Open", "High", "Low", "Close", "Volume"]
 # Minimum usable rows before a raw CSV is worth saving/scanning.
 MIN_SAVE_ROWS = 60
 
-# Shared setup-row schema emitted by BOTH scanners so trade_planner can rely
-# on a single stable contract. Column order is significant for CSV output.
+# Setup-row schema emitted by coiled_cobra.py so trade_planner can rely on a
+# single stable contract. Column order is significant for CSV output.
 #
 # Fill rules:
-#   - ``swing_scanner``: sets Source="swing"; fills Symbol, Setup Type, AsOf
-#     Date, Close, EMA20, EMA50, ATR, RSI, Swing Low, Swing High, Notes.
-#     Leaves macro-only fields empty.
 #   - ``coiled_cobra``: sets Source="coiled_cobra"; fills the macro-only
 #     fields plus RSI/Notes. Setup Type is currently always SETUP_LONG.
-#   - ``AsOf Date``: confirmation bar date (quality swing) or signal bar.
+#   - ``AsOf Date``: the signal bar's date.
 SETUP_ROW_COLUMNS = [
     "Symbol",
     "Setup Type",

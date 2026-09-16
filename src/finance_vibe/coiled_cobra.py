@@ -29,21 +29,29 @@ except ImportError:
 # =========================
 # PROFILE CONFIGURATION
 # =========================
-if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
+if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily", "high_beta"]:
     mode = sys.argv[1].lower()
 else:
     print("⚠️ Unknown mode parsed to scanner. Defaulting to 'weekly'.")
     mode = "weekly"
 
-# Timeframe-specific technical calibration (mutated by ``apply_timeframe``)
-LOOKBACK = 252 if mode == "daily" else 52
+# Data timeframe may differ from the signal profile (high_beta -> daily OHLCV,
+# its own log silo). Mirrors swing_scanner.py's former pattern.
+_data_mode, _signal_mode = config.resolve_pipeline_mode(mode)
+mode = _signal_mode  # scanner/planner Mode column = signal profile
+
+# Timeframe-specific technical calibration (mutated by ``apply_timeframe``).
+# high_beta reads the same daily bars as ``daily`` and shares its calibration;
+# only the log silo differs (see LOG_DIR below).
+_is_daily_bars = mode in ("daily", "high_beta")
+LOOKBACK = 252 if _is_daily_bars else 52
 # Coil window: how many bars define "the base" (weekly ≈ 2 months, daily ≈ 6 weeks)
-COIL_BARS = 30 if mode == "daily" else 8
+COIL_BARS = 30 if _is_daily_bars else 8
 # Local structural floor for dual-constraint stops (not the macro Fib lookback)
 STRUCTURE_STOP_BARS = 10
 # RS lookback in bars (weekly ≈ 1 quarter, daily ≈ 63 sessions)
-RS_LOOKBACK = 63 if mode == "daily" else 13
-RS_RATIO_MA = 20 if mode == "daily" else 5
+RS_LOOKBACK = 63 if _is_daily_bars else 13
+RS_RATIO_MA = 20 if _is_daily_bars else 5
 BENCHMARK = "QQQ"
 SPY_BENCHMARK = "SPY"
 
@@ -76,27 +84,34 @@ MACRO_PENALTY = 0
 
 
 def apply_timeframe(tf: str) -> str:
-    """Set coil / RS / shelf lookbacks for ``weekly`` or ``daily`` evaluation.
+    """Set coil / RS / shelf lookbacks for ``weekly``, ``daily``, or ``high_beta``.
 
     Import-time defaults follow ``sys.argv`` (scanner CLI). Historical
     benchmarks and library callers should set the timeframe explicitly so
-    daily 63-bar RS and 252-bar overhead windows are used.
+    daily 63-bar RS and 252-bar overhead windows are used. ``high_beta``
+    shares ``daily``'s bar-frequency calibration (only the live pipeline's
+    log silo differs; this function does not touch paths).
     """
     global mode, LOOKBACK, COIL_BARS, RS_LOOKBACK, RS_RATIO_MA
-    mode = "daily" if str(tf).lower() == "daily" else "weekly"
-    LOOKBACK = 252 if mode == "daily" else 52
-    COIL_BARS = 30 if mode == "daily" else 8
-    RS_LOOKBACK = 63 if mode == "daily" else 13
-    RS_RATIO_MA = 20 if mode == "daily" else 5
+    tf_l = str(tf).lower()
+    mode = tf_l if tf_l in ("daily", "high_beta") else "weekly"
+    is_daily_bars = mode in ("daily", "high_beta")
+    LOOKBACK = 252 if is_daily_bars else 52
+    COIL_BARS = 30 if is_daily_bars else 8
+    RS_LOOKBACK = 63 if is_daily_bars else 13
+    RS_RATIO_MA = 20 if is_daily_bars else 5
     return mode
 
 # =========================
 # PATHS
 # =========================
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw", mode)
+# Raw OHLCV always comes from the data timeframe (_data_mode); high_beta reads
+# the same daily silo as the ETF pipeline but gets its own LOG_DIR below so
+# outputs don't collide.
+RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw", _data_mode)
 ACTIVE_TICKERS_PATH = os.path.join(BASE_DIR, "data", "active_tickers.csv")
-LOG_DIR = os.path.join(BASE_DIR, "data", "logs", mode)
+LOG_DIR = config.get_log_dir(mode)
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -666,15 +681,17 @@ def run_scanner():
     raw_files = [f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")]
     logger.info(f"Found {len(raw_files)} historical files to analyze in target silo.")
 
-    qqq_df = load_benchmark_frame(BENCHMARK, mode)
-    spy_df = load_benchmark_frame(SPY_BENCHMARK, mode)
+    # Benchmarks live in the data timeframe's raw silo (_data_mode), not the
+    # signal profile -- high_beta reads the same daily QQQ/SPY as `daily`.
+    qqq_df = load_benchmark_frame(BENCHMARK, _data_mode)
+    spy_df = load_benchmark_frame(SPY_BENCHMARK, _data_mode)
     if qqq_df is None:
         logger.warning(
-            f"Benchmark {BENCHMARK} unavailable in {mode} raw data — RS pillar will score 0."
+            f"Benchmark {BENCHMARK} unavailable in {_data_mode} raw data — RS pillar will score 0."
         )
     if spy_df is None:
         logger.warning(
-            f"Benchmark {SPY_BENCHMARK} unavailable in {mode} raw data — market gate uses QQQ only."
+            f"Benchmark {SPY_BENCHMARK} unavailable in {_data_mode} raw data — market gate uses QQQ only."
         )
 
     results = []

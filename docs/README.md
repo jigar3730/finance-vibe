@@ -1,7 +1,7 @@
 # Finance Vibe documentation
 
 This tree is the reference manual and lab environment for the Finance Vibe
-pipeline: macro scoring, tactical swing detection, Coiled Cobra coil scoring,
+pipeline: macro scoring, Coiled Cobra coil scoring (primary signal engine),
 walk-forward backtests, and the offline GBDT ranking baseline.
 
 Project overview and run commands stay in the root [`README.md`](../README.md).
@@ -24,7 +24,7 @@ Project overview and run commands stay in the root [`README.md`](../README.md).
 | [`handbook/QUANT_ML_MANUAL.md`](handbook/QUANT_ML_MANUAL.md) | Feature engineering, targets, GBDTs, validation, SHAP / Optuna — mapped to this repo |
 | [`handbook/scoring_logic.md`](handbook/scoring_logic.md) | Macro Vibe Score (−10 to +10) specification |
 | [`handbook/ta_interpretation.md`](handbook/ta_interpretation.md) | How to read SMA / RSI / CCI / MACD output |
-| [`handbook/swing_setup.md`](handbook/swing_setup.md) | Quality-swing long/short rules and geometry |
+| [`handbook/swing_setup.md`](handbook/swing_setup.md) | Quality-swing long/short rules and geometry (historical — `swing_scanner.py` decommissioned) |
 | [`handbook/coiled_cobra_rubric.md`](handbook/coiled_cobra_rubric.md) | Coil → expansion 100-point scorecard |
 | [`handbook/trade_plan_calculations.md`](handbook/trade_plan_calculations.md) | Live entry / stop / target math (swing + Cobra + helper) |
 
@@ -72,9 +72,8 @@ and a fallback that uses only the current stack (`xgboost`, `lightgbm`,
 | ------- | ------ |
 | Orchestrator | `src/finance_vibe/run_vibe.py` |
 | Macro score | `src/finance_vibe/analysis_engine.py` |
-| Quality swing | `src/finance_vibe/swing_scanner.py` |
-| Coiled Cobra rubric | `src/finance_vibe/coiled_cobra.py` |
+| Coiled Cobra rubric (primary signal engine) | `src/finance_vibe/coiled_cobra.py` |
 | Cobra backtest + forward returns | `src/finance_vibe/coiled_cobra_backtest.py` |
+| Generic trade simulator | `src/finance_vibe/trade_simulator.py` |
 | GBDT trainer | `src/finance_vibe/coiled_cobra_ml_training.py` |
 | Soft ML ranking | `src/finance_vibe/ml_ranker.py` |
-| Swing walk-forward | `src/finance_vibe/pipeline_backtest.py` |

@@ -147,7 +147,15 @@ def _rsi_wilder(close: pd.Series, period: int = 14) -> pd.Series:
     avg_gain = gain.ewm(alpha=1 / period, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1 / period, adjust=False).mean()
     rs = avg_gain / avg_loss.replace(0, np.nan)
-    return 100 - (100 / (1 + rs))
+    rsi = 100 - (100 / (1 + rs))
+    # avg_loss == 0 makes rs undefined (division dodged above via NaN), but
+    # it's a real boundary case, not missing data: zero down-bars over the
+    # lookback is a clean uptrend and should score RSI = 100, not NaN. A
+    # NaN here silently zeroes out Trend/Momentum in _compute_score instead
+    # of raising, which mis-scores exactly the strongest-momentum tickers.
+    rsi = rsi.where(avg_loss != 0, 100.0)
+    rsi = rsi.where(~((avg_gain == 0) & (avg_loss == 0)), 50.0)
+    return rsi
 
 
 def _cci_fast(df: pd.DataFrame, period: int = 20) -> pd.Series:
@@ -500,6 +508,14 @@ def sentiment_action(score: int) -> tuple[str, str]:
 # Workers
 # -----------------------------
 
+# Columns _compute_score reads off the latest bar. If any of these are NaN
+# (insufficient warmed-up history for that indicator), chained float
+# comparisons in _compute_score silently resolve to their "neutral" branch
+# instead of erroring -- so a ticker just past MIN_ROWS but still short of
+# an indicator's own min_periods would get scored as if it had no signal,
+# not excluded. Guarded explicitly in scan_one_file instead.
+_SCORE_INPUTS = ["Close", "SMA20", "SMA50", "RSI", "RSI_S", "CCI", "CCI_S", "MACD_H", "MACD_S"]
+
 
 def scan_one_file(path: str) -> ScanRow:
     """Score one raw CSV and return a ``ScanRow`` (raises if history is too short)."""
@@ -510,6 +526,10 @@ def scan_one_file(path: str) -> ScanRow:
 
     feat = build_features(df)
     last = feat.iloc[-1]
+    if last[_SCORE_INPUTS].isna().any():
+        missing = [c for c in _SCORE_INPUTS if pd.isna(last[c])]
+        raise ValueError(f"insufficient indicator history for scoring: {missing}")
+
     score = score_last_row(last)
     sentiment, action = sentiment_action(score)
 

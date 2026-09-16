@@ -1,10 +1,9 @@
-"""Tests for pipeline_backtest walk-forward simulation helpers."""
+"""Tests for trade_simulator's generic OHLC-bar trade simulation helpers."""
 
 import pandas as pd
 import pytest
 
-import finance_vibe.pipeline_backtest as pb
-from finance_vibe.pipeline_backtest import (
+from finance_vibe.trade_simulator import (
     passes_macro_gate,
     simulate_trade,
     simulate_scaled_trade,
@@ -225,70 +224,3 @@ def test_scaled_tracks_mae_mfe():
     assert res["mae_r"] <= 0.0
 
 
-# ---------------------------------------------------------------------------
-# backtest_ticker: no-overlap, cooldown-from-exit, long-only enforcement
-# ---------------------------------------------------------------------------
-
-def _write_flat_csv(tmp_path, n=120, low=95.0, high=105.0):
-    df = pd.DataFrame({
-        "Date": pd.date_range("2023-01-01", periods=n, freq="D"),
-        "Open": [100.0] * n, "High": [high] * n, "Low": [low] * n,
-        "Close": [100.0] * n, "Volume": [1_000_000] * n,
-    })
-    path = tmp_path / "XYZ_5y_1d.csv"
-    df.to_csv(path, index=False)
-    return str(path)
-
-
-def _force_long_signal(monkeypatch, entry=100.0, stop=96.0, t1=104.0, t2=108.0):
-    monkeypatch.setattr(pb, "detect_setup_at_bar",
-                        lambda w, s, m, b=None: {"Setup Type": "SETUP_LONG", "Symbol": s,
-                                                 "Regime OK": True, "RS 63d": 0.1})
-    monkeypatch.setattr(pb, "build_features", lambda w: w)
-    monkeypatch.setattr(pb, "score_last_row", lambda r: 10)
-    monkeypatch.setattr(pb, "calculate_stock_levels",
-                        lambda row, mode=None: (entry, stop, t1, t2, "CALL", (0.65, 0.8)))
-
-
-def test_backtest_respects_cooldown_between_exits(tmp_path, monkeypatch):
-    path = _write_flat_csv(tmp_path)
-    _force_long_signal(monkeypatch)
-    cooldown = 5
-    trades, counts = pb.backtest_ticker(
-        path, "high_beta", -10, -2, warmup=60, entry_valid=4, max_hold=10,
-        cooldown_bars=cooldown,
-    )
-    assert counts["filled"] > 0
-    # Every filled trade must start at least `cooldown` bars after the previous exit.
-    dates = pd.to_datetime([t["Signal Date"] for t in trades]).sort_values()
-    gaps = dates.to_series().diff().dropna().dt.days
-    assert (gaps >= cooldown).all()
-
-
-def test_backtest_no_fill_does_not_consume_cooldown(tmp_path, monkeypatch):
-    path = _write_flat_csv(tmp_path)
-    # Entry far below the flat Low (95) so nothing ever fills.
-    _force_long_signal(monkeypatch, entry=50.0, stop=46.0, t1=54.0, t2=58.0)
-    trades, counts = pb.backtest_ticker(
-        path, "high_beta", -10, -2, warmup=60, entry_valid=4, max_hold=10,
-        cooldown_bars=5,
-    )
-    assert counts["filled"] == 0
-    assert counts["no_fill"] > 0
-    assert counts["cooldown_skip"] == 0  # unfilled orders never start a cooldown
-    assert trades == []
-
-
-def test_backtest_long_only_skips_shorts(tmp_path, monkeypatch):
-    path = _write_flat_csv(tmp_path)
-    monkeypatch.setattr(pb, "detect_setup_at_bar",
-                        lambda w, s, m, b=None: {"Setup Type": "SETUP_SHORT", "Symbol": s})
-    monkeypatch.setattr(pb, "build_features", lambda w: w)
-    monkeypatch.setattr(pb, "score_last_row", lambda r: -5)
-    trades, counts = pb.backtest_ticker(
-        path, "high_beta", -10, -2, warmup=60, entry_valid=4, max_hold=10,
-        cooldown_bars=0,
-    )
-    assert counts["long_only_skip"] > 0
-    assert counts["filled"] == 0
-    assert trades == []
