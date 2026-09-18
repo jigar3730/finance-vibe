@@ -295,6 +295,23 @@ python -m finance_vibe.coiled_cobra_ml_walkforward [--csv PATH] [--min-names 6] 
 
 ---
 
+## Pre-registered ML experiment (`coiled_cobra_ml_experiment.py`)
+
+Research harness for asking "can *any* model beat raw `Score`?" with the protocol fixed in code up front, so the analysis cannot drift toward whatever looks good. It never writes served artifacts.
+
+- **Data:** the backtest trades CSV now also records the six pillar sub-scores (`Part_*`), `BBWidth_Pctile`, `RS_63d`, `Tier`, `Checks_N`, `Excess_Return_2w` (vs QQQ) and causal QQQ regime features (`QQQ_Pct_From_EMA50`, `QQQ_Ret_13w`). The regime features use data up to the signal bar only; the excess-return *label* legitimately uses later bars (both covered by tests). Breadth matters most: a wider universe (e.g. S&P 500/400/600) gives far more setups per week than the default watchlist, which is what makes per-week rank IC measurable.
+- **Primary outcome:** weekly rank IC vs realised `R Multiple` on filled trades. `Excess_Return_2w` and `Forward_Return_2w` are reported as secondary and never used for selection.
+- **Variants (fixed):** `V1_deployed` (shipped XGB+LGB, base features), `V2_xgb_ext_excess`, `V3_ridge_ext_excess`, `V4_xgb_ext_rmult` (extended features; cross-sectionally demeaned, winsorised targets) and `C0_shuffled_control` (labels shuffled within week — must show no edge).
+- **Lockbox:** the last 52 weeks are never used in development. A variant *qualifies* only if its paired (variant − Score) IC difference has a 95% block-bootstrap CI above 0 on the development folds; the single best qualifier is then evaluated **once** on the lockbox (pass: positive difference, t > 1.645). If none qualifies the lockbox stays unspent and ML stays off. Same 2-week embargo as the deployed pipeline.
+
+```bash
+python -m finance_vibe.coiled_cobra_ml_experiment --csv <trades.csv> --out report.json
+```
+
+Caveat: universes built from *current* index constituents carry survivorship bias (delisted names are absent). It affects ML and Score alike, but it inflates absolute performance, so judge only the paired ML-minus-Score comparison.
+
+---
+
 ## How to use the trained models for decisions
 
 The exported models are intended to be a soft decision aid, not a stand-alone trading system.

@@ -106,6 +106,10 @@ def detect_cobra_setup_at_bar(
         "RS 63d": setup.get("RS 63d"),
         "RVOL": rvol_v,
         "Market Gate": setup.get("Market Gate"),
+        "BBWidth Pctile": setup.get("BBWidth Pctile"),
+        # Per-pillar sub-scores (the composite Score hides these); research
+        # features only -- they are not in the deployed FEATURE_COLS.
+        **{f"Part_{k}": v for k, v in (setup.get("Parts") or {}).items()},
     }
 
 
@@ -173,6 +177,33 @@ def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd
     return out_df
 
 
+def _checks_n(checks_met) -> Optional[int]:
+    """'5/6' -> 5 (None when missing/malformed)."""
+    try:
+        return int(str(checks_met).split("/")[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def _benchmark_context(benchmark_df) -> Optional[pd.DataFrame]:
+    """Date-indexed benchmark Close plus causal regime columns, or None.
+
+    ``Pct_From_EMA50`` and ``Ret_13w`` use only data up to each row's date, so
+    they are safe as features. The forward benchmark return used for the
+    excess-return *label* is computed separately from later rows.
+    """
+    if benchmark_df is None or len(benchmark_df) == 0 or "Close" not in benchmark_df.columns:
+        return None
+    b = benchmark_df.copy()
+    b["Date"] = pd.to_datetime(b["Date"])
+    b = b.sort_values("Date").drop_duplicates("Date").set_index("Date")
+    close = b["Close"].astype(float)
+    ctx = pd.DataFrame({"Close": close})
+    ctx["Pct_From_EMA50"] = (close / b["EMA50"].astype(float) - 1.0) if "EMA50" in b.columns else float("nan")
+    ctx["Ret_13w"] = close.pct_change(13)
+    return ctx
+
+
 def backtest_ticker(
     path: str,
     entry_valid: int,
@@ -194,6 +225,8 @@ def backtest_ticker(
         "expired": 0,
         "errors": 0,
     }
+
+    bench_ctx = _benchmark_context(benchmark_df)
 
     min_bars = cc.LOOKBACK // 2 + 15
     for idx in range(min_bars, len(df) - 1):
@@ -237,7 +270,21 @@ def backtest_ticker(
             future_close = float(df.iloc[future_idx]["Close"])
             return round((future_close - setup_close) / setup_close, 4)
 
+        def _bench(col: str, date) -> Optional[float]:
+            if bench_ctx is None or date is None:
+                return None
+            ts = pd.Timestamp(date)
+            if ts not in bench_ctx.index:
+                return None
+            val = bench_ctx.at[ts, col]
+            return None if pd.isna(val) else float(val)
+
         forward_return_2w = _forward_return(2)
+        excess_return_2w = None
+        if forward_return_2w is not None and idx + 2 < n_bars:
+            b0, b2 = _bench("Close", signal_date), _bench("Close", df.iloc[idx + 2]["Date"])
+            if b0 and b2:
+                excess_return_2w = round(forward_return_2w - (b2 / b0 - 1.0), 4)
         forward_return_5w = _forward_return(5)
         forward_return_13w = _forward_return(13)
         forward_return_26w = _forward_return(26)
@@ -266,6 +313,14 @@ def backtest_ticker(
                 "ATR_Pct": setup_row["ATR_Pct"],
                 "RVOL": setup_row.get("RVOL"),
                 "Market Gate": setup_row.get("Market Gate"),
+                "Tier": setup_row.get("Tier"),
+                "Checks_N": _checks_n(setup_row.get("Checks Met")),
+                "RS_63d": setup_row.get("RS 63d"),
+                "BBWidth_Pctile": setup_row.get("BBWidth Pctile"),
+                **{k: v for k, v in setup_row.items() if k.startswith("Part_")},
+                # Causal benchmark regime at the signal bar (candidate features).
+                "QQQ_Pct_From_EMA50": _bench("Pct_From_EMA50", signal_date),
+                "QQQ_Ret_13w": _bench("Ret_13w", signal_date),
                 "Stock Entry": round(entry, 2),
                 "Stock Stop": round(stop, 2),
                 "Target 1": round(t1, 2),
@@ -279,6 +334,7 @@ def backtest_ticker(
                 "Target_Label": target_label,
                 "Target_R_Mult": r_multiple,
                 "Forward_Return_2w": forward_return_2w,
+                "Excess_Return_2w": excess_return_2w,
                 "Forward_Return_5w": forward_return_5w,
                 "Forward_Return_13w": forward_return_13w,
                 "Forward_Return_26w": forward_return_26w,

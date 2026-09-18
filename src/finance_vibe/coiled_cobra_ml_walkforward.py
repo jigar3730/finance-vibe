@@ -126,7 +126,9 @@ def _tercile_spread(pred: pd.Series, ret: pd.Series, seed: int) -> float:
     return float(r[order <= k].mean() - r[order > n - k].mean())
 
 
-def weekly_metrics(frame: pd.DataFrame, rank_col: str, min_names: int) -> pd.DataFrame:
+def weekly_metrics(
+    frame: pd.DataFrame, rank_col: str, min_names: int, ret_col: str = TARGET_COL
+) -> pd.DataFrame:
     """Per-``Signal Date`` rank IC and tercile spread (weeks with >= min_names)."""
     rows = []
     for date, g in frame.groupby(DATE_COL):
@@ -135,8 +137,8 @@ def weekly_metrics(frame: pd.DataFrame, rank_col: str, min_names: int) -> pd.Dat
         rows.append({
             DATE_COL: date,
             "n": len(g),
-            "ic": spearman(g[rank_col], g[TARGET_COL]),
-            "spread": _tercile_spread(g[rank_col], g[TARGET_COL], int(date.value % (2**31))),
+            "ic": spearman(g[rank_col], g[ret_col]),
+            "spread": _tercile_spread(g[rank_col], g[ret_col], int(date.value % (2**31))),
         })
     return pd.DataFrame(rows, columns=[DATE_COL, "n", "ic", "spread"])
 
