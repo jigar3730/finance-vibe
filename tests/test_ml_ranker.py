@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from finance_vibe import ml_ranker
+from finance_vibe import config, ml_ranker
 from finance_vibe.ml_ranker import (
     ML_PRED_COL,
     ML_RANK_COL,
@@ -50,6 +50,7 @@ def test_build_feature_frame_derives_from_raw_fields():
 # ---------------------------------------------------------------------------
 
 def test_attach_ml_ranks_sorts_best_first(monkeypatch):
+    monkeypatch.setattr(config, "ML_RANKING_ENABLED", True)
     df = pd.DataFrame([
         {"Symbol": "LOW", "Score": 90, "Close": 100.0, "EMA20": 99.0, "EMA50": 98.0,
          "Fib 61.8%": 97.0, "Fib 78.6%": 96.0, "ATR": 2.0},
@@ -99,7 +100,8 @@ def test_attach_ml_ranks_empty_frame():
 # helper Priority integration
 # ---------------------------------------------------------------------------
 
-def test_priority_uses_ml_prediction_over_score():
+def test_priority_uses_ml_prediction_over_score(monkeypatch):
+    monkeypatch.setattr(config, "ML_RANKING_ENABLED", True)
     # Same R:R T2; higher Score but lower ML prediction must rank lower.
     df = pd.DataFrame([
         {"Symbol": "HISCORE", "Source": "coiled_cobra", "Score": 95, "Close": 100.0,

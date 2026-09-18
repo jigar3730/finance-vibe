@@ -289,7 +289,7 @@ Read-only research harness (never writes served artifacts). Expanding-window fol
 python -m finance_vibe.coiled_cobra_ml_walkforward [--csv PATH] [--min-names 6] [--out report.json]
 ```
 
-**Gate for using ML in `Priority`:** the paired IC-difference CI should exclude 0 in ML's favour. Score-only ranking is the baseline to beat.
+**Gate for using ML in `Priority`:** the paired IC-difference CI should exclude 0 in ML's favour. Score-only ranking is the baseline to beat. Until it clears, `config.ML_RANKING_ENABLED = False` keeps ML inert end-to-end: `ml_ranker.attach_ml_ranks` leaves `ML_Pred_Return` / `ML_Rank` null (scanner sorts by Score) and `trade_plan_helper` ignores any predictions in the plan CSV. Even when enabled, ML drives `Priority` only if *every* row has a prediction.
 
 **First result (v4.0 backfill 2026-09-18, 2,284 rows, 8 folds, 2022-09 → 2026-08):** mean weekly rank IC ML +0.011 vs Score +0.053 (neither significant); paired difference −0.042, CI [−0.160, +0.073]; ML MAE 0.0598 vs 0.0586 for predicting the train median. Same conclusion at `--min-names` 4 and 10. Power is limited (≈104 usable weeks ⇒ only IC ≳ 0.11 is detectable), so read this as *no evidence of edge*, not *proof of none*.
 

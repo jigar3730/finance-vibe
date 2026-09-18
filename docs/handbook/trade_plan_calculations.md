@@ -118,7 +118,8 @@ Survivors are ranked:
 
 - `Expected Value = R:R T2 × Score`
 - `Priority` = that EV × **1.25** propensity when `Source` is cobra **or** risk ≤ 3% of Close
-- If `ML_Pred_Return` is present: `Priority = R:R T2 × max(ML_Pred_Return, 0) × propensity`
+- Every Coiled Cobra plan has `R:R T1 = 2.0` and `R:R T2 = 3.0` by construction, so `Priority` orders rows exactly by `Score`; the 1.25 propensity is the same for every cobra row and does not affect order. Ties break on Expected Value.
+- **ML override (off by default):** only if `config.ML_RANKING_ENABLED` is `True` **and every surviving row has** an `ML_Pred_Return`: `Priority = R:R T2 × max(ML_Pred_Return, 0) × propensity` (ties → Score). Otherwise — flag off, column empty, or incomplete coverage — ranking is by Score, and the helper prints why if predictions were ignored. The flag is off because the v4.0 walk-forward found no out-of-sample edge for ML over Score.
 
 The helper prefers `trade_plan_{today}.csv`, then falls back to the newest
 dated `trade_plan_*.csv` in the mode log dir (including `high_beta`).

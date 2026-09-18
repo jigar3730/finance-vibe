@@ -258,6 +258,12 @@ def attach_ml_ranks(df: pd.DataFrame, mode: str = "weekly") -> pd.DataFrame:
         out[ML_RANK_COL] = pd.Series(dtype="float64")
         return out
 
+    if not config.ML_RANKING_ENABLED:
+        # Explicitly inactive: null ML columns, existing (Score) order preserved.
+        out[ML_PRED_COL] = pd.Series(np.nan, index=out.index, dtype="float64")
+        out[ML_RANK_COL] = pd.Series([pd.NA] * len(out), index=out.index, dtype="Int64")
+        return out
+
     preds = predict_returns(out, mode)
     out[ML_PRED_COL] = preds.round(4)
 

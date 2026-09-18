@@ -37,6 +37,14 @@ DEFAULT_MODE = "weekly"
 RUBRIC_VERSION = "4.0"
 RUBRIC_VERSION_COL = "Rubric_Version"
 
+# Master switch for ML-driven ranking (scanner sort, ML_Pred_Return columns,
+# and trade_plan_helper's Priority). OFF: the v4.0 walk-forward evaluation
+# (coiled_cobra_ml_walkforward, see docs/architecture/coiled_cobra_ml.md) found
+# no out-of-sample edge for the ML ranker over raw Score, so ranking stays on
+# Score even if a valid model artifact appears. Enable only after the paired
+# ML-minus-Score IC confidence interval excludes 0 in ML's favour.
+ML_RANKING_ENABLED = False
+
 
 def get_mode_config(mode: str | None = None) -> dict:
     """Return download settings and directory paths for ``weekly`` or ``daily``.

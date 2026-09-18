@@ -40,8 +40,9 @@ Key logic:
   overhead 5). Market Gate fails only on Close < EMA50 or RS 63d < 0.
   Extension / Fib / low RVOL are scorecard items, not binary drops. Pass ≥ 70.
 - **Planner**: swing path uses `compute_swing_levels`; cobra path uses Fib
-  78.6% entry floor + 2R/3R. Helper drops risk > 5% of Close, checklist < 5/7,
-  R:R T1 < 2.0; ranks by EV / `ML_Pred_Return`.
+  78.6% entry floor + 2R/3R. Helper drops risk > 5% of Close, checklist < 4/6
+  (Gate D), R:R T1 < 2.0; ranks by EV (= Score order); `ML_Pred_Return` only if
+  `config.ML_RANKING_ENABLED` (default off).
 - **ML**: `FEATURE_COLS` = Score + four pct-from distances + ATR_Pct;
   `TARGET_COL` = `Forward_Return_2w`; rolling 26w/26w split;
   `MODEL_PARAMS` depth 4 / lr 0.01 / 400 trees / 0.8 bagging; soft rank via

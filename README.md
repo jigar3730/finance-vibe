@@ -130,7 +130,7 @@ Cobra signal (not an options trade plan):
 - **Entry:** Fib 78.6% floor vs `Close − 0.25×ATR` (Coiled Cobra setups)
 - **Stop:** triple-constraint — local 10-session floor vs `1.5×ATR` vs 5% of Close (tightest wins)
 - **Targets:** **2R / 3R**
-- **Helper:** drop risk > 5% of Close, checklist < 5/7, or R:R T1 < 2.0; rank survivors by Expected Value / `ML_Pred_Return`
+- **Helper:** drop risk > 5% of Close, checklist < 4/6 (Gate D, `MIN_CHECKS_MET/N_SCORED_PILLARS`), or R:R T1 < 2.0; rank survivors by Expected Value (= raw-Score ranking); `ML_Pred_Return` only when `config.ML_RANKING_ENABLED`
 
 ## Requirements
 

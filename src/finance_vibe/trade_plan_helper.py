@@ -178,47 +178,62 @@ def _apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
     return out, stats
 
 
+def _num_col(df: pd.DataFrame, name: str) -> pd.Series:
+    """Numeric view of ``name``; an all-NaN Series when the column is absent."""
+    if name in df.columns:
+        return pd.to_numeric(df[name], errors="coerce")
+    return pd.Series(np.nan, index=df.index, dtype="float64")
+
+
+def ml_priority_active(df: pd.DataFrame) -> bool:
+    """True when ``ML_Pred_Return`` should drive ``Priority``.
+
+    Requires ``config.ML_RANKING_ENABLED`` AND a prediction on every row.
+    ML values (~0.05) and Score-based EV (~300) are on different scales, so a
+    partially covered frame would push every unpredicted row -- possibly the
+    highest-Score setup, e.g. one with a NaN feature -- below all predicted
+    ones. Incomplete coverage therefore falls back to Score for the whole frame.
+    """
+    if not config.ML_RANKING_ENABLED or df.empty or "ML_Pred_Return" not in df.columns:
+        return False
+    return bool(_num_col(df, "ML_Pred_Return").notna().all())
+
+
 def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
     """Rank survivors by expected value with a tight-coil propensity boost.
 
     ``Expected Value = R:R T2 × Score`` is always computed for transparency.
-    When ``ML_Pred_Return`` is present (offline model ran), ``Priority`` is
-    driven by ``R:R T2 × max(ML_Pred_Return, 0) × propensity`` so setups with
-    stronger predicted forward alpha rank first. When the ML column is absent or
-    all-null, ``Priority`` falls back to ``Expected Value × propensity``.
+    ``Priority`` is ``Expected Value × propensity`` (raw-Score ranking, since
+    R:R T2 is 3.0 for every Coiled Cobra plan) unless :func:`ml_priority_active`
+    -- ML enabled and every row predicted -- in which case it is
+    ``R:R T2 × max(ML_Pred_Return, 0) × propensity``. Ties (e.g. all-negative
+    predictions clipped to 0) are broken by Expected Value, i.e. by Score.
     """
     out = df.copy()
-    rr2 = pd.to_numeric(out.get("R:R T2"), errors="coerce").fillna(0.0)
-    score = pd.to_numeric(out.get("Score"), errors="coerce").fillna(0.0)
+    rr2 = _num_col(out, "R:R T2").fillna(0.0)
+    score = _num_col(out, "Score").fillna(0.0)
     out["Expected Value"] = (rr2 * score).round(2)
 
-    source = out["Source"].astype(str).str.strip().str.lower() if "Source" in out.columns else ""
-    price = pd.to_numeric(
-        out["Close"] if "Close" in out.columns else out.get("Stock Entry"),
-        errors="coerce",
-    )
-    risk = pd.to_numeric(out.get("Risk Per Share"), errors="coerce")
-    tight_risk = (risk / price.replace(0, np.nan)) <= TIGHT_RISK_PCT if price is not None else False
-    is_coil = source.isin(["coiled_cobra", "cobra"]) if hasattr(source, "isin") else False
-    propensity = np.where(
-        np.asarray(is_coil) | np.asarray(tight_risk.fillna(False) if hasattr(tight_risk, "fillna") else tight_risk),
-        TIGHT_COIL_PROPENSITY,
-        1.0,
-    )
-
-    if "ML_Pred_Return" in out.columns:
-        ml_pred = pd.to_numeric(out["ML_Pred_Return"], errors="coerce")
+    if "Source" in out.columns:
+        source = out["Source"].astype(str).str.strip().str.lower()
     else:
-        ml_pred = pd.Series(np.nan, index=out.index, dtype="float64")
+        source = pd.Series("", index=out.index)
+    price = _num_col(out, "Close" if "Close" in out.columns else "Stock Entry")
+    risk = _num_col(out, "Risk Per Share")
+    tight_risk = (risk / price.replace(0, np.nan)) <= TIGHT_RISK_PCT   # NaN -> False
+    is_coil = source.isin(["coiled_cobra", "cobra"])
+    propensity = np.where(is_coil | tight_risk, TIGHT_COIL_PROPENSITY, 1.0)
 
-    if ml_pred.notna().any():
+    if ml_priority_active(out):
         # ML-driven expected value: reward per unit risk scaled by predicted alpha.
-        ml_ev = rr2 * ml_pred.clip(lower=0).fillna(0.0)
-        out["Priority"] = (ml_ev * propensity).round(4)
+        ml_pred = _num_col(out, "ML_Pred_Return")
+        out["Priority"] = (rr2 * ml_pred.clip(lower=0) * propensity).round(4)
     else:
         out["Priority"] = (out["Expected Value"] * propensity).round(2)
 
-    return out.sort_values("Priority", ascending=False, kind="mergesort").reset_index(drop=True)
+    return out.sort_values(
+        ["Priority", "Expected Value"], ascending=False, kind="mergesort"
+    ).reset_index(drop=True)
 
 
 def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Path:
@@ -301,13 +316,18 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
 
     if not df.empty:
         df = rank_by_expected_value(df)
-        ml_active = "ML_Pred_Return" in df.columns and pd.to_numeric(
-            df["ML_Pred_Return"], errors="coerce"
-        ).notna().any()
-        if ml_active:
+        if ml_priority_active(df):
             print("📊 Ranked survivors by ML predicted return × R:R T2 with coil propensity.")
         else:
             print("📊 Ranked survivors by Expected Value (R:R T2 × Score) with coil propensity.")
+            n_pred = int(_num_col(df, "ML_Pred_Return").notna().sum())
+            if n_pred:  # silent when the ML column is simply empty (current state)
+                reason = (
+                    "ML ranking is disabled (config.ML_RANKING_ENABLED)"
+                    if not config.ML_RANKING_ENABLED
+                    else f"predictions are incomplete ({n_pred}/{len(df)} rows)"
+                )
+                print(f"   ℹ️ Ignoring {n_pred} ML prediction(s): {reason}.")
 
     # Select essential columns for the cleaned file (only those that exist).
     # Both LEAPS/Options label variants are listed so mode-specific columns

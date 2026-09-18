@@ -136,7 +136,7 @@ all three (`high_beta` reads daily OHLCV and writes to its own
 - Adds Risk Per Share and direction-aware R:R
 - Drops risk > 5% of Close, cobra checklist below coiled_cobra's own Gate D
   breadth floor (`MIN_CHECKS_MET/N_SCORED_PILLARS`, currently 4/6), or R:R T1 < 2.0
-- Ranks survivors by Expected Value / `ML_Pred_Return` with a 1.25 coil propensity
+- Ranks survivors by Expected Value with a 1.25 coil propensity (`ML_Pred_Return` is used only when `config.ML_RANKING_ENABLED` is on and every row has a prediction)
 - Writes `trade_plan_clean_<date>.csv`
 
 ### `src/finance_vibe/trade_simulator.py` (library, not a script)

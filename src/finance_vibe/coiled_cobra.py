@@ -898,7 +898,7 @@ def run_scanner():
             if df_out[ML_PRED_COL].notna().any():
                 logger.info("ML ranks attached to scan results.")
             else:
-                logger.info("No ML model available; ranking by Score.")
+                logger.info("ML ranking inactive (disabled or no valid model); ranking by Score.")
                 df_out = df_out.sort_values(by="Score", ascending=False)
         except Exception as e:
             logger.warning(f"ML ranking skipped ({e}); ranking by Score.")
