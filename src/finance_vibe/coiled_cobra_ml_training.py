@@ -1,16 +1,27 @@
 """Coiled Cobra ML baseline: LightGBM + XGBoost regressors for short-horizon returns.
 
-Standalone training script. Looks for coiled_cobra_backtest_trades_*.csv,
-isolates pre-signal features, applies a dynamic relative temporal split,
-and trains MAE-objective XGBRegressor / LGBMRegressor baselines for the
+Standalone training script. Auto-selects the newest
+coiled_cobra_backtest_trades_*.csv, refuses data stamped with a different
+rubric version, isolates pre-signal features, applies a dynamic relative
+temporal split with a purge/embargo equal to the forward-return horizon, and
+trains MAE-objective XGBRegressor / LGBMRegressor baselines for the
 short-horizon target ``Forward_Return_2w`` with ATR_Pct sample weights to
 reduce the impact of heavy-tailed financial outliers.
+
+Model artifacts and a metadata file (rubric version, feature list, mode,
+artifact hashes) are written to the mode's log directory; ``ml_ranker``
+validates that metadata before serving predictions.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import os
+import re
+import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -19,6 +30,12 @@ import pandas as pd
 from lightgbm import LGBMRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from xgboost import XGBRegressor
+
+try:
+    from finance_vibe import config
+except ImportError:  # pragma: no cover - local direct execution
+    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+    from finance_vibe import config
 
 # ---------------------------------------------------------------------------
 # Column zones (strict isolation — no leakage from post-trade metrics)
@@ -40,6 +57,15 @@ TARGET_HORIZON_WEEKS = 2
 DATE_COL = "Signal Date"
 WEIGHT_COL = "ATR_Pct"
 MODEL_METADATA_FILENAME = "coiled_cobra_ml_model_metadata.json"
+XGB_MODEL_FILENAME = "coiled_cobra_xgb_model.json"
+LGB_MODEL_FILENAME = "coiled_cobra_lgb_model.txt"
+# Forward_Return_2w is measured in *bars*; only weekly bars make it a 2-week
+# label, so training is weekly-only until the label is made mode-aware.
+TRAIN_MODE = "weekly"
+# Purge between partitions: a row at date t has a label realised through
+# t + TARGET_HORIZON_WEEKS, so rows that close to a boundary would overlap the
+# next partition's period.
+EMBARGO_WEEKS = TARGET_HORIZON_WEEKS
 
 LEAKAGE_COLS = [
     "Stock Entry",
@@ -54,7 +80,7 @@ LEAKAGE_COLS = [
     "Target_R_Mult",
 ]
 
-SOURCE_FILENAME = "coiled_cobra_backtest_trades_2026-07-17.csv"
+SOURCE_GLOB = "coiled_cobra_backtest_trades_*.csv"
 
 # Regularization: shallow trees, slow learning, row/feature bagging.
 MODEL_PARAMS = {
@@ -66,53 +92,97 @@ MODEL_PARAMS = {
 }
 
 
-def _candidate_csv_paths(explicit: str | None = None) -> list[Path]:
-    """Resolve likely locations for the backtest trades CSV."""
-    if explicit:
-        return [Path(explicit).expanduser().resolve()]
+def _candidate_roots(mode: str = TRAIN_MODE) -> list[Path]:
+    """Directories searched for backtest trades CSVs, most authoritative first.
 
-    here = Path(__file__).resolve().parent
-    project_root = here.parents[1]  # src/finance_vibe -> repo root
+    The mode's log directory wins; the legacy locations are only consulted when
+    it holds no trades CSV at all (e.g. host-side runs against the data volume).
+    """
+    project_root = Path(__file__).resolve().parents[2]  # src/finance_vibe -> repo root
     cwd = Path.cwd()
-    names = [SOURCE_FILENAME]
-    
-    search_roots = [
+    roots = [
+        Path(config.get_log_dir(mode)),
         cwd,
-        cwd / "data" / "logs" / "weekly",
-        project_root / "data" / "logs" / "weekly",
-        Path("/app/data/logs/weekly"),
-        Path("/mnt/fast/finance-vibe-data/logs/weekly"),
+        cwd / "data" / "logs" / mode,
+        project_root / "data" / "logs" / mode,
+        Path("/app/data/logs") / mode,
+        Path("/mnt/fast/finance-vibe-data/logs") / mode,
     ]
-    paths: list[Path] = []
-    for root in search_roots:
-        for name in names:
-            paths.append(root / name)
-    return paths
+    seen: set[Path] = set()
+    unique: list[Path] = []
+    for root in roots:
+        if root not in seen:
+            seen.add(root)
+            unique.append(root)
+    return unique
 
 
-def _resolve_source_csv(explicit: str | None = None) -> Path:
-    """Locate the trades CSV; raise with a clear message if missing."""
-    for path in _candidate_csv_paths(explicit):
-        if path.is_file():
-            return path
+def _csv_recency_key(path: Path) -> tuple[str, float]:
+    """Sort key: date stamp embedded in the filename, then mtime as tie-break."""
+    m = re.search(r"(\d{4}-\d{2}-\d{2})", path.name)
+    return (m.group(1) if m else "", path.stat().st_mtime)
 
-    project_root = Path(__file__).resolve().parent.parents[1]
-    globs: list[Path] = []
-    for root in {
-        Path.cwd() / "data" / "logs" / "weekly",
-        project_root / "data" / "logs" / "weekly",
-        Path("/app/data/logs/weekly"),
-        Path("/mnt/fast/finance-vibe-data/logs/weekly"),
-    }:
-        if root.is_dir():
-            globs.extend(sorted(root.glob("coiled_cobra_backtest_trades_*.csv")))
-    if globs:
-        return max(globs, key=lambda p: p.stat().st_mtime)
 
-    tried = "\n  ".join(str(p) for p in _candidate_csv_paths(explicit))
+def _resolve_source_csv(explicit: str | None = None, mode: str = TRAIN_MODE) -> Path:
+    """Locate the trades CSV: ``explicit`` if given, else the newest by stamp.
+
+    An explicit path that does not exist is an error (never a silent fall-back
+    to some other file). Auto-selection takes the first root holding any
+    ``coiled_cobra_backtest_trades_*.csv`` and returns its newest match; the
+    caller then validates that file's rubric version, so a stale newest file
+    fails loudly instead of quietly yielding to an older one.
+    """
+    if explicit:
+        path = Path(explicit).expanduser().resolve()
+        if not path.is_file():
+            raise FileNotFoundError(f"--csv path does not exist: {path}")
+        return path
+
+    roots = _candidate_roots(mode)
+    for root in roots:
+        if not root.is_dir():
+            continue
+        matches = [p for p in root.glob(SOURCE_GLOB) if p.is_file()]
+        if matches:
+            return max(matches, key=_csv_recency_key)
+
+    tried = "\n  ".join(str(r) for r in roots)
     raise FileNotFoundError(
-        f"Could not find {SOURCE_FILENAME}. Tried:\n  {tried}"
+        f"No {SOURCE_GLOB} found. Searched:\n  {tried}\n"
+        f"Generate one with: python -m finance_vibe.coiled_cobra_backtest {mode} --backtest"
     )
+
+
+def _validate_rubric_version(
+    df: pd.DataFrame, csv_path: Path, allow_mismatch: bool = False
+) -> str:
+    """Return the CSV's rubric version; refuse unversioned/mixed/stale data.
+
+    ``allow_mismatch`` permits *experiments* on other vintages, but the model
+    metadata will record the CSV's version, so ``ml_ranker`` still refuses to
+    serve such a model against the live rubric.
+    """
+    col = config.RUBRIC_VERSION_COL
+    if col in df.columns:
+        versions = sorted(df[col].dropna().astype(str).unique())
+    else:
+        versions = []
+
+    if len(versions) > 1:
+        raise ValueError(f"{csv_path.name} mixes rubric versions {versions}; regenerate it.")
+
+    found = versions[0] if versions else "unversioned"
+    if found != config.RUBRIC_VERSION:
+        msg = (
+            f"{csv_path.name} has rubric version '{found}' but the live rubric is "
+            f"'{config.RUBRIC_VERSION}'. Score/feature semantics and the qualifying "
+            f"population differ; regenerate with: "
+            f"python -m finance_vibe.coiled_cobra_backtest {TRAIN_MODE} --backtest"
+        )
+        if not allow_mismatch:
+            raise ValueError(msg)
+        print(f"WARNING (--allow-rubric-mismatch): {msg}")
+    return found
 
 
 def _load_and_prepare(csv_path: Path) -> pd.DataFrame:
@@ -148,22 +218,43 @@ def _load_and_prepare(csv_path: Path) -> pd.DataFrame:
     return df.sort_values(DATE_COL).reset_index(drop=True)
 
 
-def _temporal_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
-    """Applies a dynamic rolling temporal split backward from the max available date."""
+def _temporal_split(
+    df: pd.DataFrame, embargo_weeks: int = EMBARGO_WEEKS
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
+    """Rolling temporal split back from the max date, with a purge embargo.
+
+    Layout (oldest -> newest)::
+
+        train | embargo | val | embargo | test
+
+    Rows dated within ``embargo_weeks`` before a boundary are dropped from the
+    *earlier* partition: their forward-return label is realised inside the next
+    partition's period, so keeping them would leak future information across
+    the boundary (and share the cross-sectional market move).
+    """
+    if embargo_weeks < 0:
+        raise ValueError("embargo_weeks must be >= 0")
     max_date = df[DATE_COL].max()
-    
+    embargo = pd.Timedelta(weeks=embargo_weeks)
+
     # Define relative sliding windows (6 Months Test, 6 Months Val, Rest is Train)
     test_start = max_date - pd.Timedelta(weeks=26)
     val_start = test_start - pd.Timedelta(weeks=26)
-    
-    train = df[df[DATE_COL] < val_start].copy()
-    val = df[(df[DATE_COL] >= val_start) & (df[DATE_COL] < test_start)].copy()
+    train_end = val_start - embargo
+    val_end = test_start - embargo
+
+    train = df[df[DATE_COL] < train_end].copy()
+    val = df[(df[DATE_COL] >= val_start) & (df[DATE_COL] < val_end)].copy()
     test = df[df[DATE_COL] >= test_start].copy()
-    
+
     bounds = {
         "max_date": max_date,
         "val_start": val_start,
-        "test_start": test_start
+        "test_start": test_start,
+        "train_end": train_end,
+        "val_end": val_end,
+        "embargo_weeks": embargo_weeks,
+        "purged_rows": int(len(df) - len(train) - len(val) - len(test)),
     }
     return train, val, test, bounds
 
@@ -250,6 +341,24 @@ def _save_importance_plot(
     plt.close(fig)
     print(f"\nSaved feature importance plot: {out_path}")
 
+def _sha256(path: Path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _git_sha() -> str | None:
+    """Best-effort short git SHA of the training code (None outside a checkout)."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=config.PROJECT_ROOT, capture_output=True, text=True, timeout=5,
+        )
+        if out.returncode != 0:
+            return None
+        return out.stdout.strip() or None
+    except Exception:
+        return None
+
+
 def _save_model_metadata(
     art_dir: Path,
     feature_names: list[str],
@@ -260,9 +369,21 @@ def _save_model_metadata(
     xgb_model_path: Path,
     lgb_model_path: Path,
     plot_path: Path,
+    context: dict,
 ) -> None:
-    """Persist a JSON summary that downstream tooling can consume."""
+    """Persist a JSON summary that downstream tooling can consume.
+
+    ``ml_ranker`` refuses to serve a model unless this file exists and its
+    ``rubric_version`` / ``mode`` / ``feature_columns`` match the live pipeline
+    and the ``sha256`` of each model file matches the binary on disk.
+    """
     metadata = {
+        "rubric_version": context["rubric_version"],
+        "mode": context["mode"],
+        "trained_at": context["trained_at"],
+        "git_sha": context["git_sha"],
+        "source_csv": context["source_csv"],
+        "split": context["split"],
         "target_column": TARGET_COL,
         "target_horizon_weeks": TARGET_HORIZON_WEEKS,
         "feature_columns": feature_names,
@@ -282,7 +403,9 @@ def _save_model_metadata(
         },
         "artifacts": {
             "xgb_model": xgb_model_path.name,
+            "xgb_sha256": _sha256(xgb_model_path),
             "lgb_model": lgb_model_path.name,
+            "lgb_sha256": _sha256(lgb_model_path),
             "importance_plot": plot_path.name,
         },
         "metrics": {
@@ -305,7 +428,7 @@ def _save_model_metadata(
     print(f"\n[SAVED] ML metadata summary: {metadata_path}")
 
 
-def _train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
+def _train_and_report(parts: dict, art_dir: Path, labels: dict, context: dict) -> None:
     X_train, y_train, w_train = parts["train"]["X"], parts["train"]["y"], parts["train"]["w"]
     X_val, y_val = parts["val"]["X"], parts["val"]["y"]
     X_test, y_test = parts["test"]["X"], parts["test"]["y"]
@@ -354,14 +477,18 @@ def _train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
 
     # --- NEW: Serialize Model Weights for Review and Pega Ingestion ---
     art_dir.mkdir(parents=True, exist_ok=True)
-    
+    # Drop the previous metadata first: if this run dies between writing the
+    # binaries and the new metadata, inference must see "no metadata" (refuse)
+    # rather than old metadata paired with new binaries.
+    (art_dir / MODEL_METADATA_FILENAME).unlink(missing_ok=True)
+
     # 1. Save XGBoost Weights (Standard JSON format, highly readable/parseable)
-    xgb_model_path = art_dir / "coiled_cobra_xgb_model.json"
+    xgb_model_path = art_dir / XGB_MODEL_FILENAME
     xgb.get_booster().save_model(str(xgb_model_path))
     print(f"\n[SAVED] XGBoost model weights exported to: {xgb_model_path}")
 
     # 2. Save LightGBM Weights (Standard text model structure)
-    lgb_model_path = art_dir / "coiled_cobra_lgb_model.txt"
+    lgb_model_path = art_dir / LGB_MODEL_FILENAME
     lgb.booster_.save_model(str(lgb_model_path))
     print(f"[SAVED] LightGBM model weights exported to: {lgb_model_path}")
     # ------------------------------------------------------------------
@@ -385,41 +512,61 @@ def _train_and_report(parts: dict, art_dir: Path, labels: dict) -> None:
         xgb_model_path,
         lgb_model_path,
         plot_path,
+        context,
     )
-    
+
 def main(argv: list[str] | None = None) -> int:
-    """Train XGB/LGB baselines and write model artifacts next to the source CSV."""
+    """Train XGB/LGB baselines and write model artifacts to the mode's log dir."""
     parser = argparse.ArgumentParser(
         description="Coiled Cobra ML baseline (XGBoost + LightGBM) with Dynamic Windows"
     )
     parser.add_argument(
+        "--mode",
+        default=TRAIN_MODE,
+        help=f"Pipeline mode the model is bound to (only '{TRAIN_MODE}' is supported: "
+        f"{TARGET_COL} is a bar-count label)",
+    )
+    parser.add_argument(
         "--csv",
         default=None,
-        help=f"Path to trades CSV (default: search for {SOURCE_FILENAME})",
+        help=f"Path to trades CSV (default: newest {SOURCE_GLOB} in the mode's log dir)",
     )
     parser.add_argument(
         "--artifacts-dir",
         default=None,
-        help="Directory for plots (default: data/logs/weekly next to CSV or cwd)",
+        help="Directory for model artifacts (default: the mode's log dir, where "
+        "ml_ranker looks for them)",
+    )
+    parser.add_argument(
+        "--allow-rubric-mismatch",
+        action="store_true",
+        help="Train on a CSV from a different rubric version (experiments only; the "
+        "resulting model will be refused by ml_ranker)",
     )
     args = parser.parse_args(argv)
 
-    csv_path = _resolve_source_csv(args.csv)
-    if args.artifacts_dir:
-        art_dir = Path(args.artifacts_dir)
-    else:
-        art_dir = csv_path.parent if csv_path.parent.is_dir() else Path.cwd()
+    if args.mode != TRAIN_MODE:
+        raise ValueError(
+            f"Training supports mode '{TRAIN_MODE}' only (got '{args.mode}'): "
+            f"{TARGET_COL} counts bars, so it is not a 2-week label on other timeframes."
+        )
+
+    csv_path = _resolve_source_csv(args.csv, args.mode)
+    art_dir = Path(args.artifacts_dir) if args.artifacts_dir else Path(config.get_log_dir(args.mode))
 
     df = _load_and_prepare(csv_path)
+    rubric_version = _validate_rubric_version(df, csv_path, args.allow_rubric_mismatch)
     train, val, test, bounds = _temporal_split(df)
 
-    v_str = f"{bounds['val_start'].strftime('%Y-%m-%d')} .. {bounds['test_start'].strftime('%Y-%m-%d')}"
-    t_str = f"{bounds['test_start'].strftime('%Y-%m-%d')} .. {bounds['max_date'].strftime('%Y-%m-%d')}"
+    fmt = lambda ts: ts.strftime("%Y-%m-%d")
+    v_str = f"{fmt(bounds['val_start'])} .. {fmt(bounds['val_end'])}"
+    t_str = f"{fmt(bounds['test_start'])} .. {fmt(bounds['max_date'])}"
 
-    print("\n=== Temporal Split Bounds (Dynamic Rolling Windows) ===")
-    print(f"  Train:  Signal Date < {bounds['val_start'].strftime('%Y-%m-%d')} -> {len(train)} rows")
+    print(f"\n=== Temporal Split Bounds (Dynamic Rolling Windows, {bounds['embargo_weeks']}w embargo) ===")
+    print(f"  Train:  Signal Date < {fmt(bounds['train_end'])} -> {len(train)} rows")
     print(f"  Val:    {v_str} -> {len(val)} rows")
     print(f"  Test:   {t_str} -> {len(test)} rows")
+    print(f"  Purged: {bounds['purged_rows']} row(s) inside the embargo windows")
 
     if len(train) == 0 or len(val) == 0 or len(test) == 0:
         raise RuntimeError(
@@ -428,8 +575,25 @@ def main(argv: list[str] | None = None) -> int:
 
     parts = _build_matrices(train, val, test)
     labels = {"val": v_str, "test": t_str}
-    
-    _train_and_report(parts, art_dir, labels)
+    context = {
+        "rubric_version": rubric_version,
+        "mode": args.mode,
+        "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "git_sha": _git_sha(),
+        "source_csv": csv_path.name,
+        "split": {
+            "embargo_weeks": bounds["embargo_weeks"],
+            "train_end": fmt(bounds["train_end"]),
+            "val_start": fmt(bounds["val_start"]),
+            "val_end": fmt(bounds["val_end"]),
+            "test_start": fmt(bounds["test_start"]),
+            "max_date": fmt(bounds["max_date"]),
+            "rows": {"train": len(train), "val": len(val), "test": len(test),
+                     "purged": bounds["purged_rows"]},
+        },
+    }
+
+    _train_and_report(parts, art_dir, labels, context)
     print("\nDone.")
     return 0
 

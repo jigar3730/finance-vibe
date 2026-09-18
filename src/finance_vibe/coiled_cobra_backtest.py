@@ -164,6 +164,7 @@ def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd
         all_rows.extend(results_by_path.get(path, []))
 
     out_df = pd.DataFrame(all_rows)
+    out_df[config.RUBRIC_VERSION_COL] = config.RUBRIC_VERSION
     stamp = datetime.now().strftime("%Y-%m-%d")
     out_path = os.path.join(logs_dir, f"coiled_cobra_backfill_{stamp}.csv")
     os.makedirs(logs_dir, exist_ok=True)
@@ -421,6 +422,7 @@ def run_backtest(
             all_counts[key] = all_counts.get(key, 0) + value
 
     trades_df = pd.DataFrame(all_trades)
+    trades_df[config.RUBRIC_VERSION_COL] = config.RUBRIC_VERSION
     stamp = datetime.now().strftime("%Y-%m-%d")
     out_path = os.path.join(logs_dir, f"coiled_cobra_backtest_trades_{stamp}.csv")
     os.makedirs(logs_dir, exist_ok=True)

@@ -360,7 +360,7 @@ Consumes `coiled_cobra_backtest_trades_*.csv` to train XGBoost + LightGBM regres
 
 ```bash
 python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv
+  --csv data/logs/weekly/coiled_cobra_backtest_trades_YYYY-MM-DD.csv
 ```
 
 ### Live scanner vs historical modules

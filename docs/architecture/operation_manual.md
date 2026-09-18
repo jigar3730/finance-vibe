@@ -179,7 +179,7 @@ Trains XGBoost + LightGBM regressors to predict `Forward_Return_2w` from Coiled 
 
 ```bash
 python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv
+  --csv data/logs/weekly/coiled_cobra_backtest_trades_YYYY-MM-DD.csv
 ```
 
 Not part of the default pipeline. Full specification: **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)**.

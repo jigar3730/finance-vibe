@@ -39,7 +39,7 @@ This is an **offline research baseline**, not part of `run_vibe.py` or the live 
    data/logs/weekly/coiled_cobra_backtest_trades_YYYY-MM-DD.csv
    ```
 
-   Default preferred filename in the script: `coiled_cobra_backtest_trades_2026-07-17.csv`. If that exact file is missing, the script falls back to the newest `coiled_cobra_backtest_trades_*.csv` under common log roots.
+   Auto-selection takes the **newest** `coiled_cobra_backtest_trades_*.csv` (by the date stamp in the filename) from the mode's log directory, falling back to legacy roots only if that directory holds none. There is no hard-coded filename. If the newest file is stamped with a different rubric version (or is unversioned, i.e. pre-v4.0), training **refuses** it — regenerate with `coiled_cobra_backtest.py weekly --backtest`.
 
 3. **Environment:** run from the repo / container with `PYTHONPATH` including the project (Docker image already sets `PYTHONPATH=/app`).
 
@@ -48,23 +48,24 @@ This is an **offline research baseline**, not part of `run_vibe.py` or the live 
 ## How to run
 
 ```bash
-# Auto-discover CSV under data/logs/weekly (or /app/data/...)
+# Auto-select the newest CSV in the weekly log dir; models land there too
 python src/finance_vibe/coiled_cobra_ml_training.py
 
 # Explicit CSV + artifact directory
 python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv \
+  --csv data/logs/weekly/coiled_cobra_backtest_trades_YYYY-MM-DD.csv \
   --artifacts-dir data/logs/weekly
 
 # Inside the finance_vibe container
-docker exec finance_vibe python /app/src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv /app/data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv
+docker exec finance_vibe python /app/src/finance_vibe/coiled_cobra_ml_training.py
 ```
 
 | Flag | Meaning |
 | ---- | ------- |
-| `--csv` | Path to trades CSV (optional; auto-search if omitted) |
-| `--artifacts-dir` | Where to write the feature-importance PNG (default: same directory as the CSV) |
+| `--csv` | Path to trades CSV (optional; newest in the mode log dir if omitted; a non-existent path is an error, never a silent fallback) |
+| `--artifacts-dir` | Where to write models + metadata + PNG (default: the mode's log dir — where `ml_ranker` looks) |
+| `--mode` | Pipeline mode the model is bound to. Only `weekly` is supported (`Forward_Return_2w` counts bars) |
+| `--allow-rubric-mismatch` | Experiments only: train on another rubric vintage. The model records that version and `ml_ranker` will refuse it |
 
 ---
 
@@ -153,9 +154,13 @@ Split on **`Signal Date`** only — never random folds. `_temporal_split()` in `
 
 | Partition | Signal Date range | Role |
 | --------- | ----------------- | ---- |
-| Train | Inception → `max_date − 52 weeks` | Fit |
-| Validation | `max_date − 52w` → `max_date − 26w` | Tuning / comparison |
+| Train | Inception → `max_date − 52w − embargo` | Fit |
+| *Embargo* | `max_date − 52w − 2w` → `max_date − 52w` | Purged (dropped) |
+| Validation | `max_date − 52w` → `max_date − 26w − embargo` | Tuning / comparison |
+| *Embargo* | `max_date − 26w − 2w` → `max_date − 26w` | Purged (dropped) |
 | Test (OOS) | `max_date − 26w` → `max_date` | Final holdout |
+
+**Embargo:** the label at date *t* is realised at *t + 2 bars*, so rows within `EMBARGO_WEEKS` (= `TARGET_HORIZON_WEEKS`) before a boundary would have labels overlapping the next partition (and the same-week market move shared by every ticker). They are dropped from the earlier partition; the number purged is printed and stored in the metadata.
 
 Example sizes from an older fixed-cut run on `coiled_cobra_backtest_trades_2026-07-17.csv` (after NaN-target drop). Counts will shift under the current rolling window:
 
@@ -218,6 +223,12 @@ Artifact files:
 
 Side-by-side horizontal bar chart (XGBoost vs LightGBM), plus serialized model weights and a JSON metadata summary for downstream use.
 
+### Integrity guards (rubric version, mode binding, hashes)
+
+- `config.RUBRIC_VERSION` (currently `"4.0"`) is written to a `Rubric_Version` column on every backtest/backfill CSV. **Bump it whenever a gate/pillar/threshold change alters `Score` or which setups qualify** (e.g. Gate D 5/6 → 4/6) — it is the only thing that lets training and inference detect that drift.
+- Model metadata records `rubric_version`, `mode`, `feature_columns`, `trained_at`, `git_sha`, `source_csv`, split bounds/row counts, and a `sha256` for each model file. The old metadata is deleted before new binaries are written, so a crashed retrain can't leave old metadata paired with new models.
+- `ml_ranker` serves predictions only when the metadata exists and its rubric version, mode and feature list match the live pipeline, and each model file's hash matches. Models are read **only** from the requested mode's own log directory (optionally `FINANCE_VIBE_MODEL_DIR`) — there is no cross-mode fallback, so a weekly model can never score `daily`/`high_beta` setups. Any failure logs the reason and leaves `ML_Pred_Return` / `ML_Rank` null (ranking falls back to `Score`).
+
 ### How to read metrics
 
 | Metric | Interpretation |
@@ -273,7 +284,7 @@ The exported models are intended to be a soft decision aid, not a stand-alone tr
 
 1. **Train the baseline**
    - Run the training script to produce model artifacts under the relevant log directory.
-   - Keep the artifacts next to the weekly or daily backtest exports so the same folder is easy to discover.
+   - Artifacts are written to (and read from) the mode's log directory, e.g. `data/logs/weekly/`; `ml_ranker` does not search anywhere else.
 
 2. **Attach model scores to new setups**
    - Use the existing ranking helper in `src/finance_vibe/ml_ranker.py` to load the saved boosters and attach `ML_Pred_Return` plus `ML_Rank` to Coiled Cobra setups.

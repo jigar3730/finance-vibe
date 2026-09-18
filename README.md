@@ -165,7 +165,7 @@ python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
 
 # Coiled Cobra ML baseline (predict Forward_Return_2w)
 python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv data/logs/weekly/coiled_cobra_backtest_trades_2026-07-17.csv
+  --csv data/logs/weekly/coiled_cobra_backtest_trades_YYYY-MM-DD.csv
 ```
 
 The training run writes model artifacts such as `coiled_cobra_xgb_model.json`, `coiled_cobra_lgb_model.txt`, and `coiled_cobra_ml_model_metadata.json` beside the feature-importance plot. Use them with `src/finance_vibe/ml_ranker.py` to attach `ML_Pred_Return` and `ML_Rank` to new Coiled Cobra setups. Treat those columns as a soft ranking/confirmation signal: combine them with the macro score, structure checks, and risk rules rather than using them as a standalone entry gate.

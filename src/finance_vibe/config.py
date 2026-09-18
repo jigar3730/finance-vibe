@@ -29,6 +29,14 @@ TIMEFRAME_PROFILES = {
 
 DEFAULT_MODE = "weekly"
 
+# Coiled Cobra rubric version. Stamped onto every backtest/backfill CSV
+# (``Rubric_Version`` column) and every ML model's metadata so training data,
+# model artifacts, and runtime inference can refuse to mix rubric vintages.
+# Bump whenever gate/pillar logic or thresholds change in a way that alters
+# ``Score`` or which setups qualify (e.g. Gate D 5/6 -> 4/6).
+RUBRIC_VERSION = "4.0"
+RUBRIC_VERSION_COL = "Rubric_Version"
+
 
 def get_mode_config(mode: str | None = None) -> dict:
     """Return download settings and directory paths for ``weekly`` or ``daily``.
