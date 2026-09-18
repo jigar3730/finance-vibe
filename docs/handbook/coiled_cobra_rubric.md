@@ -61,13 +61,20 @@ Fail-open (`True`) when benchmark data is unavailable, same as v3.1.
 ## Gate C — Coil Integrity (new — replaces implicit additive credit)
 ```
 coil_width_score  ≥ 10   (i.e. range/ATR at or below the "partial" band)
-structure_score   ≥ 8    (i.e. EMA10w/20w/40w alignment check passed)
+structure_score   ≥ 8    (i.e. EMA10w/20w/30w/40w alignment check passed)
 ```
 Both must individually clear their own check threshold. A stock that isn't
 actually coiling, or isn't in aligned short-term structure, is rejected
 regardless of how well it scores elsewhere. This is the direct fix for the
 v3.1 failure mode where a non-coiling name reached 65-70+ on unrelated
 pillars.
+
+> **Hardened 2026-09-18**: `structure_score`'s hard stack check originally
+> only compared EMA10w/20w/40w, leaving EMA30w unconstrained — a stock with
+> a hole mid-stack (e.g. EMA20w dipping below EMA30w) could still pass both
+> Gate A and Gate C despite not being a clean ascending EMA fan. Now requires
+> the full EMA10w ≥ EMA20w ≥ EMA30w ≥ EMA40w hierarchy (see Structure & MA
+> Alignment below).
 
 ## Gate D — Breadth (`Checks Met`)
 ```
@@ -147,7 +154,7 @@ without treating MACD as a squeeze detector.
 ## 3. Structure & MA Alignment (20 Points)
 
 ```
-Required: EMA10w ≥ 0.98 × EMA20w ≥ 0.98 × EMA40w   → else 0 (hard fail, Gate C)
+Required: EMA10w ≥ 0.98 × EMA20w ≥ 0.98 × EMA30w ≥ 0.98 × EMA40w   → else 0 (hard fail, Gate C)
 ```
 | Condition | Points |
 |---|---:|
