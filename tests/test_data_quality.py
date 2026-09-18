@@ -450,9 +450,9 @@ def test_helper_ingestion_guardrails_drop_bad_rows(tmp_path, monkeypatch):
             "Stock Entry": 100.0, "Stock Stop": 90.0,
             "Target 1": 120.0, "Target 2": 130.0,
         },
-        {  # incomplete checklist (< 5/6)
+        {  # incomplete checklist (< MIN_CHECKS_MET/N_SCORED_PILLARS, i.e. < 4/6)
             "Symbol": "FAILCHK", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
-            "Close": 100.0, "Score": 90, "Checks Met": "4/6",
+            "Close": 100.0, "Score": 90, "Checks Met": "3/6",
             "Stock Entry": 100.0, "Stock Stop": 97.0,
             "Target 1": 106.0, "Target 2": 109.0,
         },
@@ -462,7 +462,16 @@ def test_helper_ingestion_guardrails_drop_bad_rows(tmp_path, monkeypatch):
             "Stock Entry": 100.0, "Stock Stop": 96.0,
             "Target 1": 104.0, "Target 2": 108.0,
         },
-        {  # survivor — soft baseline 5/6 is enough
+        {  # boundary survivor — MIN_CHECKLIST_RATIO now derives from
+           # coiled_cobra.MIN_CHECKS_MET/N_SCORED_PILLARS (4/6), not the old
+           # hardcoded 5/7 that used to reject this exact row (see
+           # trade_plan_helper.py's MIN_CHECKLIST_RATIO)
+            "Symbol": "BOUNDARY", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
+            "Close": 100.0, "Score": 80, "Checks Met": "4/6",
+            "Stock Entry": 100.0, "Stock Stop": 97.0,
+            "Target 1": 106.0, "Target 2": 109.0,
+        },
+        {  # survivor — comfortably above the floor
             "Symbol": "KEEP", "Setup Type": "SETUP_LONG", "Source": "coiled_cobra",
             "Close": 100.0, "Score": 85, "Checks Met": "5/6",
             "Stock Entry": 100.0, "Stock Stop": 97.0,
@@ -473,9 +482,10 @@ def test_helper_ingestion_guardrails_drop_bad_rows(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     out_path = process_trade_plan("weekly", today=date_str)
     clean = pd.read_csv(out_path)
-    assert list(clean["Symbol"]) == ["KEEP"]
-    assert clean.iloc[0]["R:R T1"] >= 2.0
-    assert clean.iloc[0]["Expected Value"] == pytest.approx(85 * 3.0)
+    assert set(clean["Symbol"]) == {"BOUNDARY", "KEEP"}
+    keep_row = clean[clean["Symbol"] == "KEEP"].iloc[0]
+    assert keep_row["R:R T1"] >= 2.0
+    assert keep_row["Expected Value"] == pytest.approx(85 * 3.0)
 
 
 # ---------------------------------------------------------------------------

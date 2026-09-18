@@ -111,7 +111,7 @@ After direction-aware R:R:
 | Gate | Rule |
 | ---- | ---- |
 | Risk | drop if `Risk Per Share / Close > 0.05` |
-| Checklist | drop Coiled Cobra rows with `Checks Met` ratio `< 5/7` (swing rows with a blank check pass) |
+| Checklist | drop Coiled Cobra rows with `Checks Met` ratio below `MIN_CHECKS_MET/N_SCORED_PILLARS` (mirrors coiled_cobra's own Gate D breadth threshold, currently `4/6`; swing rows with a blank check pass) |
 | T1 R:R | drop if `R:R T1 < 2.0` |
 
 Survivors are ranked:

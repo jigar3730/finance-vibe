@@ -134,7 +134,8 @@ all three (`high_beta` reads daily OHLCV and writes to its own
 
 - Loads `trade_plan_{today}.csv`, else newest dated plan in the mode log dir
 - Adds Risk Per Share and direction-aware R:R
-- Drops risk > 5% of Close, cobra checklist < 5/7, or R:R T1 < 2.0
+- Drops risk > 5% of Close, cobra checklist below coiled_cobra's own Gate D
+  breadth floor (`MIN_CHECKS_MET/N_SCORED_PILLARS`, currently 4/6), or R:R T1 < 2.0
 - Ranks survivors by Expected Value / `ML_Pred_Return` with a 1.25 coil propensity
 - Writes `trade_plan_clean_<date>.csv`
 

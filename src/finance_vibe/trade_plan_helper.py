@@ -14,16 +14,23 @@ import pandas.errors
 
 try:
     from finance_vibe import config
+    from finance_vibe.coiled_cobra import MIN_CHECKS_MET, N_SCORED_PILLARS
 except ImportError:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     from finance_vibe import config
+    from finance_vibe.coiled_cobra import MIN_CHECKS_MET, N_SCORED_PILLARS
 
 # Ingestion guardrails (Part 3): drop broken / unprofitable rows before ranking.
 MAX_RISK_PCT_OF_CLOSE = config.MAX_RISK_PCT_OF_CLOSE
 MIN_RR_T1 = 2.0
-# Allow one missed soft pillar on the v3 7-check card (5/7). Legacy 5/6 CSVs
-# still pass because 5/6 > 5/7. Hard gates already ran in the scanner.
-MIN_CHECKLIST_RATIO = 5 / 7
+# Mirrors coiled_cobra's own Gate D breadth threshold (MIN_CHECKS_MET of
+# N_SCORED_PILLARS) instead of a hardcoded ratio, so this guardrail can't
+# silently drift out of sync the way the old fixed 5/7 (calibrated for the
+# retired v3.1 7-pillar checklist) did once v4.0's 6-pillar Gate D was
+# empirically recalibrated to 4/6 -- that stale ratio was re-rejecting
+# scanner-admitted 4/6 rows before they ever reached the trade plan. See
+# docs/handbook/coiled_cobra_rubric.md's Gate D recalibration note.
+MIN_CHECKLIST_RATIO = MIN_CHECKS_MET / N_SCORED_PILLARS
 # Static propensity boost for tight coils until adaptive CDH weighting exists.
 TIGHT_COIL_PROPENSITY = 1.25
 TIGHT_RISK_PCT = 0.03
@@ -103,7 +110,9 @@ def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -
 
 
 def _checklist_fully_passed(value: Any) -> bool:
-    """True when Checks Met is missing (swing) or meets the soft baseline (≥5/7)."""
+    """True when Checks Met is missing (swing) or meets ``MIN_CHECKLIST_RATIO``
+    (mirrors coiled_cobra's Gate D breadth threshold, currently
+    ``MIN_CHECKS_MET``/``N_SCORED_PILLARS``)."""
     if value is None or (isinstance(value, float) and np.isnan(value)):
         return True
     text = str(value).strip()
@@ -279,7 +288,10 @@ def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Pat
         traceback.print_exc()
         raise SystemExit(1) from None
 
-    print("🛡️ Applying ingestion guardrails (risk ≤5%, checklist ≥5/7, R:R T1 ≥ 2)...")
+    print(
+        f"🛡️ Applying ingestion guardrails (risk ≤5%, "
+        f"checklist ≥{MIN_CHECKS_MET}/{N_SCORED_PILLARS}, R:R T1 ≥ 2)..."
+    )
     df, filter_stats = _apply_ingestion_filters(df)
     print(
         f"   kept {filter_stats['kept']}/{filter_stats['input']} "

@@ -71,7 +71,8 @@ Full math: [`trade_plan_calculations.md`](../handbook/trade_plan_calculations.md
 ### Cleaned output (`trade_plan_helper.py`)
 
 - Direction-aware `Risk Per Share`, `R:R T1`, `R:R T2`
-- Drop risk > 5% of Close, cobra `Checks Met` < 5/7, or R:R T1 < 2.0
+- Drop risk > 5% of Close, cobra `Checks Met` below coiled_cobra's Gate D
+  breadth floor (`MIN_CHECKS_MET/N_SCORED_PILLARS`, currently 4/6), or R:R T1 < 2.0
 - Rank by `Expected Value = R:R T2 × Score`, or `R:R T2 × max(ML_Pred_Return, 0)`
   when the ML column is populated; ×1.25 propensity for cobra / tight-risk rows
 - Prefers today's plan; falls back to the newest dated `trade_plan_*.csv`
