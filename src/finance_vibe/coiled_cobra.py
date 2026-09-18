@@ -104,7 +104,13 @@ MIN_BARS_FULL_SCORE = 160 * _WK_TO_BAR
 # that drive Gate D's Checks-Met counter -- see each pillar's docstring).
 GATE_C_VOL_CONTRACTION_MIN = 12
 GATE_C_STRUCTURE_MIN = 8
-MIN_CHECKS_MET = 5     # of 6 scored pillars (Gate D)
+MIN_CHECKS_MET = 4     # of 6 scored pillars (Gate D)
+# Lowered from 5 (original v4.0) to 4 after a 264-ticker/10y walk-forward
+# backtest showed the >=5/6 cutoff had no measurable expectancy or win-rate
+# edge over >=4/6 -- it just discarded ~65% of otherwise equal-or-better
+# B/Watchlist-tier signal volume (see gate_d_ablation review, 2026-09-18).
+# A/Actionable, the best-performing cohort, was unaffected by the threshold
+# either way since Actionable already implies clearing most pillars.
 N_SCORED_PILLARS = 6
 
 # MACD is a small binary directional filter (not a scored pillar in v4.0).
@@ -364,9 +370,14 @@ def _trend_extension_penalty(pct_from_slow: float, rs_rel: Optional[float]) -> i
 def structure_score(df: pd.DataFrame, rs_rel: Optional[float] = None) -> int:
     """MA alignment and long-term-EMA extension proximity (0-20).
 
-    Requires TT_EMA_S1 >= 0.98x TT_EMA_S2 >= 0.98x TT_EMA_SLOW, else 0 -- this
-    hard requirement is also Gate C's structural half (see
-    ``GATE_C_STRUCTURE_MIN``).
+    Requires a strict ascending EMA hierarchy across all four trend-template
+    EMAs -- TT_EMA_S1 >= 0.98x TT_EMA_S2 >= 0.98x TT_EMA_FAST >= 0.98x
+    TT_EMA_SLOW, else 0. TT_EMA_FAST (30w) is included so a mid-stack hole
+    (e.g. TT_EMA_S2 dipping below TT_EMA_FAST) can't slip through -- the
+    original v4.0 check only compared S1/S2/SLOW and left FAST unconstrained,
+    letting disordered stacks pass Gate A + Gate C despite not being a clean
+    ascending fan. This hard requirement is also Gate C's structural half
+    (see ``GATE_C_STRUCTURE_MIN``).
     """
     if len(df) < 2:
         return 0
@@ -374,12 +385,13 @@ def structure_score(df: pd.DataFrame, rs_rel: Optional[float] = None) -> int:
     close = float(latest["Close"])
     s1 = latest.get("TT_EMA_S1")
     s2 = latest.get("TT_EMA_S2")
+    fast = latest.get("TT_EMA_FAST")
     slow = latest.get("TT_EMA_SLOW")
-    if any(v is None or pd.isna(v) for v in (s1, s2, slow)):
+    if any(v is None or pd.isna(v) for v in (s1, s2, fast, slow)):
         return 0
-    s1, s2, slow = float(s1), float(s2), float(slow)
+    s1, s2, fast, slow = float(s1), float(s2), float(fast), float(slow)
 
-    if not (s1 >= 0.98 * s2 and s2 >= 0.98 * slow):
+    if not (s1 >= 0.98 * s2 and s2 >= 0.98 * fast and fast >= 0.98 * slow):
         return 0
 
     score = 10

@@ -17,10 +17,10 @@ import pandas as pd
 
 try:
     from finance_vibe import config
+    from finance_vibe import coiled_cobra as cc
     from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
     from finance_vibe.coiled_cobra import (
         BENCHMARK,
-        LOOKBACK,
         SPY_BENCHMARK,
         add_macro_indicators,
         evaluate_coiled_cobra,
@@ -32,10 +32,10 @@ except ImportError:  # pragma: no cover
     # Package lives under src/; repo root alone is not enough for `finance_vibe`.
     sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
     from finance_vibe import config
+    from finance_vibe import coiled_cobra as cc
     from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
     from finance_vibe.coiled_cobra import (
         BENCHMARK,
-        LOOKBACK,
         SPY_BENCHMARK,
         add_macro_indicators,
         evaluate_coiled_cobra,
@@ -52,7 +52,7 @@ def detect_cobra_setup_at_bar(
     spy_df=None,
 ) -> Optional[dict]:
     """Evaluate the latest bar in a history window for a Coiled Cobra coil setup."""
-    if len(df) < LOOKBACK // 2 + 15:
+    if len(df) < cc.LOOKBACK // 2 + 15:
         return None
 
     window = df.copy()
@@ -111,6 +111,11 @@ def detect_cobra_setup_at_bar(
 
 def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd.DataFrame:
     """Scan historical raw CSVs to produce a Coiled Cobra signal archive."""
+    # Calibrate coiled_cobra's mode-derived globals from the explicit `mode`
+    # param rather than relying on sys.argv[1] matching this script's own
+    # positional CLI arg (fragile if these functions are ever called
+    # programmatically with a different mode).
+    cc.apply_timeframe(mode)
     mode_cfg = config.get_mode_config(mode)
     raw_dir = mode_cfg["raw_dir"]
     logs_dir = mode_cfg["logs_dir"]
@@ -189,7 +194,7 @@ def backtest_ticker(
         "errors": 0,
     }
 
-    min_bars = LOOKBACK // 2 + 15
+    min_bars = cc.LOOKBACK // 2 + 15
     for idx in range(min_bars, len(df) - 1):
         window = df.iloc[: idx + 1]
         setup_row = detect_cobra_setup_at_bar(
@@ -288,8 +293,15 @@ _WORKER_SPY_DF = None
 
 
 def _init_cobra_worker(mode: str) -> None:
-    """Load benchmark OHLC once per worker process."""
+    """Load benchmark OHLC once per worker process.
+
+    Also explicitly (re-)calibrates coiled_cobra's mode-derived globals in
+    this worker process -- required under the ``spawn`` start method, where
+    the worker re-imports the module fresh instead of inheriting the parent's
+    already-calibrated state via fork's copy-on-write memory.
+    """
     global _WORKER_BENCHMARK_DF, _WORKER_SPY_DF
+    cc.apply_timeframe(mode)
     _WORKER_BENCHMARK_DF = load_benchmark_frame(BENCHMARK, mode)
     _WORKER_SPY_DF = load_benchmark_frame(SPY_BENCHMARK, mode)
 
@@ -304,7 +316,7 @@ def _backfill_ticker_worker(path: str) -> tuple[str, list[dict]]:
         return symbol, []
 
     rows: list[dict] = []
-    min_bars = LOOKBACK // 2 + 15
+    min_bars = cc.LOOKBACK // 2 + 15
     try:
         for idx in range(min_bars, len(df)):
             setup = detect_cobra_setup_at_bar(
@@ -351,6 +363,7 @@ def run_backtest(
     max_hold: int = config.BACKTEST_MAX_HOLD_BARS,
 ) -> pd.DataFrame:
     """Run Coiled Cobra backtest across raw CSV files using all CPU cores."""
+    cc.apply_timeframe(mode)
     mode_cfg = config.get_mode_config(mode)
     raw_dir = mode_cfg["raw_dir"]
     logs_dir = mode_cfg["logs_dir"]

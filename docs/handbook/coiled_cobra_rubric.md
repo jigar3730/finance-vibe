@@ -71,12 +71,23 @@ pillars.
 
 ## Gate D — Breadth (`Checks Met`)
 ```
-Checks Met ≥ 5 of 6 scored pillars (see Stage 2)
+Checks Met ≥ 4 of 6 scored pillars (see Stage 2)
 ```
 Previously cosmetic; now load-bearing. A name can score ≥70 on raw points
-but still fail if it's only clearing 3-4 of 6 checks — that pattern
+but still fail if it's only clearing 2-3 of 6 checks — that pattern
 indicates one or two pillars are being carried by outliers rather than
 genuine multi-factor confluence.
+
+> **Recalibrated 2026-09-18** (originally ≥5/6): a 264-ticker, 10-year
+> weekly walk-forward backtest compared signals passing Gates A-D against
+> signals passing only A-C. The ≥5/6 cutoff showed no measurable win-rate or
+> expectancy edge over ≥4/6 (37.8% / +0.145R vs 37.5% / +0.132R on the
+> blocked increment — overlapping confidence intervals) while discarding
+> ~65% of otherwise equal-or-better `B/Watchlist`-tier signal volume, where
+> the blocked increment actually outperformed (+0.121R vs +0.087R). The
+> `A/Actionable` tier — the strongest cohort by far — was unaffected by the
+> threshold either way. See `gate_d_ablation_trades.csv` backtest run for
+> detail.
 
 ---
 
@@ -234,7 +245,7 @@ philosophy as v3.1, this pillar is about timing, not candidate quality.
 
 # Stage 3 — Output Tiering (new)
 
-All gate-passing, score ≥70, Checks Met ≥5/6 rows split into two tiers on
+All gate-passing, score ≥70, Checks Met ≥4/6 rows split into two tiers on
 the CSV:
 
 | Tier | Condition |

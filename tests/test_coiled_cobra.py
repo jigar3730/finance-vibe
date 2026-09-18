@@ -40,14 +40,17 @@ def _ohlc(n=220, *, start=100.0, drift=0.3, noise=0.5, seed=0):
     })
 
 
-def _aligned_structure_frame(*, close=102.0, s2=100.0, slow=None):
+def _aligned_structure_frame(*, close=102.0, s2=100.0, fast=None, slow=None):
     """Three-bar frame with a full TT_EMA stack; extension set by close/slow."""
     if slow is None:
         slow = s2 - 1.0
+    if fast is None:
+        fast = slow + (s2 - slow) * 0.5
     return pd.DataFrame({
         "Close": [s2, s2, close],
         "TT_EMA_S1": [s2 + 1.0, s2 + 1.0, s2 + 1.0],
         "TT_EMA_S2": [s2, s2, s2],
+        "TT_EMA_FAST": [fast, fast, fast],
         "TT_EMA_SLOW": [slow, slow, slow],
     })
 
@@ -89,9 +92,16 @@ def test_structure_score_requires_stack_and_tightens_extension():
         "Close": [100.0, 100.0, 100.0],
         "TT_EMA_S1": [90.0, 90.0, 90.0],
         "TT_EMA_S2": [100.0, 100.0, 100.0],
+        "TT_EMA_FAST": [97.0, 97.0, 97.0],
         "TT_EMA_SLOW": [95.0, 95.0, 95.0],
     })
     assert structure_score(broken) == 0
+
+    # Hole mid-stack: S1/S2/SLOW alone look aligned, but TT_EMA_FAST dips
+    # below TT_EMA_SLOW -- not a clean ascending fan. Must hard-fail even
+    # though the old (pre-fix) S1/S2/SLOW-only check would have passed this.
+    hole_in_stack = _aligned_structure_frame(close=110.0, s2=105.0, fast=95.0, slow=100.0)
+    assert structure_score(hole_in_stack) == 0
 
     # 25% extension above TT_EMA_SLOW -> partial deduction (v4.0's soft-ext
     # floor is tightened to 20%, vs v3.1's 25%).
@@ -258,8 +268,33 @@ def test_evaluate_rejects_gate_c_when_structure_fails_independently(monkeypatch)
 
 
 def test_evaluate_rejects_gate_d_breadth_despite_high_score(monkeypatch):
-    """Score >=70 concentrated in few pillars, but fewer than 5/6 individually
-    clear their own check threshold -> Gate D rejects."""
+    """Score >=70 concentrated in few pillars, but fewer than MIN_CHECKS_MET
+    (4/6, recalibrated 2026-09-18 from 5/6 -- see coiled_cobra_rubric.md)
+    individually clear their own check threshold -> Gate D rejects."""
+    from finance_vibe import coiled_cobra as cc
+
+    df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
+    monkeypatch.setattr(cc, "evaluate_volume_profile_shelf", lambda *a, **k: 5)   # below 8, doesn't count
+    monkeypatch.setattr(cc, "vol_contraction_score", lambda *a, **k: (25, 5.0))  # counts
+    monkeypatch.setattr(cc, "structure_score", lambda *a, **k: 20)               # counts
+    monkeypatch.setattr(cc, "relative_strength_score", lambda *a, **k: (20, 0.18))  # counts
+    monkeypatch.setattr(cc, "overhead_clearance_score", lambda *a, **k: 2.0)     # below 5, doesn't count
+    monkeypatch.setattr(cc, "rvol_trigger_score", lambda *a, **k: (0, 0.5))      # below 6, doesn't count
+    monkeypatch.setattr(cc, "check_coiled_cobra_market_gate", lambda **k: True)
+
+    rejected = evaluate_coiled_cobra(df, benchmark_df=None, include_rejects=True)
+    assert rejected["Checks Met"] == "3/6"
+    assert rejected["Score"] >= 70
+    assert "D" in rejected["Grade"]
+    assert evaluate_coiled_cobra(df, benchmark_df=None) is None
+
+
+def test_evaluate_passes_gate_d_at_four_of_six_checks(monkeypatch):
+    """4/6 checks now clears Gate D (recalibrated from the original 5/6 --
+    a 264-ticker/10y walk-forward backtest showed >=5/6 had no measurable
+    expectancy edge over >=4/6 and discarded ~65% of equal-or-better
+    B/Watchlist-tier signal volume). Same pillar mix as the rejection test
+    above, but with overhead_clearance also clearing its own threshold."""
     from finance_vibe import coiled_cobra as cc
 
     df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
@@ -271,11 +306,11 @@ def test_evaluate_rejects_gate_d_breadth_despite_high_score(monkeypatch):
     monkeypatch.setattr(cc, "rvol_trigger_score", lambda *a, **k: (0, 0.5))      # below 6, doesn't count
     monkeypatch.setattr(cc, "check_coiled_cobra_market_gate", lambda **k: True)
 
-    rejected = evaluate_coiled_cobra(df, benchmark_df=None, include_rejects=True)
-    assert rejected["Checks Met"] == "4/6"
-    assert rejected["Score"] >= 70
-    assert "D" in rejected["Grade"]
-    assert evaluate_coiled_cobra(df, benchmark_df=None) is None
+    passed = evaluate_coiled_cobra(df, benchmark_df=None, include_rejects=True)
+    assert passed["Checks Met"] == "4/6"
+    assert passed["Score"] >= 70
+    assert "D" not in passed["Grade"]
+    assert evaluate_coiled_cobra(df, benchmark_df=None) is not None
 
 
 def test_evaluate_watchlist_when_no_breakout_or_rvol(monkeypatch):
