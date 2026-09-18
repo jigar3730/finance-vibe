@@ -215,6 +215,15 @@ def test_rubric_version_is_stamped_on_backtest_and_backfill_csvs(tmp_path, monke
         assert config.RUBRIC_VERSION_COL in pd.read_csv(f).columns
 
 
+def test_rubric_version_is_read_as_text_not_float(tmp_path):
+    # pandas would turn "4.10" into 4.1 (and "4.0" into 4.0); versions are labels.
+    csv = _trades_csv(tmp_path / "t.csv", n_weeks=10, rubric_version="4.10")
+    df = trn._load_and_prepare(csv)
+    assert set(df[config.RUBRIC_VERSION_COL]) == {"4.10"}
+    with pytest.raises(ValueError, match="4.10"):
+        trn._validate_rubric_version(df, csv)
+
+
 def test_validate_rubric_version_accepts_live_version(tmp_path):
     df = pd.DataFrame({config.RUBRIC_VERSION_COL: [config.RUBRIC_VERSION] * 3})
     assert trn._validate_rubric_version(df, tmp_path / "t.csv") == config.RUBRIC_VERSION

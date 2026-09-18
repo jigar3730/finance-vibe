@@ -187,7 +187,8 @@ def _validate_rubric_version(
 
 def _load_and_prepare(csv_path: Path) -> pd.DataFrame:
     """Load CSV, drop leakage cols, keep no_fill rows, drop NaN targets."""
-    df = pd.read_csv(csv_path)
+    # Read the version as text: pandas would parse "4.0" as 4.0 and "4.10" as 4.1.
+    df = pd.read_csv(csv_path, dtype={config.RUBRIC_VERSION_COL: str})
     print(f"Loaded source: {csv_path}")
     print(f"Raw shape: {df.shape[0]} rows x {df.shape[1]} cols")
 
@@ -428,6 +429,36 @@ def _save_model_metadata(
     print(f"\n[SAVED] ML metadata summary: {metadata_path}")
 
 
+def make_xgb() -> XGBRegressor:
+    """The deployed XGB configuration (shared with the walk-forward harness)."""
+    return XGBRegressor(
+        max_depth=MODEL_PARAMS["max_depth"],
+        learning_rate=MODEL_PARAMS["learning_rate"],
+        n_estimators=MODEL_PARAMS["n_estimators"],
+        subsample=MODEL_PARAMS["subsample"],
+        colsample_bytree=MODEL_PARAMS["colsample_bytree"],
+        objective="reg:absoluteerror",
+        tree_method="hist",
+        n_jobs=-1,
+        random_state=42,
+    )
+
+
+def make_lgb() -> LGBMRegressor:
+    """The deployed LGB configuration (shared with the walk-forward harness)."""
+    return LGBMRegressor(
+        max_depth=MODEL_PARAMS["max_depth"],
+        learning_rate=MODEL_PARAMS["learning_rate"],
+        n_estimators=MODEL_PARAMS["n_estimators"],
+        subsample=MODEL_PARAMS["subsample"],
+        colsample_bytree=MODEL_PARAMS["colsample_bytree"],
+        objective="regression_l1",
+        n_jobs=-1,
+        random_state=42,
+        verbose=-1,
+    )
+
+
 def _train_and_report(parts: dict, art_dir: Path, labels: dict, context: dict) -> None:
     X_train, y_train, w_train = parts["train"]["X"], parts["train"]["y"], parts["train"]["w"]
     X_val, y_val = parts["val"]["X"], parts["val"]["y"]
@@ -440,17 +471,7 @@ def _train_and_report(parts: dict, art_dir: Path, labels: dict, context: dict) -
     print(f"  Features: {list(X_train.columns)}")
 
     print("\n=== Training XGBRegressor (reg:absoluteerror) ===")
-    xgb = XGBRegressor(
-        max_depth=MODEL_PARAMS["max_depth"],
-        learning_rate=MODEL_PARAMS["learning_rate"],
-        n_estimators=MODEL_PARAMS["n_estimators"],
-        subsample=MODEL_PARAMS["subsample"],
-        colsample_bytree=MODEL_PARAMS["colsample_bytree"],
-        objective="reg:absoluteerror",
-        tree_method="hist",
-        n_jobs=-1,
-        random_state=42,
-    )
+    xgb = make_xgb()
     xgb.fit(X_train, y_train, sample_weight=w_train)
 
     print("XGBoost validation / OOS scores:")
@@ -458,17 +479,7 @@ def _train_and_report(parts: dict, art_dir: Path, labels: dict, context: dict) -
     xgb_test_metrics = _evaluate(xgb, X_test, y_test, f"Test OOS ({labels['test']})")
 
     print("\n=== Training LGBMRegressor (regression_l1 / MAE) ===")
-    lgb = LGBMRegressor(
-        max_depth=MODEL_PARAMS["max_depth"],
-        learning_rate=MODEL_PARAMS["learning_rate"],
-        n_estimators=MODEL_PARAMS["n_estimators"],
-        subsample=MODEL_PARAMS["subsample"],
-        colsample_bytree=MODEL_PARAMS["colsample_bytree"],
-        objective="regression_l1",
-        n_jobs=-1,
-        random_state=42,
-        verbose=-1,
-    )
+    lgb = make_lgb()
     lgb.fit(X_train, y_train, sample_weight=w_train)
 
     print("LightGBM validation / OOS scores:")

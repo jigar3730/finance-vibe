@@ -278,6 +278,23 @@ Importance ranks can shift run-to-run with library versions; treat charts as dia
 
 ---
 
+## Walk-forward evaluation (`coiled_cobra_ml_walkforward.py`)
+
+Read-only research harness (never writes served artifacts). Expanding-window folds of 26-week out-of-sample windows walking back from the last signal date; each fold trains the **deployed** config (`make_xgb` / `make_lgb`, ATR weights, mean ensemble) on rows dated before `test_start − 2w embargo`. It compares the ML ranking with raw `Score` per `Signal Date` (the live use is ranking one scan's setups against each other):
+
+- Spearman **rank IC** vs `Forward_Return_2w`, and top-tercile − bottom-tercile mean return (weeks with ≥ `--min-names` setups), plus pooled per-fold versions.
+- Paired ML − Score differences with t-stats (effective n = weeks / 2, since 2-bar labels overlap) and a 2-week-block bootstrap 95% CI.
+
+```bash
+python -m finance_vibe.coiled_cobra_ml_walkforward [--csv PATH] [--min-names 6] [--out report.json]
+```
+
+**Gate for using ML in `Priority`:** the paired IC-difference CI should exclude 0 in ML's favour. Score-only ranking is the baseline to beat.
+
+**First result (v4.0 backfill 2026-09-18, 2,284 rows, 8 folds, 2022-09 → 2026-08):** mean weekly rank IC ML +0.011 vs Score +0.053 (neither significant); paired difference −0.042, CI [−0.160, +0.073]; ML MAE 0.0598 vs 0.0586 for predicting the train median. Same conclusion at `--min-names` 4 and 10. Power is limited (≈104 usable weeks ⇒ only IC ≳ 0.11 is detectable), so read this as *no evidence of edge*, not *proof of none*.
+
+---
+
 ## How to use the trained models for decisions
 
 The exported models are intended to be a soft decision aid, not a stand-alone trading system.
