@@ -495,3 +495,45 @@ PY
 | `coiled_cobra_ml_training.py` | XGBoost/LightGBM baseline on `Forward_Return_2w` |
 | `tests/test_pipeline_backtest.py` | Scale-out, gap, slippage, long-only, cooldown contracts |
 | `tests/test_coiled_cobra_backtest.py` | Cobra planner + backtest smoke tests |
+
+---
+
+## Leader-Expansion vs Coiled Cobra experiment (research only)
+
+`coiled_cobra_leader_experiment.py` is a pre-registered walk-forward comparison that never
+touches the live scanner or its thresholds. Motivation: a review of tickers with monster runs
+(PLTR, HOOD, ASTS, MU, MRVL, COIN, MSTR, STX, ...) showed the coil rubric mostly missed them --
+`vol_contraction` scored 0 through most of those runs (Gates C/D fail) and several runs began
+before the 160-bar history floor. The experiment asks whether a separate **leader** rule (Gate A
++ Gate B + strong RS, no coil requirement) catches them without giving back edge, and whether
+simply loosening the existing gates (`R1_relaxed_gates`) does better.
+
+```bash
+docker exec -it finance_vibe bash
+cd /app && export PYTHONPATH=/app/src
+python -m finance_vibe.coiled_cobra_leader_experiment                     # whole raw dir (~20 min on 4 cores)
+python -m finance_vibe.coiled_cobra_leader_experiment --tickers MU,MSTR --out-dir /tmp/lx   # smoke test
+python -m finance_vibe.coiled_cobra_leader_experiment --from-bars <bars.csv.gz> --runs <runs.csv>   # re-analyse
+```
+
+Outputs (in `data/logs/weekly/`, or `--out-dir`): `leader_experiment_bars_<date>.csv.gz` (every
+scoreable bar with its gate profile, variant flags, forward stats and both exit outcomes),
+`leader_experiment_runs_<date>.csv` (monster runs), `leader_experiment_<date>.json` (analysis).
+Names deliberately avoid `coiled_cobra_backtest_trades_*`, which the ML training script globs.
+
+Protocol (fixed in the module docstring and constants before results were read):
+
+| Element | Definition |
+| ------- | ---------- |
+| Variants | `B0_baseline` (deployed rubric), `R1_relaxed_gates` (Gate A close>slow EMA & rising, Gate C structure-only, score >= 60), `L1`-`L4` leader rules, `C0_random` control |
+| Discovery vs holdout | The tickers the leader rules were derived from are reported but **never** used for qualification; decisions use the rest of the universe |
+| Episodes | Consecutive weekly flags per ticker collapse to one entry (first bar) |
+| Exits | `planner` = deployed Fib-78.6% entry, 2R/3R via `calculate_stock_levels` + `simulate_trade`; `trail` = next-open entry, 2.5 ATR stop, 3 ATR chandelier off the highest close, 52-bar time exit. **Primary outcome = trail R** |
+| Periods | `dev` -> `lockbox` (52 wks ending 52 wks before the last bar) -> `live` (censored, reported only) |
+| Qualification | Q0 >= 100 episodes; Q1 week-cluster bootstrap CI of mean trail-R > 0; Q2 monster capture (>= 100% still left) >= baseline + 15 pts; Q3 share with a >= 25% drawdown inside 26 wks <= baseline + 10 pts; Q4 paired mean-R difference vs `C0_random` CI > 0 |
+| Lockbox | The single best qualifier is evaluated **once**; pass = mean R > 0 and cluster t > 1.645. If nothing qualifies it stays unspent |
+
+`C0_random` is the bar to beat, not a "no edge" check: long-only entries in a rising market with
+a trailing exit earn positive R by themselves, so a variant only counts if it beats the control.
+Tests: `tests/test_leader_experiment.py`.
+
