@@ -214,6 +214,22 @@ table.table tr:hover {
     font-family: var(--finviz-font-mono);
 }
 
+/* Breakout view: live price vs. last close (close > live = red, close < live = green) */
+.live-price-cell.live-above-close {
+    color: var(--finviz-green);
+    background-color: rgba(8, 153, 129, 0.1);
+}
+
+.live-price-cell.live-flat {
+    color: var(--finviz-text-muted);
+    background-color: transparent;
+}
+
+.live-price-cell.live-below-close {
+    color: var(--finviz-red);
+    background-color: rgba(242, 54, 69, 0.1);
+}
+
 .meta { color: var(--finviz-text-muted); margin-bottom: 20px; font-size: 0.95em; }
 .back { display: inline-block; margin-bottom: 20px; color: var(--link); text-decoration: none; font-weight: 500; }
 

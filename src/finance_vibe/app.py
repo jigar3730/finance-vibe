@@ -177,6 +177,18 @@ def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
         print(f"Error fetching live prices: {e}")
         return {sym: "N/A" for sym in symbols}
 
+def _live_price_cell(live: float | str | None, close: float) -> str:
+    """HTML cell for a live price: red if the close is above it, green if below, else neutral."""
+    if not isinstance(live, (int, float)) or pd.isna(live):
+        return '<span class="live-price-cell live-flat">N/A</span>'
+    css = "live-flat"
+    if pd.notna(close):
+        if close > live:
+            css = "live-below-close"
+        elif close < live:
+            css = "live-above-close"
+    return f'<span class="live-price-cell {css}">${live:.2f}</span>'
+
 @app.route("/")
 def index() -> str:
     """Render the dashboard index of available weekly and daily runs."""
@@ -297,6 +309,20 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
                 sort_cols,
                 ascending=[c == "Symbol" for c in sort_cols],
             )
+
+        # Live price next to Close, coloured by live vs. close (only visible rows are quoted).
+        if "Symbol" in table_df.columns and "Close" in table_df.columns:
+            symbols = [str(x).strip().upper() for x in table_df["Symbol"].dropna().unique()]
+            live_price_map = _fetch_live_prices(symbols)
+            closes = pd.to_numeric(table_df["Close"], errors="coerce")
+            table_df["Live Price"] = [
+                _live_price_cell(live_price_map.get(str(sym).strip().upper()), close)
+                if pd.notna(sym) else ""
+                for sym, close in zip(table_df["Symbol"], closes)
+            ]
+            cols = list(table_df.columns)
+            cols.insert(cols.index("Close") + 1, cols.pop(cols.index("Live Price")))
+            table_df = table_df[cols]
 
         # Finviz quote links on the Symbol column (matches trade-plan view).
         if "Symbol" in table_df.columns:

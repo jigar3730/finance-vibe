@@ -20,15 +20,22 @@ def _write_scan(folder, date_str):
     folder.mkdir(parents=True, exist_ok=True)
     df = pd.DataFrame(
         [
-            {"Symbol": "AAA", "Status": "PRE_BREAKOUT", "Breakout Readiness": 83},
-            {"Symbol": "BBB", "Status": "WATCH", "Breakout Readiness": 72},
-            {"Symbol": "CCC", "Status": "WATCH", "Breakout Readiness": 60},
-            {"Symbol": "DDD", "Status": "FAILED_BREAKOUT", "Breakout Readiness": 25},
+            {"Symbol": "AAA", "Status": "PRE_BREAKOUT", "Close": 100.0, "Breakout Readiness": 83},
+            {"Symbol": "BBB", "Status": "WATCH", "Close": 50.0, "Breakout Readiness": 72},
+            {"Symbol": "CCC", "Status": "WATCH", "Close": 20.0, "Breakout Readiness": 60},
+            {"Symbol": "DDD", "Status": "FAILED_BREAKOUT", "Close": 10.0, "Breakout Readiness": 25},
         ]
     )
     path = folder / f"breakout_setups_{date_str}.csv"
     df.to_csv(path, index=False)
     return path
+
+
+@pytest.fixture(autouse=True)
+def fake_live_prices(monkeypatch):
+    """Avoid network: AAA live below close, BBB above close, CCC equal, DDD unavailable."""
+    prices = {"AAA": 95.0, "BBB": 55.5, "CCC": 20.0, "DDD": "N/A"}
+    monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {s: prices[s] for s in syms})
 
 
 @pytest.fixture
@@ -88,3 +95,15 @@ def test_breakout_view_unknown_mode_404(client, breakout_logs):
 
 def test_breakout_view_missing_file_404(client, breakout_logs):
     assert client.get("/breakout/daily/1999-01-01").status_code == 404
+
+
+def test_breakout_view_live_price_next_to_close(client, breakout_logs):
+    body = client.get("/breakout/daily/2026-09-04").get_data(as_text=True)
+    header = body.split("<thead>")[1].split("</thead>")[0]
+    ths = [h.split("<")[0].strip() for h in header.split("<th>")[1:]]
+    assert ths.index("Live Price") == ths.index("Close") + 1
+    # close > live -> red; close < live -> green; equal / N/A -> neutral.
+    assert 'live-price-cell live-below-close">$95.00' in body
+    assert 'live-price-cell live-above-close">$55.50' in body
+    assert 'live-price-cell live-flat">$20.00' in body
+    assert 'live-price-cell live-flat">N/A' in body
