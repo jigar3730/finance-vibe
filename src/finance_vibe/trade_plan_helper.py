@@ -65,12 +65,17 @@ CLEAN_EXPORT_COLUMNS = [
 ]
 
 
-def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -> tuple[Path, Path]:
+def resolve_trade_plan_path(
+    mode: str = "weekly", *, today: str | None = None, strict: bool = False
+) -> tuple[Path, Path]:
     """Locate a trade plan CSV under data/logs/{mode}/ or legacy flat dirs.
 
     Prefers ``trade_plan_{today}.csv`` (the planner always writes that stamp).
     If it is missing — e.g. a helper-only rerun — fall back to the latest dated
     ``trade_plan_<date>.csv`` (excluding the ``_clean`` variant).
+
+    ``strict=True`` (used for ``--as-of`` replays) disables that fallback: a
+    historical run must never silently process a different week's plan.
     """
     today_str = today or datetime.now().strftime("%Y-%m-%d")
     filename = f"trade_plan_{today_str}.csv"
@@ -91,6 +96,12 @@ def resolve_trade_plan_path(mode: str = "weekly", *, today: str | None = None) -
         check_path = p_dir / filename
         if check_path.exists():
             return p_dir, check_path
+
+    if strict:
+        raise FileNotFoundError(
+            f"{filename} not found (mode={mode}); an --as-of run needs that exact plan, "
+            f"run the planner for the same date first"
+        )
 
     # Fallback: newest dated trade plan in the first directory that has one.
     for p_dir in possible_dirs:
@@ -236,10 +247,15 @@ def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def process_trade_plan(mode: str = "weekly", *, today: str | None = None) -> Path:
-    """Load trade plan, compute R:R, apply guardrails, rank by EV. Returns output path."""
+def process_trade_plan(
+    mode: str = "weekly", *, today: str | None = None, strict: bool = False
+) -> Path:
+    """Load trade plan, compute R:R, apply guardrails, rank by EV. Returns output path.
+
+    ``strict`` requires the plan for exactly ``today`` (see ``resolve_trade_plan_path``).
+    """
     today_str = today or datetime.now().strftime("%Y-%m-%d")
-    trade_plan_dir, scanner_csv = resolve_trade_plan_path(mode, today=today_str)
+    trade_plan_dir, scanner_csv = resolve_trade_plan_path(mode, today=today_str, strict=strict)
     print(f"🎯 Target trade plan file located: {scanner_csv}")
 
     # Couple the cleaned-file date to the plan we actually resolved (may be a
@@ -359,7 +375,12 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0].lower() in ("weekly", "daily", "high_beta"):
         mode = argv[0].lower()
     try:
-        process_trade_plan(mode)
+        as_of = config.parse_as_of(argv)
+    except ValueError as exc:
+        print(f"❌ {exc}")
+        return 2
+    try:
+        process_trade_plan(mode, today=as_of, strict=as_of is not None)
     except FileNotFoundError as exc:
         print(f"❌ {exc}")
         return 1

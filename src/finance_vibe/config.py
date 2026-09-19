@@ -6,6 +6,8 @@ download parameters for ``weekly`` or ``daily`` pipeline runs.
 from __future__ import annotations
 
 import os
+import sys
+from datetime import date, datetime
 
 import pandas as pd
 
@@ -251,6 +253,68 @@ def get_log_dir(mode: str = "weekly") -> str:
     d = os.path.join(PROJECT_ROOT, "data", "logs", profile)
     os.makedirs(d, exist_ok=True)
     return d
+
+
+# =====================================================================
+# HISTORICAL "AS-OF" RUNS
+# =====================================================================
+# ``--as-of YYYY-MM-DD`` re-runs a scan as if it were that date: every bar not
+# yet complete on that date is dropped, and outputs are stamped with the as-of
+# date instead of today's. CLI only -- deliberately no environment fallback, so
+# a stray variable can never turn a live scan into a historical one.
+
+def parse_as_of(argv: list[str] | None = None) -> str | None:
+    """Return the ``--as-of`` date (ISO ``YYYY-MM-DD``) from ``argv``, or None.
+
+    Accepts ``--as-of DATE`` and ``--as-of=DATE``. Raises ``ValueError`` for a
+    missing value, a malformed date, or a date in the future.
+    """
+    args = sys.argv[1:] if argv is None else argv
+    raw: str | None = None
+    for i, arg in enumerate(args):
+        if arg == "--as-of":
+            if i + 1 >= len(args):
+                raise ValueError("--as-of requires a date (YYYY-MM-DD)")
+            raw = args[i + 1]
+        elif arg.startswith("--as-of="):
+            raw = arg.split("=", 1)[1]
+    if raw is None:
+        return None
+    try:
+        parsed = date.fromisoformat(raw.strip())
+    except ValueError:
+        raise ValueError(f"--as-of must be a date like 2025-11-07, got {raw!r}") from None
+    if parsed > date.today():
+        raise ValueError(f"--as-of {parsed.isoformat()} is in the future")
+    return parsed.isoformat()
+
+
+def run_stamp(as_of: str | None = None) -> str:
+    """Date stamp for output filenames: the as-of date, else today."""
+    return as_of or datetime.now().strftime("%Y-%m-%d")
+
+
+def cut_to_as_of(df: pd.DataFrame, as_of: str | None, *, weekly: bool) -> pd.DataFrame:
+    """Keep only bars that are complete on ``as_of`` (no lookahead).
+
+    A weekly bar is dated at the start of its week (Monday) but holds the whole
+    week's OHLCV, so it only counts once that week's Friday is on or before
+    ``as_of`` -- otherwise a mid-week as-of date would see the rest of the
+    week. A daily bar counts on its own date (scans are assumed to run after
+    the close). ``as_of=None`` returns ``df`` unchanged.
+    """
+    if as_of is None:
+        return df
+    col = next((c for c in df.columns if str(c).strip().lower() in ("date", "datetime")), None)
+    if col is None:
+        # Never fall through with uncut data on a historical run.
+        raise ValueError("cannot apply --as-of: frame has no Date column")
+    dates = pd.to_datetime(df[col], utc=True, errors="coerce").dt.tz_localize(None).dt.normalize()
+    if weekly:
+        ends = dates - pd.to_timedelta(dates.dt.weekday, unit="D") + pd.Timedelta(days=4)
+    else:
+        ends = dates
+    return df.loc[ends <= pd.Timestamp(as_of)].reset_index(drop=True)
 
 
 # =====================================================================

@@ -201,7 +201,7 @@ def generate_trade_plan(
     as_of: str | None = None,
 ) -> pd.DataFrame | None:
     """Build and export a trade plan CSV from today's (or provided) scanner output."""
-    today = as_of or datetime.now().strftime("%Y-%m-%d")
+    today = config.run_stamp(as_of)
     print(f"--- STEP 5: Ranking Coiled Cobra Signals [{mode.upper()} MODE] ---")
     print(f"As-of date: {today}")
 
@@ -296,4 +296,4 @@ def generate_trade_plan(
 
 # --------- USAGE ----------
 if __name__ == "__main__":
-    generate_trade_plan()
+    generate_trade_plan(as_of=config.parse_as_of())

@@ -517,10 +517,15 @@ def sentiment_action(score: int) -> tuple[str, str]:
 _SCORE_INPUTS = ["Close", "SMA20", "SMA50", "RSI", "RSI_S", "CCI", "CCI_S", "MACD_H", "MACD_S"]
 
 
-def scan_one_file(path: str) -> ScanRow:
-    """Score one raw CSV and return a ``ScanRow`` (raises if history is too short)."""
+def scan_one_file(path: str, as_of: Optional[str] = None, weekly: bool = True) -> ScanRow:
+    """Score one raw CSV and return a ``ScanRow`` (raises if history is too short).
+
+    ``as_of`` (YYYY-MM-DD) drops bars not yet complete on that date.
+    """
     ticker = ticker_from_filename(path)
     df = load_ohlc_csv(path)
+    if as_of:
+        df = config.cut_to_as_of(df, as_of, weekly=weekly)
     if len(df) < MIN_ROWS:
         raise ValueError(f"not enough rows: {len(df)}")
 
@@ -550,13 +555,23 @@ def scan_one_file(path: str) -> ScanRow:
     )
 
 
-def run_scan(mode: str = "weekly", max_workers: Optional[int] = None) -> pd.DataFrame:
-    """Scan all raw CSVs for a mode and write the ranked vibe report."""
+def run_scan(
+    mode: str = "weekly",
+    max_workers: Optional[int] = None,
+    as_of: Optional[str] = None,
+) -> pd.DataFrame:
+    """Scan all raw CSVs for a mode and write the ranked vibe report.
+
+    ``as_of`` (YYYY-MM-DD) replays a past date and stamps the report with it.
+    """
     mode_cfg = config.get_mode_config(mode)
+    weekly_bars = mode_cfg["interval"] == "1wk"
     raw_dir = mode_cfg["raw_dir"]
     logs_dir = mode_cfg["logs_dir"]
 
     print(f"--- STEP 3: Macro Vibe Score Scan [{mode.upper()} MODE] ---")
+    if as_of:
+        print(f"AS-OF replay: {as_of} (bars completed on/before this date only)")
 
     paths = list(iter_raw_csv_paths(raw_dir))
     if not paths:
@@ -566,7 +581,7 @@ def run_scan(mode: str = "weekly", max_workers: Optional[int] = None) -> pd.Data
     results: list[ScanRow] = []
     errors = 0
     with ProcessPoolExecutor(max_workers=max_workers) as ex:
-        futures = {ex.submit(scan_one_file, p): p for p in paths}
+        futures = {ex.submit(scan_one_file, p, as_of, weekly_bars): p for p in paths}
         for fut in as_completed(futures):
             try:
                 results.append(fut.result())
@@ -584,7 +599,7 @@ def run_scan(mode: str = "weekly", max_workers: Optional[int] = None) -> pd.Data
 
     out = out.sort_values(["Score", "Ticker"], ascending=[
                           False, True]).reset_index(drop=True)
-    stamp = datetime.now().strftime("%Y-%m-%d")
+    stamp = config.run_stamp(as_of)
     out_path = os.path.join(logs_dir, f"vibe_report_{stamp}.csv")
     out.to_csv(out_path, index=False)
 
@@ -597,4 +612,4 @@ if __name__ == "__main__":
     cli_mode = config.DEFAULT_MODE
     if len(sys.argv) > 1 and sys.argv[1].lower() in config.TIMEFRAME_PROFILES:
         cli_mode = sys.argv[1].lower()
-    run_scan(mode=cli_mode)
+    run_scan(mode=cli_mode, as_of=config.parse_as_of())

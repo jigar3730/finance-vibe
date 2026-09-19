@@ -754,8 +754,17 @@ def evaluate_as_of(
 # =========================
 
 
-def run_scanner():
+def run_scanner(as_of: str | None = None):
+    """Scan the active universe; ``as_of`` (YYYY-MM-DD) replays a past date.
+
+    With ``as_of`` every bar not complete on that date is dropped (ticker and
+    benchmark frames alike), the archive is stamped with ``as_of``, and ML
+    ranking is skipped (a model trained later would leak the future).
+    """
     logger.info(f"--- STEP 5: Scanning Coil Setups [{mode.upper()} MODE] ---")
+    weekly_bars = not _is_daily_bars
+    if as_of:
+        logger.info(f"AS-OF replay: {as_of} (bars completed on/before this date only)")
 
     if not os.path.exists(ACTIVE_TICKERS_PATH):
         logger.error(f"Missing active tickers inventory file at {ACTIVE_TICKERS_PATH}")
@@ -775,6 +784,9 @@ def run_scanner():
     # signal profile -- high_beta reads the same daily QQQ/SPY as `daily`.
     qqq_df = load_benchmark_frame(BENCHMARK, _data_mode)
     spy_df = load_benchmark_frame(SPY_BENCHMARK, _data_mode)
+    if as_of:
+        qqq_df = config.cut_to_as_of(qqq_df, as_of, weekly=weekly_bars) if qqq_df is not None else None
+        spy_df = config.cut_to_as_of(spy_df, as_of, weekly=weekly_bars) if spy_df is not None else None
     if qqq_df is None:
         logger.warning(
             f"Benchmark {BENCHMARK} unavailable in {_data_mode} raw data — RS pillar will score 0."
@@ -811,6 +823,9 @@ def run_scanner():
                 rejection_counts.get("missing_columns", 0) + 1
             )
             continue
+
+        if as_of:
+            df = config.cut_to_as_of(df, as_of, weekly=weekly_bars)
 
         if len(df) < min_required_history:
             rejection_counts["insufficient_history"] = (
@@ -885,11 +900,15 @@ def run_scanner():
                 rejection_counts.get("execution_error", 0) + 1
             )
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = config.run_stamp(as_of)
     out_path = os.path.join(LOG_DIR, f"coiled_cobra_setups_{today}.csv")
     df_out = pd.DataFrame(results).reindex(columns=config.SETUP_ROW_COLUMNS)
 
-    if results:
+    if results and as_of:
+        logger.info("ML ranking skipped for an as-of replay; ranking by Score.")
+        df_out = df_out.sort_values(by="Score", ascending=False)
+        print("\n" + df_out.to_markdown(index=False) + "\n")
+    elif results:
         # Attach offline-model ranks (soft signal). Falls back to Score sort
         # when no model artifact is available or features are unusable.
         try:
@@ -923,4 +942,4 @@ def run_scanner():
 # ENTRY
 # =========================
 if __name__ == "__main__":
-    run_scanner()
+    run_scanner(as_of=config.parse_as_of())

@@ -45,7 +45,33 @@ python src/finance_vibe/run_vibe.py
 python src/finance_vibe/run_vibe.py --mode daily
 python src/finance_vibe/run_vibe.py --mode high_beta
 python src/finance_vibe/run_vibe.py --mode daily --reuse-raw
+python src/finance_vibe/run_vibe.py --as-of 2025-11-07
 ```
+
+### Replaying a past week (`--as-of`)
+
+`--as-of YYYY-MM-DD` re-runs steps 3–7 as if it were that date, from the raw data
+already on disk. It implies `--reuse-raw` (nothing is wiped or re-downloaded), passes
+the date to each stage, and stamps every output with it (`trade_plan_2025-11-07.csv`, …),
+so the dashboard shows the replayed week like any other run.
+
+- **No lookahead.** Only bars *complete* on the as-of date are used. Weekly bars are
+  Monday-dated but hold the whole week, so a weekly bar counts only once its Friday is
+  on or before the as-of date: `--as-of 2025-11-07` scans the bar dated `2025-11-03`,
+  while a mid-week date such as `2025-11-05` scans the previous week. Daily bars count
+  on their own date. Benchmarks (QQQ/SPY) are cut the same way.
+- **Strict trade-plan lookup.** The helper does not fall back to the newest plan on an
+  as-of run; it needs the plan for exactly that date.
+- **ML ranking is skipped** (a model trained later would leak the future); ranking is by Score.
+- **Limits.** It uses *today's* `active_tickers.csv` (not the historical universe) and
+  *today's* split/dividend-adjusted prices, so entry/stop/target levels are in adjusted
+  prices, not the quotes seen at the time. Names with under 160 weekly bars as of that
+  date are not scored (the usual history floor).
+- The individual stages accept the same flag, e.g.
+  `python src/finance_vibe/coiled_cobra.py weekly --as-of 2025-11-07`.
+- Verified on the real data: deleting every bar after the as-of date and re-running
+  gives byte-identical scanner, breakout, and trade-plan files (vibe report matches to
+  float noise, ~1e-13). Tests: `tests/test_as_of.py`.
 
 Execution order (`run_vibe.py`):
 

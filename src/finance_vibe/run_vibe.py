@@ -2,9 +2,15 @@
 
 Runs ingestion, macro scoring, tactical scanning, and trade plan generation
 in sequence for a given timeframe profile (weekly or daily).
+
+``--as-of YYYY-MM-DD`` replays a past date from the raw data already on disk
+(implies ``--reuse-raw``): every stage sees only bars completed on that date and
+writes its usual dated files stamped with it, e.g.
+``python src/finance_vibe/run_vibe.py --as-of 2025-11-07``.
 """
 
 import argparse
+from datetime import date
 from pathlib import Path
 import shutil
 import subprocess
@@ -48,6 +54,15 @@ def run_workflow():
             "and yfinance ingest. Scanners still run on the files already on disk."
         ),
     )
+    parser.add_argument(
+        "--as-of",
+        metavar="YYYY-MM-DD",
+        help=(
+            "Replay a past date: scanners see only bars completed on/before it and "
+            "outputs are stamped with it. Implies --reuse-raw (no wipe/re-download). "
+            "Uses today's ticker list and today's split/dividend-adjusted prices."
+        ),
+    )
     args = parser.parse_args()
     mode = args.mode.lower()
 
@@ -62,6 +77,17 @@ def run_workflow():
     # 3. ENVIRONMENT SETUP
     env = os.environ.copy()
     env["PYTHONPATH"] = SRC_DIR + os.pathsep + env.get("PYTHONPATH", "")
+
+    # Validate --as-of once, up front, with the same parser every stage uses.
+    as_of = None
+    if args.as_of:
+        sys.path.insert(0, SRC_DIR)
+        from finance_vibe import config
+        try:
+            as_of = config.parse_as_of(["--as-of", args.as_of])
+        except ValueError as exc:
+            parser.error(str(exc))
+    reuse_raw = args.reuse_raw or as_of is not None
 
     # 4. SCRIPT CONFIGURATION
     # "scope" selects the argument each stage receives:
@@ -83,26 +109,31 @@ def run_workflow():
         },
         {
             "path": "src/finance_vibe/analysis_engine.py",
+            "as_of": True,
             "pass_mode": True,
             "scope": "data",
         },
         {
             "path": "src/finance_vibe/coiled_cobra.py",
+            "as_of": True,
             "pass_mode": True,
             "scope": "profile",
         },
         {
             "path": "src/finance_vibe/breakout_scanner.py",
+            "as_of": True,
             "pass_mode": True,
             "scope": "profile",
         },
         {
             "path": "src/finance_vibe/trade_planner.py",
+            "as_of": True,
             "pass_mode": True,
             "scope": "profile",
         },
         {
             "path": "src/finance_vibe/trade_plan_helper.py",
+            "as_of": True,
             "pass_mode": True,
             "scope": "profile",
         },
@@ -112,6 +143,11 @@ def run_workflow():
     print(f"📍 Project Root: {ROOT_DIR}")
     if mode != data_mode:
         print(f"🧬 Data timeframe: {data_mode} | Swing profile: {mode}")
+    if as_of:
+        print(f"⏪ AS-OF replay: {as_of} (bars completed on/before this date only)")
+        if data_mode == "weekly" and date.fromisoformat(as_of).weekday() != 4:
+            print("   Note: as-of is not a Friday, so the week in progress is excluded.")
+        print("   Uses today's ticker list and split/dividend-adjusted prices; ML ranking is skipped.")
     print()
 
     skip_ingest = {
@@ -120,7 +156,7 @@ def run_workflow():
     }
 
     # Clean the shared raw silo unless the caller wants to reuse existing OHLCV.
-    if args.reuse_raw:
+    if reuse_raw:
         print(f"♻️  Reusing existing raw files in data/raw/{data_mode}/")
         print()
     else:
@@ -130,7 +166,7 @@ def run_workflow():
         if mode in script.get("skip_modes", []):
             print(f"⏭️  Skipping {script['path']} for {mode} mode.\n")
             continue
-        if args.reuse_raw and script["path"] in skip_ingest:
+        if reuse_raw and script["path"] in skip_ingest:
             print(f"⏭️  Skipping {script['path']} (--reuse-raw).\n")
             continue
 
@@ -144,6 +180,8 @@ def run_workflow():
         cmd = [sys.executable, script_path]
         if script["pass_mode"]:
             cmd.append(arg_mode)
+        if as_of and script.get("as_of"):
+            cmd += ["--as-of", as_of]
 
         try:
             subprocess.run(cmd, check=True, env=env, cwd=ROOT_DIR)

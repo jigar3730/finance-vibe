@@ -1198,8 +1198,12 @@ def scan_files(
     raw_dir: str,
     scan_mode: str,
     native_tf: str,
+    as_of: str | None = None,
 ) -> tuple[list[dict], dict[str, int]]:
-    """Walk raw CSVs and return (rows, rejection_counts)."""
+    """Walk raw CSVs and return (rows, rejection_counts).
+
+    ``as_of`` (YYYY-MM-DD) drops every bar not yet complete on that date.
+    """
     engine = FeatureEngine(native_tf)
     scorer = ScoringEngine()
     results: list[dict] = []
@@ -1220,6 +1224,8 @@ def scan_files(
             continue
 
         try:
+            if as_of:
+                raw = config.cut_to_as_of(raw, as_of, weekly=(native_tf == "weekly"))
             features = engine.extract(raw, symbol, scan_mode)
             results.append(scorer.evaluate(features))
         except ValueError as exc:
@@ -1238,9 +1244,15 @@ def scan_files(
     return results, rejection_counts
 
 
-def run_scanner() -> pd.DataFrame:
-    """Scan the active universe and archive feature + state rows."""
+def run_scanner(as_of: str | None = None) -> pd.DataFrame:
+    """Scan the active universe and archive feature + state rows.
+
+    ``as_of`` (YYYY-MM-DD) replays a past date: only bars complete on that date
+    are used and the archive is stamped with it.
+    """
     native_tf = _native_timeframe(_data_mode)
+    if as_of:
+        logger.info("AS-OF replay: %s (bars completed on/before this date only)", as_of)
     logger.info(
         "--- Breakout Readiness Scan [%s MODE | native=%s] ---",
         mode.upper(),
@@ -1262,10 +1274,10 @@ def run_scanner() -> pd.DataFrame:
     logger.info("Found %s raw data files in target silo", len(raw_files))
 
     results, rejection_counts = scan_files(
-        raw_files, active_tickers, RAW_DATA_DIR, mode, native_tf,
+        raw_files, active_tickers, RAW_DATA_DIR, mode, native_tf, as_of=as_of,
     )
 
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = config.run_stamp(as_of)
     out_path = os.path.join(LOG_DIR, f"breakout_setups_{today}.csv")
     df_out = pd.DataFrame(results)
     if df_out.empty:
@@ -1293,4 +1305,4 @@ def run_scanner() -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    run_scanner()
+    run_scanner(as_of=config.parse_as_of())
