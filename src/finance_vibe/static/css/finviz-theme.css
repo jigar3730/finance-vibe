@@ -230,6 +230,12 @@ table.table tr:hover {
     background-color: rgba(242, 54, 69, 0.1);
 }
 
+/* Trade plan view: live price more than 5% above close highlights the whole row */
+table.table tr:has(.live-surge) {
+    background-color: rgba(240, 185, 11, 0.18);
+    box-shadow: inset 3px 0 0 #f0b90b;
+}
+
 .meta { color: var(--finviz-text-muted); margin-bottom: 20px; font-size: 0.95em; }
 .back { display: inline-block; margin-bottom: 20px; color: var(--link); text-decoration: none; font-weight: 500; }
 

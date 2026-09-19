@@ -107,3 +107,30 @@ def test_breakout_view_live_price_next_to_close(client, breakout_logs):
     assert 'live-price-cell live-above-close">$55.50' in body
     assert 'live-price-cell live-flat">$20.00' in body
     assert 'live-price-cell live-flat">N/A' in body
+
+
+def test_trade_plan_live_price_colour_and_surge_row(client, tmp_path, monkeypatch):
+    modes = {"weekly": str(tmp_path / "weekly"), "daily": str(tmp_path / "daily")}
+    monkeypatch.setattr(app_module, "MODES", modes)
+    (tmp_path / "weekly").mkdir()
+    # AAA live 95 < 100 (red), BBB live 55.5 vs 50 = +11% (green + surge),
+    # CCC live == close (neutral), DDD live N/A.
+    pd.DataFrame(
+        [{"Symbol": s, "Score": 1, "Close": c} for s, c in
+         [("AAA", 100.0), ("BBB", 50.0), ("CCC", 20.0), ("DDD", 10.0)]]
+    ).to_csv(tmp_path / "weekly" / "trade_plan_2026-09-04.csv", index=False)
+
+    body = client.get("/view/weekly/2026-09-04?file=trade_plan_2026-09-04.csv").get_data(as_text=True)
+    header = body.split("<thead>")[1].split("</thead>")[0]
+    ths = [h.split("<")[0].strip() for h in header.split("<th>")[1:]]
+    assert ths.index("Live Price") == ths.index("Close") + 1
+    assert 'live-price-cell live-below-close">$95.00' in body
+    assert 'live-price-cell live-above-close live-surge">$55.50' in body
+    assert 'live-price-cell live-flat">$20.00' in body
+    assert body.count("live-surge") == 1
+
+
+def test_live_price_cell_surge_threshold_is_strictly_over_five_percent():
+    assert "live-surge" not in app_module._live_price_cell(105.0, 100.0, 5.0)
+    assert "live-surge" in app_module._live_price_cell(105.01, 100.0, 5.0)
+    assert "live-surge" not in app_module._live_price_cell(120.0, 100.0)

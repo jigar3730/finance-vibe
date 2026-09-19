@@ -177,8 +177,15 @@ def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
         print(f"Error fetching live prices: {e}")
         return {sym: "N/A" for sym in symbols}
 
-def _live_price_cell(live: float | str | None, close: float) -> str:
-    """HTML cell for a live price: red if the close is above it, green if below, else neutral."""
+# Live price this far above the close (percent) highlights the trade-plan row.
+LIVE_SURGE_PCT = 5.0
+
+def _live_price_cell(live: float | str | None, close: float, surge_pct: float | None = None) -> str:
+    """HTML cell for a live price: red if the close is above it, green if below, else neutral.
+
+    With ``surge_pct`` set, a live price more than that percent above the close also gets a
+    ``live-surge`` class, which the stylesheet uses to highlight the whole table row.
+    """
     if not isinstance(live, (int, float)) or pd.isna(live):
         return '<span class="live-price-cell live-flat">N/A</span>'
     css = "live-flat"
@@ -187,6 +194,8 @@ def _live_price_cell(live: float | str | None, close: float) -> str:
             css = "live-below-close"
         elif close < live:
             css = "live-above-close"
+            if surge_pct is not None and live > close * (1 + surge_pct / 100):
+                css += " live-surge"
     return f'<span class="live-price-cell {css}">${live:.2f}</span>'
 
 @app.route("/")
@@ -231,16 +240,25 @@ def view_run(mode: str, date: str) -> str | tuple[str, int]:
             raw_symbols = [str(x).strip().upper() for x in df[symbol_col].dropna().unique()]
             live_price_map = _fetch_live_prices(raw_symbols)
             
-            # 2. Add 'Live Price' values aligned with symbols
-            df['Live Price'] = df[symbol_col].apply(
-                lambda x: f'<span class="live-price-cell">${live_price_map.get(str(x).strip().upper(), "N/A")}</span>'
-                if pd.notna(x) else ""
-            )
+            # 2. Add 'Live Price' values aligned with symbols (green above close, red below;
+            #    whole row highlighted when live is more than LIVE_SURGE_PCT above close)
+            closes = pd.to_numeric(df["Close"], errors="coerce") if "Close" in df.columns else None
+            df['Live Price'] = [
+                _live_price_cell(
+                    live_price_map.get(str(sym).strip().upper()),
+                    closes.iloc[i] if closes is not None else float("nan"),
+                    LIVE_SURGE_PCT,
+                ) if pd.notna(sym) else ""
+                for i, sym in enumerate(df[symbol_col])
+            ]
             
-            # 3. Restructure layout: Inject 'Live Price' right after the 'Symbol' column
+            # 3. Restructure layout: Inject 'Close' then 'Live Price' right after the 'Symbol' column
             cols = list(df.columns)
             symbol_idx = cols.index(symbol_col)
             cols.insert(symbol_idx + 1, cols.pop(cols.index('Live Price')))
+            # Close sits immediately before Live Price so the two are easy to compare.
+            if 'Close' in cols:
+                cols.insert(cols.index('Live Price'), cols.pop(cols.index('Close')))
             df = df[cols]
             
             # 4. Convert plain strings into operational Finviz anchor links
