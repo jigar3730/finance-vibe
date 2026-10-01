@@ -66,6 +66,21 @@ so the run stays at 6 PM through EDT and EST. It runs
 runs cannot overlap, and writes one log per run to `~/.local/state/finance-vibe/`.
 Use `scripts/run_weekly_pipeline.sh --now` for a manual run.
 
+**Failure alerts (email).** The runner emails an alert, with the end of the run log, when:
+
+- `run_vibe.py` exits non-zero (including the container being down);
+- the run exits 0 but `scripts/check_weekly_outputs.py` finds a problem: a missing
+  output for today (vibe report, Cobra setups, breakout setups, trade plan, clean plan),
+  SPY/QQQ's newest weekly bar is not the week that just closed, or more than 20% of
+  tickers failed to ingest;
+- a run is skipped because the previous one still holds the lock.
+
+Email is sent from the host by `scripts/notify_email.py` (stdlib only, so it works with
+the container down). It uses SMTP settings in `~/.config/finance-vibe/notify.env`
+(mode 600, not in the repo), with the same `SMTP_*` / `EMAIL_*` names as quant-hub. If
+that file is missing, the alert is logged as not sent. Run the health check by hand with
+`docker exec -i finance_vibe python - < scripts/check_weekly_outputs.py`.
+
 The container runs the code baked into its image. After changing pipeline
 code, rebuild it with `docker compose up -d --build` so the next scheduled run
 picks up the change.
