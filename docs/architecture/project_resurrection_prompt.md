@@ -74,7 +74,9 @@ Key logic:
   `coiled_cobra_ml_walkforward.py`, `coiled_cobra_ml_experiment.py`,
   `coiled_cobra_leader_experiment.py`. The 2026-09-19 leader experiment found
   no leader or relaxed-gate variant that beat the baseline or the random
-  control, so there is no leader track.
+  control, so there is no leader track. A 2026-10-01 paired test found Cobra
+  beat random on its own exit in dev (+0.29R) but not in the lockbox year
+  (+0.02R): **no confirmed edge**, and that lockbox is now spent.
 
 Working rule: validate any gate or threshold change with a staged walk-forward
 backtest, not judgment alone, and bump `RUBRIC_VERSION` when it changes

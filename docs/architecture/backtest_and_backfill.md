@@ -419,3 +419,39 @@ Report-only findings:
 Conclusion: the breakout scanner's states and score add nothing over random entries on weekly
 data. Do not use them for ranking or entries, and do not tune their weights from this data,
 since there is no signal to tune toward.
+
+---
+
+## Coiled Cobra vs random entries (paired test, 2026-10-01)
+
+The leader experiment never tested the deployed rubric itself against its random control. This
+follow-up does, using the saved `leader_experiment_bars_2026-09-19.csv.gz` with no new
+backtest. The rule was set before the numbers were read: Cobra has an edge only if the paired
+(same-week) difference in mean R vs `C0_random` has a 95% week-cluster bootstrap CI above 0 on
+`dev`, **and** that is confirmed on the `lockbox` year.
+
+Method: deduplicated `B0_baseline` and `C0_random` episodes (`dedup_episodes`), filled trades
+only, compared with `paired_diff` (2,000 draws). The primary exit is Cobra's own planner
+geometry (`pl_r`: Fib 78.6% limit entry, structural stop, 2R/3R via `calculate_stock_levels` +
+`simulate_trade`). The trail exit (`tr_r`) is shown for reference. Rows are holdout tickers, and
+including the 11 discovery tickers changes nothing material.
+
+| Period | Exit | Cobra mean R [95% CI] | Random mean R | Cobra − random [95% CI] |
+| ------ | ---- | --------------------- | ------------- | ----------------------- |
+| dev | planner | +0.27 [+0.15, +0.40] (n 793) | −0.01 (n 1,987) | **+0.29 [+0.14, +0.42]** |
+| lockbox | planner | +0.03 [−0.21, +0.29] (n 179) | +0.01 (n 532) | **+0.02 [−0.22, +0.26]** |
+| dev | trail | +0.21 (n 969) | +0.48 (n 2,349) | −0.27 [−0.41, −0.12] |
+| lockbox | trail | +0.06 (n 220) | +0.44 (n 624) | −0.38 [−0.59, −0.16] |
+
+Planner-exit detail (dev): fill rate 82% vs 83%; win rate 41% vs 32%; Cobra reaches T1 26% of
+the time vs 18% for random, and stops out 46% vs 56%.
+
+**Result: no confirmed edge.** On its own exit, Cobra clearly beat random on the development
+years, mainly by hitting the first target more often rather than by skipping entries. In the
+held-out year the difference fell to about zero. Under the trail exit, Cobra trails random in
+both periods: random's trail profit is the market's uptrend, which Cobra's 3R target cap
+cuts off.
+
+**The lockbox is now spent.** The 52 weeks ending 52 weeks before 2026-09-19 have been looked
+at and are no longer a clean holdout. Any further claim of a Cobra edge must come from signals
+dated after the 2026-09 data end, judged by the same paired rule.
