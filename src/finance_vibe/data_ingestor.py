@@ -4,6 +4,7 @@ import pandas as pd
 import os
 import sys
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 # --- 1. PACKAGE IMPORT (Upgraded for Multi-Environment Paths) ---
 try:
@@ -68,6 +69,32 @@ def _download_batch(tickers, period, interval, *, retries=DOWNLOAD_RETRIES,
             print(f"⚠️ Batch download failed ({e}); retry {attempt}/{retries} in {sleep_s:.0f}s")
             time.sleep(sleep_s)
     raise last_err
+
+
+MARKET_TZ = ZoneInfo("America/New_York")
+# A week's bar is final once its Friday session has closed (16:00 ET) plus a
+# buffer for Yahoo to publish the close.
+WEEK_FINAL_HOUR_ET = 17
+
+
+def weekly_bar_is_complete(bar_date, now=None) -> bool:
+    """True once the week holding ``bar_date`` has closed, in market time.
+
+    yfinance dates weekly bars at the start of the week (Monday), so the week
+    ends on that Monday + 4 days -- the same rule as ``config.cut_to_as_of``.
+    The bar is complete after ``WEEK_FINAL_HOUR_ET`` on that Friday, or on any
+    later day. A holiday-shortened week is treated the same way.
+    """
+    now = now or datetime.now(MARKET_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=MARKET_TZ)
+    now = now.astimezone(MARKET_TZ)
+    day = pd.Timestamp(bar_date)
+    if day.tzinfo is not None:
+        day = day.tz_convert(MARKET_TZ).tz_localize(None)
+    week_end = (day.normalize() - pd.Timedelta(days=day.weekday()) + pd.Timedelta(days=4)).date()
+    today = now.date()
+    return today > week_end or (today == week_end and now.hour >= WEEK_FINAL_HOUR_ET)
 
 
 def _ticker_frame(batch, ticker: str):
@@ -140,11 +167,12 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
                     df.columns = df.columns.get_level_values(0)
 
                 # --- 4. DATA CLEANING ---
-                # Remove the last row if it's an incomplete weekly candle (only for 1wk)
-                if INTERVAL == "1wk" and len(df) > 0:
-                    last_date = df.index[-1]
-                    if hasattr(last_date, "weekday") and last_date.weekday() != 4:
-                        df = df.iloc[:-1]
+                # Drop the last weekly candle only while its week is still trading.
+                # (Weekly bars are Monday-dated; the old "not a Friday" check
+                # dropped every final bar, so even a Saturday run lost the
+                # just-completed week.)
+                if INTERVAL == "1wk" and len(df) > 0 and not weekly_bar_is_complete(df.index[-1]):
+                    df = df.iloc[:-1]
 
                 # --- 4b. VALIDATE OHLCV CONTRACT (reject, never save partial) ---
                 clean = config.validate_and_clean_ohlcv(df, require_volume=True)

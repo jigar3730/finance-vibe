@@ -50,6 +50,32 @@ python src/finance_vibe/run_vibe.py --mode daily --reuse-raw
 python src/finance_vibe/run_vibe.py --as-of 2025-11-07
 ```
 
+### Scheduled weekly run
+
+The weekly pipeline runs automatically on **Fridays at 18:00 America/New_York**
+through the host crontab (user `jigar`):
+
+```cron
+0 22,23 * * 5 /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
+```
+
+The host clock is UTC, so cron fires at both 22:00 and 23:00 UTC.
+`scripts/run_weekly_pipeline.sh` exits unless it is the 18:00 hour in New York,
+so the run stays at 6 PM through EDT and EST. It runs
+`run_vibe.py --mode weekly` inside the `finance_vibe` container, holds a lock so
+runs cannot overlap, and writes one log per run to `~/.local/state/finance-vibe/`.
+Use `scripts/run_weekly_pipeline.sh --now` for a manual run.
+
+The container runs the code baked into its image. After changing pipeline
+code, rebuild it with `docker compose up -d --build` so the next scheduled run
+picks up the change.
+
+The ingestor keeps the current week's bar once that Friday's close has passed
+(17:00 ET onward; `data_ingestor.weekly_bar_is_complete`), so a Friday-evening
+run scans the week that just closed. Before 2026-10-01, a bug dropped every
+final weekly bar, because bars are Monday-dated and the check required a Friday
+date. Runs up to then, including the 2026-09-19 run, scanned the previous week.
+
 ### Replaying a past week (`--as-of`)
 
 `--as-of YYYY-MM-DD` re-runs steps 3–7 as if it were that date, from the raw data
@@ -128,7 +154,7 @@ supports all three (`high_beta` reads daily OHLCV and writes to its own
 ### `data_ingestor.py`
 
 - Reads active tickers; downloads via `yfinance` using `TIMEFRAME_PROFILES` in `config.py`
-- Drops incomplete weekly candles (last bar if not Friday)
+- Drops the last weekly candle only while its week is still trading (complete after Friday 17:00 ET)
 - Uses `auto_adjust=True` for split/dividend-adjusted prices
 - Logs per-ticker failures to `data/logs/{mode}/ingest_errors_<date>.csv`
 
