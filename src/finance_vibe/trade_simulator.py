@@ -237,21 +237,25 @@ def simulate_scaled_trade(
         if is_long:
             mfe_r = max(mfe_r, (hi - fill_price) / risk)
             mae_r = min(mae_r, (lo - fill_price) / risk)
-            highest_high = max(highest_high, hi)
 
-            # Dynamic high-water mark trailing stop (1.5x - 2.0x ATR/Risk)
+            # Dynamic high-water mark trailing stop (1.5x - 2.0x ATR/Risk).
+            # Ratchet from highs of PRIOR bars only: within one bar we can't
+            # know whether the high came before the low, so letting this
+            # bar's high tighten the stop it is checked against is lookahead.
             if trailing_atr_mult is not None and trailing_atr_mult > 0:
                 trail_stop_lvl = highest_high - (trailing_atr_mult * risk)
                 current_stop = max(current_stop, trail_stop_lvl)
+            highest_high = max(highest_high, hi)
         else:
             mfe_r = max(mfe_r, (fill_price - lo) / risk)
             mae_r = min(mae_r, (fill_price - hi) / risk)
-            lowest_low = min(lowest_low, lo)
 
             # Dynamic low-water mark trailing stop for short positions
+            # (prior bars' lows only — see long branch).
             if trailing_atr_mult is not None and trailing_atr_mult > 0:
                 trail_stop_lvl = lowest_low + (trailing_atr_mult * risk)
                 current_stop = min(current_stop, trail_stop_lvl)
+            lowest_low = min(lowest_low, lo)
 
         # ---------------------------------------------------------------
         # NO PARTIALS MODE (100% position exit at target_r or ATR stop)
