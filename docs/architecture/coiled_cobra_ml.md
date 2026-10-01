@@ -41,7 +41,7 @@ This is an **offline research baseline**, not part of `run_vibe.py` or the live 
 
    Auto-selection takes the **newest** `coiled_cobra_backtest_trades_*.csv` (by the date stamp in the filename) from the mode's log directory, falling back to legacy roots only if that directory holds none. There is no hard-coded filename. If the newest file is stamped with a different rubric version (or is unversioned, i.e. pre-v4.0), training **refuses** it — regenerate with `coiled_cobra_backtest.py weekly --backtest`.
 
-3. **Environment:** run from the repo / container with `PYTHONPATH` including the project (Docker image already sets `PYTHONPATH=/app`).
+3. **Environment:** run from the repo / container with `PYTHONPATH` including the project (Docker image already sets `PYTHONPATH=/app/src`).
 
 ---
 
@@ -379,8 +379,9 @@ A practical workflow is:
 | ------ | ------------ |
 | `coiled_cobra_backtest.py` | **Upstream** — produces the trades CSV (features + forward returns + leakage cols) |
 | `coiled_cobra.py` | Live scanner; same geometry fields at signal time; ML does not call it |
-| `pipeline_backtest.py` | Separate quality-swing / high_beta path — not an ML input |
-| `run_vibe.py` | Does **not** invoke ML training |
+| `ml_ranker.py` | **Downstream** — attaches `ML_Pred_Return` / `ML_Rank` to live setups from the saved artifacts |
+| `trade_plan_helper.py` | Uses `ML_Pred_Return` for priority only when `config.ML_RANKING_ENABLED` (default off) |
+| `run_vibe.py` | Does **not** invoke ML training; `--as-of` replays skip ML ranking |
 
 Full backtest column definitions and CLI: **[`backtest_and_backfill.md`](backtest_and_backfill.md)**. Theory mapped to this trainer: **[`QUANT_ML_MANUAL.md`](../handbook/QUANT_ML_MANUAL.md)**.
 

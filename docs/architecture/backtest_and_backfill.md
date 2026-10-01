@@ -2,7 +2,10 @@
 
 Offline validation for Finance Vibe. This document covers **data backfill** (getting enough OHLCV history), **signal backfill** (historical setup archives), and **walk-forward backtests** (simulating trades on that history).
 
-Neither backtest module is part of `run_vibe.py`. They read from `data/raw/` and write under `data/logs/`.
+Coiled Cobra is the only signal engine with a backtest. The quality-swing
+`pipeline_backtest.py` was removed with `swing_scanner.py` (2026-09-16), and its
+generic fill/stop/target primitives now live in `trade_simulator.py`. None of
+these modules are part of `run_vibe.py`. They read from `data/raw/` and write under `data/logs/`.
 
 ---
 
@@ -13,17 +16,17 @@ Neither backtest module is part of `run_vibe.py`. They read from `data/raw/` and
 | **Data backfill** | Download historical OHLCV into `data/raw/{weekly\|daily}/` via `data_ingestor.py` |
 | **Signal backfill** | Scan every historical bar and archive setups (Coiled Cobra: `--backfill`) |
 | **Walk-forward backtest** | At each bar, detect a setup using only past data, plan levels, simulate forward fills/exits |
-| **Mode / profile** | CLI mode maps to a data timeframe + swing profile (see below) |
+| **Mode / profile** | CLI mode maps to a data timeframe + signal profile (see below) |
 
 ### Mode map
 
-| CLI mode | Raw data | Swing profile | Log silo |
-| -------- | -------- | ------------- | -------- |
+| CLI mode | Raw data | Signal profile | Log silo |
+| -------- | -------- | -------------- | -------- |
 | `weekly` | `data/raw/weekly/` (10y × 1wk) | weekly | `data/logs/weekly/` |
 | `daily` | `data/raw/daily/` (5y × 1d) | daily | `data/logs/daily/` |
-| `high_beta` | `data/raw/daily/` (5y × 1d) | high_beta (long-only) | `data/logs/high_beta/` |
+| `high_beta` | `data/raw/daily/` (5y × 1d) | high_beta | `data/logs/high_beta/` |
 
-`high_beta` shares daily OHLCV with the ETF daily pipeline but keeps its own geometry, filters, and log directory (`config.resolve_pipeline_mode` / `config.get_log_dir`).
+`high_beta` reads the same daily OHLCV as `daily` and uses the same Coiled Cobra calibration. Only the log directory differs (`config.resolve_pipeline_mode` / `config.get_log_dir`).
 
 ---
 
@@ -59,10 +62,10 @@ Backtests default to this list unless you pass `--tickers`.
 ### 3. Raw OHLCV (data backfill)
 
 ```bash
-# Weekly (10y, 1wk) — used by weekly swing + Coiled Cobra
+# Weekly (10y, 1wk) — weekly Coiled Cobra, ML baseline, leader experiment
 python src/finance_vibe/data_ingestor.py weekly
 
-# Daily (5y, 1d) — used by daily swing + high_beta
+# Daily (5y, 1d) — daily + high_beta profiles
 python src/finance_vibe/data_ingestor.py daily
 ```
 
@@ -82,18 +85,15 @@ Required columns after ingest: `Date, Open, High, Low, Close, Volume` (`config.R
 
 #### Multiple files per ticker
 
-`pipeline_backtest.select_raw_paths` keeps **one file per symbol**, preferring the longest lookback (`5y` > `2y` > `1y`). After switching daily to 5y, re-ingest so `*_5y_1d.csv` exist; older `*_2y_1d.csv` files are ignored when a longer file is present.
+Keep **one file per symbol** per raw silo. The scanners iterate over every `*.csv` in the directory, so a leftover `*_2y_1d.csv` next to `*_5y_1d.csv` gets scored twice. After a period change, clear the silo and re-ingest.
 
-#### Benchmark for high_beta
+#### Benchmarks
 
-High-beta regime / relative-strength gates need **QQQ** in the daily raw silo:
+Coiled Cobra's relative-strength pillar and market gate need **QQQ** (and SPY) in the raw silo for the mode being tested. The backtest also records QQQ regime features (`QQQ_Pct_From_EMA50`, `QQQ_Ret_13w`) and `Excess_Return_2w` against QQQ.
 
 ```bash
-ls data/raw/daily/QQQ_*_1d.csv
-# Prefer QQQ_5y_1d.csv
+ls data/raw/weekly/QQQ_*_1wk.csv data/raw/daily/QQQ_*_1d.csv
 ```
-
-If QQQ is missing, high_beta will warn and regime/RS gates reject all setups.
 
 ### 4. Sync code into the container (when developing on the host)
 
@@ -106,200 +106,13 @@ Or rebuild the image when you want a durable bake-in.
 
 ---
 
-## Pipeline swing backtest
-
-**Module:** `src/finance_vibe/pipeline_backtest.py`
-
-Replays quality-swing detection (`detect_setup_at_bar`) + stock levels (`calculate_stock_levels`) bar-by-bar, then simulates fills with the **scaled-out** execution model.
-
-### Quick start
-
-```bash
-# Weekly ETFs / broad universe
-python src/finance_vibe/pipeline_backtest.py weekly
-python src/finance_vibe/pipeline_backtest.py weekly --tickers SPY,QQQ,IWM
-
-# Daily ETF profile (5y daily data)
-python src/finance_vibe/pipeline_backtest.py daily --tickers QQQ,SPY,IWM
-
-# High-beta long-only (daily data + high_beta profile)
-python src/finance_vibe/pipeline_backtest.py high_beta --tickers PLTR,TSLA,HOOD
-python src/finance_vibe/pipeline_backtest.py high_beta \
-  --tickers NVDA,AMD,AVGO,COIN,CRWD,META,NFLX,AMZN
-```
-
-### CLI reference
-
-```text
-python src/finance_vibe/pipeline_backtest.py [mode] [options]
-
-mode                  weekly | daily | high_beta   (default: weekly)
-
---tickers A,B,C       Limit to these symbols (default: active_tickers.csv)
---long-min-score N    Hard macro gate for SETUP_LONG
-                      default: 7 (weekly), -10 (daily / high_beta — soft vibe
-                      gate already lives inside the scanner)
---short-max-score N   Hard macro gate for SETUP_SHORT (default: -2)
---cooldown-bars N     Min bars after an exit before a new signal
-                      (default: from swing profile)
---no-partials         Default. Full exit at --target-r (CLI default 1.5)
---use-partials        Legacy 50% scale-out at T1 / runner to T2
---target-r N          Full-exit R multiple when --no-partials (default: 1.5)
---trailing-atr-mult N High-water ATR trail (default: 2.0; 0 disables)
-```
-
-Programmatic: `run_backtest(mode=..., tickers=..., long_min=..., ...)`.
-
-### What happens per bar
-
-1. **Warmup** — skip first `BACKTEST_WARMUP_BARS` (60) bars.
-2. **Detect** — `detect_setup_at_bar(window, symbol, profile, benchmark_df)` using only bars through `i` (no lookahead).
-3. **Long-only** — high_beta drops shorts.
-4. **Hard macro gate** — `passes_macro_gate(setup, vibe_score, long_min, short_max)`.
-5. **Cooldown** — skip if still within `cooldown_bars` of the **last exit** (unfilled orders never start cooldown).
-6. **Levels** — `calculate_stock_levels(row, mode=profile)` (row `Mode` is authoritative in the live planner; backtest passes the profile explicitly).
-7. **Simulate** — `simulate_scaled_trade(...)` from the next bar forward.
-8. **No overlap** — while a position is open, no new entries on that ticker.
-
-### Profile parameters (geometry & filters)
-
-From `config.get_swing_params(mode)`:
-
-| Parameter | Weekly | Daily | High-beta |
-| --------- | ------ | ----- | --------- |
-| Direction | long + short | **long only** (`short_max_vibe` unset) | **long-only** |
-| Soft Vibe | none | ≥ 5 (long); shorts disabled | ≥ 5 (long) |
-| EMA proximity | 1.5% | 2% | **0.5 × ATR** |
-| RSI long | 45–55 | 40–55 | **35–58** |
-| Confirm slack | 0 | 0 | **0.35 × ATR** |
-| Structure tolerance | 0.2% | 0.2% | **0.25 × ATR** |
-| Stop | dual-constraint, **1.5 ATR** floor | same **1.5 ATR** floor | same **1.5 ATR** floor; **reject if risk ∉ [0.5, 1.5] ATR** |
-| T1 / T2 | 1.25 / 2.25 ATR | 0.85 / 1.6 ATR | **2R / 3R** (`t1_r=2.0`, `t2_r=3.0`) |
-| Entry valid / max hold / cooldown | 4 / 12 / 4 | 6 / 20 / 8 | 6 / 20 / 10 |
-| Market regime | — | — | QQQ close > EMA50 & EMA100, EMA50 rising |
-| Relative strength | — | — | stock/QQQ ratio > 20d MA **and** +63d relative return |
-| EMA stack required | no | no | yes (20 > 50 > 100) |
-
-High-beta is **experimental** until it clears the promotion gates below.
-
-### Execution model (swing simulator)
-
-**Default CLI:** `--no-partials` is on. The trade exits entirely at `--target-r`
-(default **1.5R**) or a high-water **ATR trailing stop**
-(`--trailing-atr-mult`, default **2.0** × risk below the running high / above
-the running low). Outcome `stopped_trailing` vs `stopped_full`.
-
-Pass `--use-partials` for the legacy scale-out: 50% off at T1, remainder to
-breakeven, runner to T2. Coiled Cobra still uses legacy `simulate_trade()`
-(full exit at first stop/target, no slippage).
-
-| Rule | Behavior |
-| ---- | -------- |
-| Entry | Limit at planned entry; fill when Low ≤ entry (long) / High ≥ entry (short) within `entry_valid_bars` |
-| Gap entry | If Open gaps through the limit, fill at Open (flagged `Gap Entry`) |
-| Slippage | Adverse `BACKTEST_SLIPPAGE_PCT` (default **0.05%**) on entry and stop exits |
-| Default exit | Full position at `--target-r` or ATR trail |
-| `--use-partials` | **50%** off at T1; runner stop → **breakeven**; aim for T2 |
-| Same-bar ambiguity | Pessimistic: stop assumed before target |
-| Gap through stop | Exit at the worse Open (can be worse than −1R) |
-| Max hold | Mark-to-market at Close |
-
-**Legacy blended R outcomes (`--use-partials`, 50/50):**
-
-| Path | Blended R (approx.) |
-| ---- | ------------------- |
-| Full stop before T1 | ≈ −1R (worse with gap/slippage) |
-| Partial @ T1, runner @ BE | ≈ +0.5R when T1 is 1R |
-| Partial @ T1, runner @ T2 | ≈ +1.5R when T1/T2 are 1R/2R |
-
-### Outcomes & counters
-
-| Outcome | Meaning |
-| ------- | ------- |
-| `stopped_full` | Stopped before any partial |
-| `partial_be` | Took 1R, runner stopped at breakeven |
-| `partial_t2` | Took 1R, runner hit 2R |
-| `partial_expired` | Took 1R, runner hit max hold |
-| `expired_no_partial` | Never reached T1; closed at max hold |
-| `no_fill` | Entry never touched (not written as a filled trade row) |
-
-### Output files
-
-```
-data/logs/{weekly|daily|high_beta}/backtest_trades_{tag}_{YYYY-MM-DD}.csv
-# tag = swing profile (e.g. high_beta, daily, weekly)
-```
-
-#### Trade CSV columns (filled trades)
-
-| Column | Description |
-| ------ | ----------- |
-| Symbol, Signal Date, Setup Type, Mode | Identity |
-| Vibe Score | Soft/hard gate score on signal bar |
-| Stock Entry / Stop / Risk Per Share | Planned levels |
-| Target 1R / Target 2R | Planned targets (R or ATR geometry) |
-| Fill Date / Fill Price / Gap Entry | Execution |
-| Stop Moved BE | True after partial |
-| Partial Exit Date / Price / R | First leg |
-| Runner Exit Date / Price / R | Second leg |
-| Outcome | See table above |
-| Blended R Multiple | Position-weighted R |
-| Bars Held, MAE R, MFE R | Path metrics |
-| Regime OK, RS 63d | High-beta audit fields (else empty) |
-
-### Interpreting the summary
-
-Stdout centers on **filled** trades:
-
-- **Win rate** — share of fills with blended R > 0 (Wilson 95% CI)
-- **Expectancy** — mean blended R
-- **Total R** — sum of blended R
-- **Profit factor** — gross wins / gross losses
-- **Avg winner / loser**, **MAE / MFE**
-
-Win rate is secondary to expectancy and profit factor.
-
-### High-beta promotion gates (frozen defaults)
-
-Before treating `high_beta` as production-ready:
-
-| Gate | Threshold |
-| ---- | --------- |
-| Out-of-sample fills | ≥ 100 |
-| Win rate | ≥ 55% |
-| Expectancy | ≥ +0.20R |
-| Profit factor | ≥ 1.3 |
-| Concentration | No single ticker > 20% of total profit |
-
-If any gate fails, keep the profile **experimental** and use filter ablation (count setups after each gate: base → confirmed → vibe → regime → RS → risk) to see what limited sample size.
-
-**Do not** reuse the PLTR/TSLA/HOOD tuning set as proof; use a predeclared holdout basket.
-
-### Common recipes
-
-```bash
-# Regression: high-beta names after a code change
-python src/finance_vibe/pipeline_backtest.py high_beta --tickers PLTR,TSLA,HOOD
-
-# Daily ETF sanity check
-python src/finance_vibe/pipeline_backtest.py daily --tickers QQQ,SPY
-
-# Stricter weekly macro gate
-python src/finance_vibe/pipeline_backtest.py weekly --long-min-score 8 --short-max-score -3
-
-# Wider spacing between trades
-python src/finance_vibe/pipeline_backtest.py daily --cooldown-bars 12
-```
-
----
-
 ## Coiled Cobra backfill & backtest
 
 **Module:** `src/finance_vibe/coiled_cobra_backtest.py`
 
-Separate from the quality-swing path. Uses Fib-anchored geometry (`Source=coiled_cobra`) and the **legacy** `simulate_trade` (full exit at first stop/target; no scale-out / slippage).
+Uses the same `evaluate_coiled_cobra()` engine as the live scanner on every eligible historical bar, the live Fib-anchored geometry (`trade_planner.calculate_stock_levels`, `Source=coiled_cobra`), and `trade_simulator.simulate_trade` (full exit at the first stop or target, no scale-out, no slippage). Tickers run in parallel worker processes.
 
-Typically run on **weekly** data (coil → expansion horizon).
+Typically run on **weekly** data (coil → expansion horizon). Every output CSV carries a `Rubric_Version` column (`config.RUBRIC_VERSION`, currently `4.0`), which ML training checks before it will use the file.
 
 ### Signal backfill
 
@@ -312,7 +125,7 @@ python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill --tickers SPY
 
 **Output:** `data/logs/{mode}/coiled_cobra_backfill_{YYYY-MM-DD}.csv`
 
-Columns include Symbol, Date, Setup Type, Close, EMAs, ATR, Fib 61.8%/78.6%, Score, Grade, Checks Met, Source.
+Columns include Symbol, Date, Setup Type, Close, EMAs, ATR, Swing Low, Fib distances, ATR_Pct, Score, Grade, Tier, Checks Met, Source, RS 63d, RVOL, Market Gate, BBWidth Pctile, Rubric_Version.
 
 Useful for:
 
@@ -341,8 +154,9 @@ Outcomes: `no_fill`, `stopped`, `target1`, `target2`, `expired` with a single `R
 | ---- | ------- |
 | Identity | `Symbol`, `Signal Date`, `Setup Type` |
 | Pre-signal features | `Score`, `Grade`, `Pct_From_EMA20`, `Pct_From_EMA50`, `Pct_From_Fib618`, `Pct_From_Fib786`, `ATR_Pct` |
+| Research features (pre-signal) | `RVOL`, `Market Gate`, `Tier`, `Checks_N`, `RS_63d`, `BBWidth_Pctile`, pillar sub-scores (`Part_*`), causal QQQ regime `QQQ_Pct_From_EMA50`, `QQQ_Ret_13w` |
 | Execution / leakage | `Stock Entry`, `Stock Stop`, `Target 1`, `Target 2`, `Outcome`, `Exit Date`, `Exit Price`, `R Multiple`, `Target_Label`, `Target_R_Mult` |
-| Continuous targets | `Forward_Return_2w` (baseline $Y$), `Forward_Return_5w`, `Forward_Return_13w`, `Forward_Return_26w` |
+| Continuous targets | `Forward_Return_2w` (baseline $Y$), `Excess_Return_2w` (vs QQQ), `Forward_Return_5w`, `Forward_Return_13w`, `Forward_Return_26w` |
 
 `Forward_Return_{Nw}` is `(Close[t+N] − Close[t]) / Close[t]` when enough future bars exist; otherwise `None` / NaN.
 
@@ -354,7 +168,7 @@ Outcomes: `no_fill`, `stopped`, `target1`, `target2`, `expired` with a single `R
 Consumes `coiled_cobra_backtest_trades_*.csv` to train XGBoost + LightGBM regressors on **`Forward_Return_2w`** (code of record in `coiled_cobra_ml_training.py`) with:
 
 - 6 pre-signal features (`Grade` excluded — collinear with `Score`)
-- Strict temporal split: rolling 26-week test / 26-week val / rest train on `Signal Date` — **no random K-fold**
+- Strict temporal split: rolling 26-week test / 26-week val / rest train on `Signal Date` with a 2-week embargo — **no random K-fold**
 - Leakage columns dropped; `no_fill` rows kept
 - MAE objectives (`reg:absoluteerror` / `regression_l1`) + `ATR_Pct` sample weights
 
@@ -371,53 +185,50 @@ python src/finance_vibe/coiled_cobra_ml_training.py \
 | Historical signal archive | `.../coiled_cobra_backtest.py weekly --backfill` |
 | Historical trade simulation | `.../coiled_cobra_backtest.py weekly --backtest` |
 | ML baseline training | `.../coiled_cobra_ml_training.py [--csv PATH]` |
+| ML vs Score walk-forward | `python -m finance_vibe.coiled_cobra_ml_walkforward [--csv PATH]` |
+| Pre-registered ML experiment | `python -m finance_vibe.coiled_cobra_ml_experiment --csv PATH` |
+| Leader-Expansion experiment | `python -m finance_vibe.coiled_cobra_leader_experiment` (below) |
+
+ML walk-forward and experiment details: [`coiled_cobra_ml.md`](coiled_cobra_ml.md).
 
 ---
 
 ## End-to-end workflows
 
-### A. Fresh daily / high_beta study
+### A. Weekly Coiled Cobra validation
 
 ```bash
-# 1. Universe
 python src/finance_vibe/ticker_provider.py
+python src/finance_vibe/data_ingestor.py weekly   # do NOT use run_vibe if you need to keep existing files
 
-# 2. 5y daily OHLCV (do NOT use run_vibe if you need to keep existing files)
-python src/finance_vibe/data_ingestor.py daily
-
-# 3. Confirm QQQ + study names exist
-ls data/raw/daily/QQQ_5y_1d.csv
-ls data/raw/daily/{PLTR,TSLA,HOOD,NVDA}_5y_1d.csv
-
-# 4. Backtest
-python src/finance_vibe/pipeline_backtest.py high_beta --tickers PLTR,TSLA,HOOD,NVDA
-python src/finance_vibe/pipeline_backtest.py daily --tickers QQQ,SPY,IWM
+python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill --tickers SPY,QQQ,IWM
+python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
+python src/finance_vibe/coiled_cobra_ml_training.py
 ```
 
-### B. Weekly + Coiled Cobra validation
+### B. Daily / high_beta Coiled Cobra
 
 ```bash
-python src/finance_vibe/data_ingestor.py weekly
-
-python src/finance_vibe/pipeline_backtest.py weekly --tickers SPY,QQQ,IWM
-python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill --tickers SPY,QQQ,IWM
-python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest --tickers SPY,QQQ,IWM
+python src/finance_vibe/data_ingestor.py daily
+python src/finance_vibe/coiled_cobra_backtest.py daily --backtest --tickers PLTR,TSLA,HOOD,NVDA
 ```
+
+`coiled_cobra_backtest.py` accepts the modes in `config.TIMEFRAME_PROFILES` (`weekly`, `daily`). ML training is weekly-only, because `Forward_Return_2w` is measured in bars.
 
 ### C. Docker one-liners
 
 ```bash
 docker exec finance_vibe sh -c \
-  'cd /app && PYTHONPATH=/app/src python src/finance_vibe/pipeline_backtest.py high_beta --tickers PLTR,TSLA,HOOD'
+  'cd /app && PYTHONPATH=/app/src python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill --tickers SPY,QQQ'
 
 docker exec finance_vibe sh -c \
-  'cd /app && PYTHONPATH=/app/src python src/finance_vibe/coiled_cobra_backtest.py weekly --backfill --tickers SPY,QQQ'
+  'cd /app && PYTHONPATH=/app/src python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest'
 ```
 
 ### D. Unit tests for simulation contracts
 
 ```bash
-python -m pytest tests/test_pipeline_backtest.py tests/test_coiled_cobra_backtest.py -q
+python -m pytest tests/test_trade_simulator.py tests/test_coiled_cobra_backtest.py -q
 python -m pytest tests/ -q   # full suite
 ```
 
@@ -432,8 +243,8 @@ python -m pytest tests/ -q   # full suite
 | Slippage model | Flat adverse %; not volume- or volatility-scaled |
 | Universe drift | Defaults to today’s `active_tickers.csv`, not the historical membership |
 | Survivorship | Ingested list is current; delisted names are missing |
-| Soft vs hard vibe | Daily/high_beta soft gate is inside the scanner; weekly hard gate is in the backtest CLI |
-| Coiled Cobra sim | Still uses legacy full-exit simulator (not the 50% scale-out model) |
+| Simulator | `simulate_trade` exits fully at the first stop/target with no slippage. `simulate_scaled_trade` (50% scale-out, slippage) exists in `trade_simulator.py` but no live tool uses it |
+| Adjusted prices | Raw data is split/dividend-adjusted, so historical levels are not the quotes seen at the time |
 | Lookahead | Design goal is causal windows; always verify new filters use `Date <= as_of` |
 
 ---
@@ -443,13 +254,13 @@ python -m pytest tests/ -q   # full suite
 | Symptom | Likely cause | Fix |
 | ------- | ------------ | --- |
 | `No raw directory` | Never ingested that mode | `data_ingestor.py weekly\|daily` |
-| Zero signals (high_beta) | Missing QQQ, regime/RS too strict, or risk band rejecting all | Check `QQQ_5y_1d.csv`; run filter ablation; inspect `max_risk_atr` |
-| Uses short history | Only `*_2y_1d.csv` present after period change | Re-ingest daily → `*_5y_1d.csv` |
+| Zero / few Cobra signals | Missing QQQ benchmark, or names under the 160-bar full-score history floor | Check `QQQ_*` in the raw silo; the Gate A–D hard gates are strict by design |
+| Duplicate symbols in output | Old `*_2y_1d.csv` left next to `*_5y_1d.csv` | Clear the silo and re-ingest |
+| ML refuses the trades CSV | `Rubric_Version` missing or not equal to `config.RUBRIC_VERSION` | Regenerate with `--backtest` |
 | Stale results in Docker | Host edits not in container | `docker cp` or rebuild |
 | ML `FileNotFoundError` for trades CSV | Backtest CSV missing on volume | Run cobra `--backtest`; see **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)** |
 | Coiled Cobra empty backfill | Wrong mode / insufficient bars | Need weekly history; lookback ≈ 60+ bars |
 | `ImportError: finance_vibe` | `PYTHONPATH` unset | `export PYTHONPATH=src` (or `/app/src`) |
-| Unexpected short trades in high_beta | Old code without `long_only` | Sync latest `swing_scanner` / `pipeline_backtest` |
 | Outputs in wrong folder | Expected daily logs for high_beta | high_beta writes to `data/logs/high_beta/` |
 
 ### Quick data health checks
@@ -473,7 +284,7 @@ PY
 | [`README.md`](../../README.md) | Project overview and quick commands |
 | [`operation_manual.md`](operation_manual.md) | Day-to-day pipeline ops |
 | [`coiled_cobra_ml.md`](coiled_cobra_ml.md) | Coiled Cobra ML baseline (features, splits, metrics) |
-| [`swing_setup.md`](../handbook/swing_setup.md) | Quality-swing rules and geometry table |
+| [`swing_setup.md`](../handbook/swing_setup.md) | Quality-swing rules (historical; scanner decommissioned) |
 | [`scoring_logic.md`](../handbook/scoring_logic.md) | Vibe Score rubric |
 | [`coiled_cobra_rubric.md`](../handbook/coiled_cobra_rubric.md) | Coiled Cobra checklist / grades |
 | [`trade_plan_calculations.md`](../handbook/trade_plan_calculations.md) | Entry / stop / target math |
@@ -485,16 +296,19 @@ PY
 
 | File | Role |
 | ---- | ---- |
-| `config.py` | Timeframes, swing profiles, backtest constants, `resolve_pipeline_mode`, `get_log_dir`, `compute_swing_levels` |
+| `config.py` | Timeframes, backtest constants (`BACKTEST_*`), `RUBRIC_VERSION`, `resolve_pipeline_mode`, `get_log_dir`, `cut_to_as_of` |
 | `data_ingestor.py` | yfinance download → validated raw CSVs |
-| `swing_scanner.py` | `detect_setup_at_bar`, long-only / regime / RS / risk rejection |
-| `analysis_engine.py` | Vibe Score + `load_benchmark_frame` / `market_regime_ok` / `relative_strength` |
-| `trade_planner.py` | `calculate_stock_levels` (row Mode authoritative; cobra Fib path preserved) |
-| `pipeline_backtest.py` | Swing walk-forward + scaled simulator + reporting |
-| `coiled_cobra_backtest.py` | Cobra signal backfill + legacy trade simulation |
+| `analysis_engine.py` | Vibe Score + `load_benchmark_frame` / `relative_strength` / `check_coiled_cobra_market_gate` |
+| `coiled_cobra.py` | `evaluate_coiled_cobra()` (shared by live scan, backtest, experiments) |
+| `trade_planner.py` | `calculate_stock_levels` (Cobra Fib path; legacy swing fallback) |
+| `trade_simulator.py` | `simulate_trade`, `simulate_scaled_trade`, `passes_macro_gate` |
+| `coiled_cobra_backtest.py` | Cobra signal backfill + walk-forward trade simulation |
 | `coiled_cobra_ml_training.py` | XGBoost/LightGBM baseline on `Forward_Return_2w` |
-| `tests/test_pipeline_backtest.py` | Scale-out, gap, slippage, long-only, cooldown contracts |
+| `coiled_cobra_ml_walkforward.py` / `coiled_cobra_ml_experiment.py` | ML-vs-Score research harnesses |
+| `coiled_cobra_leader_experiment.py` | Leader-Expansion vs Coiled Cobra walk-forward |
+| `tests/test_trade_simulator.py` | Fill, gap, slippage, scale-out, macro-gate contracts |
 | `tests/test_coiled_cobra_backtest.py` | Cobra planner + backtest smoke tests |
+| `tests/test_leader_experiment.py` | Leader experiment protocol tests |
 
 ---
 

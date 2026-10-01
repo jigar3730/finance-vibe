@@ -2,7 +2,8 @@
 
 This tree is the reference manual and lab environment for the Finance Vibe
 pipeline: macro scoring, Coiled Cobra coil scoring (primary signal engine),
-walk-forward backtests, and the offline GBDT ranking baseline.
+breakout-readiness research scan, walk-forward backtests, and the offline
+GBDT ranking baseline.
 
 Project overview and run commands stay in the root [`README.md`](../README.md).
 
@@ -35,11 +36,12 @@ Project overview and run commands stay in the root [`README.md`](../README.md).
 | File | Contents |
 | ---- | -------- |
 | [`architecture/operation_manual.md`](architecture/operation_manual.md) | SOP, environment, troubleshooting |
-| [`architecture/backtest_and_backfill.md`](architecture/backtest_and_backfill.md) | Data backfill, signal archives, walk-forward sims |
-| [`architecture/coiled_cobra_ml.md`](architecture/coiled_cobra_ml.md) | ML baseline: features, leakage isolation, temporal split |
-| [`architecture/trade_planner_worklog.md`](architecture/trade_planner_worklog.md) | Planner formulas and implementation notes |
+| [`architecture/breakout_scanner.md`](architecture/breakout_scanner.md) | Breakout readiness scanner: states, status rules, 100-pt score |
+| [`architecture/backtest_and_backfill.md`](architecture/backtest_and_backfill.md) | Data backfill, signal archives, Cobra walk-forward sims, leader experiment |
+| [`architecture/coiled_cobra_ml.md`](architecture/coiled_cobra_ml.md) | ML baseline, walk-forward, pre-registered experiment |
+| [`architecture/trade_planner_worklog.md`](architecture/trade_planner_worklog.md) | Planner/helper reference + historical work log |
 | [`architecture/code_review.md`](architecture/code_review.md) | Historical architecture review (2026-07-12 snapshot) |
-| [`architecture/planned_enhancements.md`](architecture/planned_enhancements.md) | LEAPS / IV-rank critique |
+| [`architecture/planned_enhancements.md`](architecture/planned_enhancements.md) | LEAPS / IV-rank critique (historical — options output removed) |
 | [`architecture/project_resurrection_prompt.md`](architecture/project_resurrection_prompt.md) | Session context prompt for future work |
 
 ---
@@ -70,10 +72,16 @@ and a fallback that uses only the current stack (`xgboost`, `lightgbm`,
 
 | Concern | Module |
 | ------- | ------ |
-| Orchestrator | `src/finance_vibe/run_vibe.py` |
+| Orchestrator (`--mode`, `--reuse-raw`, `--as-of`) | `src/finance_vibe/run_vibe.py` |
+| Config, modes, as-of cut, rubric version | `src/finance_vibe/config.py` |
+| Universe + ingest | `src/finance_vibe/ticker_provider.py`, `src/finance_vibe/data_ingestor.py` |
 | Macro score | `src/finance_vibe/analysis_engine.py` |
 | Coiled Cobra rubric (primary signal engine) | `src/finance_vibe/coiled_cobra.py` |
+| Breakout readiness (research scan) | `src/finance_vibe/breakout_scanner.py` |
+| Signal levels + ranking | `src/finance_vibe/trade_planner.py`, `src/finance_vibe/trade_plan_helper.py` |
 | Cobra backtest + forward returns | `src/finance_vibe/coiled_cobra_backtest.py` |
 | Generic trade simulator | `src/finance_vibe/trade_simulator.py` |
 | GBDT trainer | `src/finance_vibe/coiled_cobra_ml_training.py` |
 | Soft ML ranking | `src/finance_vibe/ml_ranker.py` |
+| Research harnesses | `coiled_cobra_ml_walkforward.py`, `coiled_cobra_ml_experiment.py`, `coiled_cobra_leader_experiment.py` |
+| Dashboard + docs UI | `src/finance_vibe/app.py`, `src/finance_vibe/docs_routes.py` |

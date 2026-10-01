@@ -6,7 +6,7 @@ Stable
 
 ## Purpose
 
-This manual describes how to operate the Finance Vibe pipeline: data ingestion, macro scoring, tactical scanning, trade plan generation, and optional UI review.
+This manual describes how to operate the Finance Vibe pipeline: data ingestion, macro scoring, Coiled Cobra signal scanning, breakout-readiness scanning, signal ranking, and UI review.
 
 ## Environment
 
@@ -35,6 +35,8 @@ Compatible with the dev container or any standard Python environment with `PYTHO
 | `data/logs/weekly/` | Weekly reports and trade plans |
 | `data/logs/daily/` | Daily reports and trade plans |
 | `data/logs/high_beta/` | High-beta signal profile logs (shares daily raw OHLCV) |
+| `templates/`, `src/finance_vibe/static/` | Flask dashboard templates and CSS |
+| `tests/` | pytest suite |
 
 ## Standard operating procedure
 
@@ -106,19 +108,21 @@ python src/finance_vibe/ticker_provider.py
 python src/finance_vibe/data_ingestor.py weekly
 python src/finance_vibe/analysis_engine.py weekly
 python src/finance_vibe/coiled_cobra.py weekly
+python src/finance_vibe/breakout_scanner.py weekly
 python src/finance_vibe/trade_planner.py weekly
 python src/finance_vibe/trade_plan_helper.py weekly
 ```
 
-Replace `weekly` with `daily` or `high_beta` — `coiled_cobra.py` now supports
-all three (`high_beta` reads daily OHLCV and writes to its own
+`data_ingestor.py` and `analysis_engine.py` take a data timeframe (`weekly` or
+`daily`). The signal stages take `weekly`, `daily`, or `high_beta`. `coiled_cobra.py`
+supports all three (`high_beta` reads daily OHLCV and writes to its own
 `data/logs/high_beta/` silo).
 
 ## Script reference
 
 ### `ticker_provider.py`
 
-- Merges `STATIC_TICKERS` (`config.py`), `ticker_manifest.csv`, and Yahoo Finance screeners
+- Merges `STATIC_TICKERS` (`config.py`), `src/finance_vibe/ticker_manifest.csv`, and Yahoo Finance screeners (`SCREENER_IDS`, `SCREENER_COUNT` = 250 each)
 - Writes `data/active_tickers.csv` (capped at `ACTIVE_TICKER_CAP` = **1000** in `config.py`)
 
 ### `data_ingestor.py`
@@ -126,6 +130,7 @@ all three (`high_beta` reads daily OHLCV and writes to its own
 - Reads active tickers; downloads via `yfinance` using `TIMEFRAME_PROFILES` in `config.py`
 - Drops incomplete weekly candles (last bar if not Friday)
 - Uses `auto_adjust=True` for split/dividend-adjusted prices
+- Logs per-ticker failures to `data/logs/{mode}/ingest_errors_<date>.csv`
 
 ### `analysis_engine.py` (macro layer)
 
@@ -141,12 +146,20 @@ all three (`high_beta` reads daily OHLCV and writes to its own
 - Filters to symbols in `active_tickers.csv`
 - 100-pt v4.0 scorecard, hard-gated: long-term trend template, ticker market
   gate, coil integrity (structure/volatility-contraction independently
-  gating), and breadth (Checks Met >= 5/6); BBWidth-percentile volatility
+  gating), and breadth (Checks Met >= 4/6, `MIN_CHECKS_MET`); BBWidth-percentile volatility
   contraction replaces the old MACD-spread squeeze proxy
 - Profiles: `weekly`, `daily`, `high_beta` (`high_beta` reads daily OHLCV via
   `config.resolve_pipeline_mode()`, same bar-frequency calibration as
   `daily`, own `data/logs/high_beta/` silo)
 - **Specification:** [`coiled_cobra_rubric.md`](../handbook/coiled_cobra_rubric.md)
+
+### `breakout_scanner.py` (research scanner: pre-breakout states)
+
+- Labels trend / volatility / volume / momentum / structure / MTF states and
+  classifies `PRE_BREAKOUT`, `BREAKOUT_CONFIRMED`, `FAILED_BREAKOUT`,
+  `DEVELOPING`, `WATCH`; records a 100-pt Breakout Readiness score + factor scores
+- Writes `breakout_setups_<date>.csv`; **not** consumed by the planner
+- **Specification:** [`breakout_scanner.md`](breakout_scanner.md)
 
 ### `trade_planner.py` (signal-ranking stage, not a trade planner)
 
@@ -162,7 +175,7 @@ all three (`high_beta` reads daily OHLCV and writes to its own
 - Adds Risk Per Share and direction-aware R:R
 - Drops risk > 5% of Close, cobra checklist below coiled_cobra's own Gate D
   breadth floor (`MIN_CHECKS_MET/N_SCORED_PILLARS`, currently 4/6), or R:R T1 < 2.0
-- Ranks survivors by Expected Value with a 1.25 coil propensity (`ML_Pred_Return` is used only when `config.ML_RANKING_ENABLED` is on and every row has a prediction)
+- Ranks survivors by Expected Value (`R:R T2 × Score`) with a 1.25 coil propensity (`ML_Pred_Return` is used only when `config.ML_RANKING_ENABLED` is on and every row has a prediction)
 - Writes `trade_plan_clean_<date>.csv`
 
 ### `src/finance_vibe/trade_simulator.py` (library, not a script)
@@ -208,7 +221,19 @@ python src/finance_vibe/coiled_cobra_ml_training.py \
   --csv data/logs/weekly/coiled_cobra_backtest_trades_YYYY-MM-DD.csv
 ```
 
-Not part of the default pipeline. Full specification: **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)**.
+Not part of the default pipeline. ML ranking in the helper is off by default
+(`config.ML_RANKING_ENABLED = False`) and skipped on `--as-of` runs.
+
+Research harnesses (read-only, never write served artifacts):
+
+```bash
+python -m finance_vibe.coiled_cobra_ml_walkforward [--csv PATH]       # ML rank vs Score, expanding folds
+python -m finance_vibe.coiled_cobra_ml_experiment --csv PATH           # pre-registered, lockbox-gated
+python -m finance_vibe.coiled_cobra_leader_experiment                  # Leader-Expansion vs Coiled Cobra
+```
+
+Full specification: **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)**; leader experiment
+protocol: **[`backtest_and_backfill.md`](backtest_and_backfill.md)**.
 
 ## UI dashboard
 
@@ -216,7 +241,16 @@ Not part of the default pipeline. Full specification: **[`coiled_cobra_ml.md`](c
 python src/finance_vibe/app.py
 ```
 
-Open `http://127.0.0.1:5000` to browse trade plans by mode and date.
+Docker (`docker compose up -d`) runs the dashboard by default on port 5000, with
+`data/` mounted from the host and `docs/` mounted read-only.
+
+| Route | Contents |
+| ----- | -------- |
+| `/` , `/view/<mode>/<date>` | Trade plans (`trade_plan_clean_*` / `trade_plan_*`) for `weekly` and `daily` |
+| `/breakout`, `/breakout/<mode>/<date>` | Breakout scan: KPIs, status mix, candidates, live price vs Close (`weekly`, `daily`, `high_beta`) |
+| `/docs/` | Rendered handbook / architecture / labs markdown (`docs_routes.py`) |
+
+The trade-plan view does not list the `high_beta` silo yet. The breakout view does.
 
 ## Data maintenance
 
@@ -234,6 +268,7 @@ python src/finance_vibe/run_vibe.py
 | Missing `active_tickers.csv` | Run `ticker_provider.py` |
 | Ingest skips a symbol | No yfinance data for that ticker; check symbol validity |
 | Empty `coiled_cobra_setups_*.csv` | No tickers matched the coil scorecard (expected in quiet markets) |
+| Empty plan on an `--as-of` run | The helper needs the plan for exactly that date; run the full replay, not the helper alone |
 | `trade_plan_helper` file not found | Run the planner first; helper prefers today’s file then falls back to the newest dated plan |
 | Macro report missing tickers | Check ingest logs; file needs ≥ 60 rows |
 | ML script cannot find trades CSV | Run `coiled_cobra_backtest.py weekly --backtest`; pass `--csv`; see **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)** |
@@ -258,22 +293,31 @@ Edit `TIMEFRAME_PROFILES` in `config.py`:
 
 1. Macro: edit `score_last_row()` in `analysis_engine.py`; update [`scoring_logic.md`](../handbook/scoring_logic.md)
 2. Tactical: edit `evaluate_coiled_cobra()` in `coiled_cobra.py`; update [`coiled_cobra_rubric.md`](../handbook/coiled_cobra_rubric.md)
-3. Signal levels: edit `calculate_stock_levels()` in `trade_planner.py`
+3. Breakout states/score: edit `classify_status()` / `score_readiness()` in `breakout_scanner.py`; update [`breakout_scanner.md`](breakout_scanner.md)
+4. Signal levels: edit `calculate_stock_levels()` in `trade_planner.py`
+
+Validate gate or threshold changes with a staged walk-forward backtest before
+shipping them, and bump `config.RUBRIC_VERSION` when a change alters `Score` or
+which setups qualify.
 
 ## Output files
 
 | File | Layer |
 | ---- | ----- |
-| `vibe_report_<date>.csv` | Macro (manual run) |
+| `ingest_errors_<date>.csv` | Ingestion failures (pipeline step 2) |
+| `vibe_report_<date>.csv` | Macro (pipeline step 3) |
 | `coiled_cobra_setups_<date>.csv` | Signal (weekly/daily/high_beta) |
+| `breakout_setups_<date>.csv` | Breakout readiness research scan |
 | `trade_plan_<date>.csv` | Signal + stock-level context |
 | `trade_plan_clean_<date>.csv` | Signal (guardrailed + ranked) |
-| `backtest_trades_<date>.csv` | Offline backtest (manual run) |
+| `coiled_cobra_backfill_<date>.csv` | Historical Cobra signal archive (manual run) |
 | `coiled_cobra_backtest_trades_<date>.csv` | Coiled Cobra walk-forward trades (ML source) |
+| `coiled_cobra_{xgb_model.json,lgb_model.txt,ml_model_metadata.json}` | ML artifacts (manual ML run) |
 | `coiled_cobra_ml_feature_importance.png` | ML feature-importance chart (manual ML run) |
+| `leader_experiment_*` | Leader experiment bars / runs / analysis (manual run) |
 
 ## Notes
 
 - Each pipeline run clears `data/raw/{mode}/` before ingestion unless `--reuse-raw` is passed.
-- Macro (SMA) and tactical (EMA) indicators are intentionally different.
+- Macro (SMA) and Coiled Cobra (EMA) indicators are intentionally different.
 - `trade_plan_helper.py` prefers today’s dated plan, then the newest `trade_plan_*.csv` in that silo.

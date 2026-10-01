@@ -18,6 +18,7 @@ market-gate pillars, not the Vibe Score itself.
 | Layer | Module | Output |
 | ----- | ------ | ------ |
 | **Macro** | `analysis_engine.py` | `data/logs/{mode}/vibe_report_<date>.csv` |
+| **Breakout readiness (research)** | `breakout_scanner.py` | `breakout_setups_<date>.csv` ([spec](docs/architecture/breakout_scanner.md)) |
 | **Coiled Cobra (coil → expansion, primary signal engine)** | `coiled_cobra.py` / `coiled_cobra_backtest.py` | `coiled_cobra_setups_<date>.csv`, `coiled_cobra_backfill_<date>.csv`, `coiled_cobra_backtest_trades_<date>.csv` |
 | **Coiled Cobra ML (offline)** | `coiled_cobra_ml_training.py` / `ml_ranker.py` | XGBoost/LightGBM artifacts + soft `ML_Pred_Return` / `ML_Rank` |
 
@@ -148,8 +149,9 @@ python src/finance_vibe/app.py
 # http://127.0.0.1:5000
 ```
 
-Browse historic trade plans by date and mode (weekly/daily; the UI does not
-list the `high_beta` log silo). Docs: `http://127.0.0.1:5000/docs/`.
+Browse historic trade plans by date and mode (weekly/daily; the trade-plan
+view does not list the `high_beta` silo). Breakout scans for all three modes:
+`http://127.0.0.1:5000/breakout`. Docs: `http://127.0.0.1:5000/docs/`.
 
 ## Pipeline backtest (offline validation)
 

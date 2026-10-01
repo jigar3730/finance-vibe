@@ -1,5 +1,16 @@
 # Finance Vibe — Holistic Code Review
 
+> **Historical snapshot (2026-07-12), not the current architecture.** Since this
+> review: `swing_scanner.py` and `pipeline_backtest.py` were decommissioned
+> (Coiled Cobra is the only signal engine; simulators moved to
+> `trade_simulator.py`), `analysis_engine.py` runs again as pipeline step 3,
+> `breakout_scanner.py` was added as step 5, options/LEAPS output was removed,
+> `coiled_cobra_v2.py` no longer exists, Coiled Cobra moved to rubric v4.0, the
+> ticker cap is 1000, and `run_vibe.py` gained `--reuse-raw` / `--as-of`.
+> Current references: [`operation_manual.md`](operation_manual.md),
+> [`backtest_and_backfill.md`](backtest_and_backfill.md),
+> [`breakout_scanner.md`](breakout_scanner.md).
+
 **Review date:** 2026-07-12  
 **Scope:** Full workspace scan (`/src/finance_vibe/`, tests, config, docs)  
 **Reviewer role:** Senior Python Engineer / Technical Architect

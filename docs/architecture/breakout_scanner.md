@@ -1,204 +1,147 @@
+# Breakout Readiness Scanner
 
-**`breakout_scanner.py`**  structure.
+**Module:** `src/finance_vibe/breakout_scanner.py`
+**Pipeline step:** 5 of `run_vibe.py` (after `coiled_cobra.py`, before `trade_planner.py`)
+**Output:** `data/logs/{mode}/breakout_setups_<YYYY-MM-DD>.csv`
+**UI:** `/breakout` and `/breakout/<mode>/<date>` in `app.py` (weekly, daily, high_beta)
 
-### What the new scanner adds
+A research scanner that labels each ticker's **state** (trend, volatility,
+volume, momentum, structure, multi-timeframe alignment) and classifies it as a
+pre-breakout, confirmed, failed, developing, or watch setup. It aims to find
+names *before* they break out, not only after.
 
-* **SMA 20 / 50 / 200**
-* **RSI 14**
-* **MACD 15/30/9** — matching the direction we've already been tuning
-* **Bollinger Bands 20/2**
-* **BB Width percentile**
-* **ATR 14 + ATR percentile**
-* **20-bar range contraction**
-* **RVOL 20**
-* **Volume dry-up detection**
-* **20-bar resistance/support**
-* **Distance to resistance in ATR**
-* **Price extension in ATR**
-* **Monthly → Weekly → Daily alignment**
-* **Momentum acceleration**
-* **Pre-breakout vs confirmed-breakout classification**
-* **Fakeout detection**
-* **100-point Breakout Readiness Score**
-* Individual factor scores so we can tune the model later
-* CSV output suitable for your existing pipeline
+It runs beside Coiled Cobra and does **not** feed the trade planner. Coiled
+Cobra stays the primary signal engine. Breakout output is for inspection
+and backtesting, to find out which features have predictive value before any
+weights are tuned.
 
-Most importantly, it is designed to find the **pre-breakout candidate**, rather than only finding stocks after they have already broken out.
+## Design principles
 
-### New file
+- **States first, score second.** `classify_status()` does not take the score
+  as an input. The 100-point Breakout Readiness score and its factor
+  sub-scores are kept for later weight tuning.
+- **Features are the source of truth.** The CSV keeps every raw feature
+  (percentiles, slopes, distances, booleans) next to the states and scores.
+- **No invented bars.** Daily raw data is resampled to weekly (`W-FRI`) and
+  monthly. Weekly raw data is resampled to monthly only. Intraday (4H/1H) is
+  out of scope until the raw dataset includes those bars.
+- **Causal percentiles.** Width/ATR/range percentiles use rolling windows
+  (daily 252, weekly 52, monthly 36 bars), never the full series.
 
-/src/finance_vibe/breakout_scanner.py
-
-### One important design decision
-
-I deliberately **didn't make the score the primary source of truth**.
-
-The CSV preserves the underlying features:
+## Flow
 
 ```text
-BB Width Pctl
-KC Width Pctl
-ATR Pctl
-Range20 Pctl
-RVOL20
-RSI Slope
-MACD Hist Slope
-Distance Resistance ATR
-Extension ATR
-Daily Trend Bull
-Weekly Trend Bull
-Monthly Trend Bull
-MTF Alignment
-Compression
-Breakout Triggered
-Breakout Confirmation
-Failed Breakout
-...
+data/raw/{data_mode}/*.csv  (filtered to active_tickers.csv)
+        │
+        ▼
+normalize_ohlcv()          clean / validate, optional cut_to_as_of()
+        │
+        ▼
+FeatureEngine.create_timeframes()
+        ├── daily native  → Daily + Weekly + Monthly
+        └── weekly native → Weekly + Monthly
+        │
+        ▼
+add_indicators()  per timeframe
+        SMA 20/50/200 · RSI 14 · MACD 15/30/9 · BB 20/2 · KC 20/1.5
+        ATR 14 · RVOL 20 · OBV · 20-bar resistance/support · 20-bar range
+        │
+        ▼
+FeatureEngine.extract()  → BreakoutFeatures (last bar)
+        │
+        ▼
+ScoringEngine.evaluate()
+        ├── classify_states()   Trend / Volatility / Volume / Momentum /
+        │                       Structure / Breakout Distance / MTF
+        ├── classify_status()   PRE_BREAKOUT · BREAKOUT_CONFIRMED ·
+        │                       FAILED_BREAKOUT · DEVELOPING · WATCH
+        └── score_readiness()   100-pt score + factor scores − penalties
+        │
+        ▼
+breakout_setups_<date>.csv  (sorted by status, then readiness)
 ```
 
-That gives us the ability to backtest and determine **which features actually have predictive value** before we start aggressively tuning weights.
+`high_beta` reads daily OHLCV (`config.resolve_pipeline_mode`) and writes to
+its own `data/logs/high_beta/` silo. Files with fewer than 80 primary bars
+(`MIN_PRIMARY_BARS`) are rejected as `insufficient_data`.
 
-### Current architecture
+## Key event definitions (`add_indicators`)
 
-```text
-OHLCV
-  │
-  ├── Daily
-  ├── Weekly
-  └── Monthly
-        │
-        ▼
-   Feature Engine
-        │
-        ├── Trend
-        ├── Momentum
-        ├── Volatility
-        ├── Volume
-        └── Structure
-        │
-        ▼
-  Breakout Readiness
-        │
-        ├── PRE_BREAKOUT
-        ├── WATCH
-        ├── DEVELOPING
-        ├── BREAKOUT_CONFIRMED
-        └── FAILED_BREAKOUT
-        │
-        ▼
- breakout_setups_YYYY-MM-DD.csv
+| Field | Definition |
+| ----- | ---------- |
+| `Squeeze` | Bollinger Bands fully inside Keltner Channel |
+| `Compression` | BB Width pctl ≤ 30 **and** ATR pctl ≤ 40 **and** Range20 pctl ≤ 40 |
+| `Breakout Triggered` | Close > 20-bar resistance |
+| `Breakout Confirmation` | Triggered **and** RVOL20 ≥ 1.5 **and** Close > SMA20 |
+| `Failed Breakout` | Was above resistance in the last 5 bars, now back below |
+| `Wick Reject` | High pierced resistance but Close stayed below |
+
+## Status classification (`classify_status`)
+
+Evaluated in order. The first match wins.
+
+| Status | Rule (summary) |
+| ------ | -------------- |
+| `FAILED_BREAKOUT` | `Failed Breakout` is true |
+| `BREAKOUT_CONFIRMED` | `Breakout Confirmation` is true |
+| `PRE_BREAKOUT` | Not through resistance, trend BULLISH, volatility COMPRESSING, momentum ACCELERATING, under/at resistance within 1.25 ATR, MTF ALIGNED/PARTIAL, volume not climactic |
+| `WATCH` | Triggered but unconfirmed, or a near-resistance bullish name |
+| `DEVELOPING` | Bullish early coil (compressing or BB pctl ≤ 40) still more than 1.25 ATR from resistance |
+| `WATCH` | Fallback |
+
+The console table and dashboard show `PRE_BREAKOUT`, `BREAKOUT_CONFIRMED`,
+and `FAILED_BREAKOUT` rows, plus `WATCH` rows with readiness ≥ 55 and
+`DEVELOPING` rows with readiness ≥ 50. The CSV keeps every scanned row.
+
+## Breakout Readiness score (`score_readiness`)
+
+| Pillar | Max | Components |
+| ------ | --- | ---------- |
+| Trend | 25 | Daily 10 / Weekly 8 / Monthly 7 (weekly-native: Weekly 15 / Monthly 10) |
+| Compression | 25 | BB width pctl 8, ATR pctl 6, Range20 pctl 5, Squeeze 6 |
+| Momentum | 20 | RSI band 6, RSI slope 7, MACD histogram slope 7 |
+| Volume | 15 | Dry-up 8, RVOL/OBV 7 (regime-aware: dry-up pre-breakout, expansion once triggered) |
+| Structure | 15 | Proximity to resistance in ATR 10, extension above SMA in ATR 5 |
+
+Penalties, subtracted after the pillars and clamped to 0–100:
+
+| Condition | Penalty |
+| --------- | ------- |
+| Failed breakout | 20 (10 if currently re-triggered) |
+| Wick rejection (not failed) | 8 |
+| MTF `DIVERGENT` | 10 |
+| Extension > 2.5 ATR | 10 |
+| RSI > 75 | 5 |
+| Trend `BEARISH` | 10 |
+
+## Output columns
+
+`OUTPUT_COLUMNS` in the module is authoritative. The CSV contains these groups:
+
+| Group | Examples |
+| ----- | -------- |
+| Identity | `Symbol`, `Mode`, `Source`, `AsOf Date`, `Close` |
+| Raw features | `SMA20/50/200`, `RSI`, `ATR`, `Resistance`, `Support`, `BB/KC Width Pctl`, `ATR Pctl`, `Range20 Pctl`, `RVOL20`, `RSI Slope`, `MACD Hist Slope`, `Distance Resistance ATR`, `Extension ATR` |
+| Booleans | `Daily/Weekly/Monthly Trend Bull`, `MTF Alignment`, `Compression`, `Breakout Triggered`, `Breakout Confirmation`, `Failed Breakout` |
+| States | `Trend`, `Volatility`, `Volume State`, `Momentum`, `Structure`, `Breakout Distance`, `MTF`, `Status` |
+| Scores | `Breakout Readiness`, five pillar scores, `Penalty`, and 15 factor scores |
+
+## Usage
+
+```bash
+python src/finance_vibe/breakout_scanner.py weekly
+python src/finance_vibe/breakout_scanner.py daily
+python src/finance_vibe/breakout_scanner.py high_beta
+python src/finance_vibe/breakout_scanner.py weekly --as-of 2025-11-07
 ```
 
-One caveat: with your current OHLCV data, the script uses **Monthly/Weekly/Daily** MTFA. It does **not pretend that daily data contains 4H/1H information**. We can add that later if your raw dataset contains intraday bars.
+Tests: `tests/test_breakout_dashboard.py`, `tests/test_as_of.py`.
 
-The next step I recommend is **not immediately changing your production scanner**. Run this alongside the existing `swing_scanner.py`, inspect the candidates it produces, and then we'll compare **Breakout Readiness vs your existing Swing Score** on the same ticker universe. That will tell us whether this is actually discovering earlier opportunities rather than simply generating another flavor of the same signals.
+## Open work
 
-# Core Breakout Structure
-
-| Pillar         | Primary Tool                                | What it tells us                             |
-| -------------- | ------------------------------------------- | -------------------------------------------- |
-| **Trend**      | **SMA 20 / 50 / 200**                       | Direction and structural alignment           |
-| **Volatility** | **Bollinger Bands + Keltner Channel + ATR** | Compression → squeeze → volatility expansion |
-| **Momentum**   | **RSI + MACD Histogram**                    | Whether momentum is building                 |
-| **Volume**     | **Relative Volume + OBV**                   | Whether participation is arriving            |
-| **Structure**  | **Price levels / swing highs**              | Where the actual breakout occurs             |
-
-# overall script structure 
-breakout_scanner.py
-
-        │
-        ▼
-Load OHLCV
-        │
-        ▼
-Clean / validate data
-        │
-        ▼
-Create timeframes
-        │
-        ├── Monthly
-        ├── Weekly
-        └── Daily
-        │
-        ▼
-Calculate indicators
-        │
-        ├── SMA
-        ├── RSI
-        ├── MACD
-        ├── Bollinger
-        ├── ATR
-        └── Volume/RVOL
-        │
-        ▼
-Detect market structure
-        │
-        ├── Support
-        ├── Resistance
-        ├── Swing highs
-        ├── Swing lows
-        └── Consolidation
-        │
-        ▼
-Detect compression
-        │
-        ├── BB contraction
-        ├── ATR contraction
-        ├── Range contraction
-        └── Volume dry-up
-        │
-        ▼
-Momentum analysis
-        │
-        ├── RSI
-        ├── RSI slope
-        ├── MACD
-        └── MACD histogram slope
-        │
-        ▼
-Breakout proximity
-        │
-        ├── Distance to resistance
-        └── Distance / ATR
-        │
-        ▼
-MTF alignment
-        │
-        ├── Monthly
-        ├── Weekly
-        └── Daily
-        │
-        ▼
-BREAKOUT READINESS SCORE
-        │
-        ▼
-Fakeout / risk penalties
-        │
-        ▼
-Final classification
-
-# Script intent 
-Make it identify states. not scores 
-TREND
-    BULLISH
-
-VOLATILITY
-    COMPRESSING
-
-VOLUME
-    DRYING_UP
-
-MOMENTUM
-    ACCELERATING
-
-STRUCTURE
-    UNDER_RESISTANCE
-
-BREAKOUT_DISTANCE
-    0.7 ATR
-
-MTF
-    ALIGNED
-
-STATUS
-    PRE_BREAKOUT
+- No walk-forward backtest of breakout statuses yet. The next step is to
+  measure forward returns per `Status` and per factor score against Coiled
+  Cobra signals on the same universe, so weights are tuned from evidence
+  (the same approach as the Gate D recalibration in
+  [`coiled_cobra_rubric.md`](../handbook/coiled_cobra_rubric.md)).
+- Intraday timeframes need intraday raw bars.

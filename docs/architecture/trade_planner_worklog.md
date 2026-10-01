@@ -1,7 +1,7 @@
 # Trade Planner — Work Log and Current Reference
 
-Historical notes from initial development (2026-02-26), updated to match the
-current codebase.
+Current reference for `trade_planner.py` / `trade_plan_helper.py`, followed by
+historical notes from initial development (2026-02-26).
 
 ---
 
@@ -9,78 +9,87 @@ current codebase.
 
 ### Role in pipeline
 
-`trade_planner.py` runs after the swing scanner and Coiled Cobra in
-`run_vibe.py`. It merges **today's** `swing_setups_<date>.csv` and
-`coiled_cobra_setups_<date>.csv` from `config.get_log_dir(mode)` and writes
-`trade_plan_<date>.csv`. `trade_plan_helper.py` applies guardrails and ranks
-survivors into `trade_plan_clean_<date>.csv`.
+`trade_planner.py` is step 6 of `run_vibe.py`, after `coiled_cobra.py` and
+`breakout_scanner.py`. It reads **today's** `coiled_cobra_setups_<date>.csv`
+from `config.get_log_dir(mode)` and writes `trade_plan_<date>.csv`.
+`trade_plan_helper.py` (step 7) applies guardrails and ranks survivors into
+`trade_plan_clean_<date>.csv`.
+
+It is a signal-ranking stage, not an execution planner. Levels are
+informational stock-level context. It produces no options or LEAPS output.
+The breakout scanner's output is **not** an input.
 
 ```bash
 python src/finance_vibe/trade_planner.py weekly
 python src/finance_vibe/trade_planner.py daily
 python src/finance_vibe/trade_planner.py high_beta
 python src/finance_vibe/trade_plan_helper.py weekly
+python src/finance_vibe/trade_planner.py weekly --as-of 2025-11-07
 ```
 
 ### Paths
 
 | File | Location |
 | --- | --- |
-| Swing input | `data/logs/{mode}/swing_setups_<YYYY-MM-DD>.csv` |
 | Cobra input | `data/logs/{mode}/coiled_cobra_setups_<YYYY-MM-DD>.csv` |
 | Trade plan output | `data/logs/{mode}/trade_plan_<YYYY-MM-DD>.csv` |
 | Cleaned plan | `data/logs/{mode}/trade_plan_clean_<YYYY-MM-DD>.csv` |
 
-The planner uses **today's dated files only** (no silent reuse of last week's
-hits). `high_beta` has its own log silo. Coiled Cobra is skipped in that mode.
+The planner uses **today's dated file only**, so last week's hits are never
+silently reused. A zero-setup day writes a header-only CSV so the helper does
+not crash. `high_beta` has its own log silo, and Coiled Cobra runs in every
+mode, including `high_beta`.
 
 ### Input columns
 
 Shared `config.SETUP_ROW_COLUMNS`, including `Source`, `Mode`, `Swing Low` /
-`Swing High`, Fib levels, `Score` / `Grade` / `Checks Met`, `RVOL`,
-`Market Gate`, and optional `ML_Pred_Return` / `ML_Rank`. Row `Mode` is
-authoritative for swing geometry.
+`Swing High`, Fib levels, `Score` / `Grade` / `Tier` / `Checks Met`, `RVOL`,
+`Market Gate`, and optional `ML_Pred_Return` / `ML_Rank`. A missing `Source`
+column defaults to `coiled_cobra`.
 
 ### Stock level formulas (`calculate_stock_levels`)
 
-**Quality swing** — `config.compute_swing_levels` / `get_swing_params`:
-
-| Level | Weekly | Daily | High-beta |
-| --- | --- | --- | --- |
-| Entry (long) | `max(EMA20, Close − 0.25×ATR)` | same | same |
-| Stop | dual-constraint vs **1.5×ATR** + 5% Close | same | same, then reject risk ∉ **[0.5, 1.5] ATR** |
-| T1 / T2 | **1.25 / 2.25 ATR** | **0.85 / 1.6 ATR** | **2R / 3R** |
-
-**Coiled Cobra** (`Source` in `{coiled_cobra, cobra}` and Fib 78.6% present):
+**Coiled Cobra** (`Source` in `{coiled_cobra, cobra}`, `SETUP_LONG`, Fib 78.6% present):
 
 | Level | Formula |
 | --- | --- |
 | Entry | `max(Fib 78.6%, Close − 0.25×ATR)` |
-| Stop | local 10-bar swing low vs 1.5×ATR vs 5% Close (tightest) |
+| Stop | tightest of: 10-bar swing low − 0.25×ATR, entry − 1.5×ATR, entry − 5% of Close; capped at entry − 0.25×ATR |
 | T1 / T2 | **2R / 3R** of entry−stop risk |
 
+`calculate_stock_levels()` is also used by `coiled_cobra_backtest.py` and
+`coiled_cobra_leader_experiment.py`, so live, backtest, and experiment
+geometry match.
+
+**Legacy fallback.** Rows that miss the Cobra branch fall back to
+`config.compute_swing_levels` / `get_swing_params` (the quality-swing
+geometry left over from the decommissioned `swing_scanner.py`). The function
+still returns an option side and delta band for signature compatibility, but
+neither is written to any output.
+
 Full math: [`trade_plan_calculations.md`](../handbook/trade_plan_calculations.md).
-
-### Options metadata
-
-| Mode | Contract column | Expiry window | Delta |
-| --- | --- | --- | --- |
-| `weekly` | LEAPS Type (CALL/PUT) | 12–24 months forward | Long: 0.65–0.80, Short: −0.80 to −0.65 |
-| `daily`, `high_beta` | Options Type (CALL/PUT) | 1–3 months forward | Same delta bands |
 
 ### Cleaned output (`trade_plan_helper.py`)
 
 - Direction-aware `Risk Per Share`, `R:R T1`, `R:R T2`
-- Drop risk > 5% of Close, cobra `Checks Met` below coiled_cobra's Gate D
-  breadth floor (`MIN_CHECKS_MET/N_SCORED_PILLARS`, currently 4/6), or R:R T1 < 2.0
-- Rank by `Expected Value = R:R T2 × Score`, or `R:R T2 × max(ML_Pred_Return, 0)`
-  when the ML column is populated; ×1.25 propensity for cobra / tight-risk rows
-- Prefers today's plan; falls back to the newest dated `trade_plan_*.csv`
+- Drop risk > 5% of Close (`config.MAX_RISK_PCT_OF_CLOSE`), cobra
+  `Checks Met` below coiled_cobra's Gate D breadth floor
+  (`MIN_CHECKS_MET/N_SCORED_PILLARS`, currently 4/6), or R:R T1 < 2.0
+- `Expected Value = R:R T2 × Score`; `Priority = Expected Value × propensity`
+  (×1.25 for Cobra rows or rows with risk ≤ 3% of Close; every live row is
+  Cobra, so in practice the boost is uniform and ranking follows Expected Value)
+- `ML_Pred_Return` replaces Score in the priority only when
+  `config.ML_RANKING_ENABLED` is on (default **off**) and every row has a
+  prediction
+- Prefers today's plan and falls back to the newest dated `trade_plan_*.csv`.
+  With `--as-of` the lookup is strict, with no fallback.
 
 ### Offline validation
 
-`pipeline_backtest.py` reuses `calculate_stock_levels()` on historical setups (with
-an optional macro Vibe Score gate). Stock simulation only — no options P&L.
+`coiled_cobra_backtest.py --backtest` reuses `calculate_stock_levels()` on
+historical Cobra signals and simulates fills with
+`trade_simulator.simulate_trade`. Stock simulation only, with no options P&L.
+See [`backtest_and_backfill.md`](backtest_and_backfill.md).
 
 ---
 
@@ -103,17 +112,18 @@ and options/LEAPS metadata per signal.
 ### Still open
 
 - Position sizing / % portfolio risk per trade
-- LEAPS strike selection from delta (metadata only today)
 - Portfolio constraints (max open trades, sector caps)
-- True R-multiple targets on **all** swing profiles (high_beta and Cobra already use 2R/3R; weekly/daily remain ATR offsets)
+- ~~LEAPS strike selection~~: options output was removed (2026-09-06); the project generates signals only
+- ~~True R-multiple targets~~: resolved, since Coiled Cobra (the only live source) uses 2R/3R
 
 ---
 
-## Sample weekly output (illustrative)
+## Historical sample output (pre-2026-09, swing + LEAPS era)
 
 ```csv
 Symbol,Setup Type,Stock Entry,Stock Stop,Target 1,Target 2,LEAPS Type,LEAPS Expiry Min,LEAPS Expiry Max,Suggested Delta,Risk Notes
 SPY,SETUP_LONG,691.16,681.57,699.13,707.1,CALL,Feb-2027,Feb-2028,0.65 – 0.8,Stop based on EMA50; adjust if invalidated
 ```
 
-Column names differ in **daily** mode (`Options Type`, `Options Expiry Min/Max`).
+This format is retired. Current `trade_plan_<date>.csv` files have no LEAPS or
+options columns. The export schema is `_PLAN_EXPORT_COLUMNS` in `trade_planner.py`.
