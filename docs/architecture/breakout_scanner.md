@@ -137,11 +137,21 @@ python src/finance_vibe/breakout_scanner.py weekly --as-of 2025-11-07
 
 Tests: `tests/test_breakout_dashboard.py`, `tests/test_as_of.py`.
 
+## Validation status
+
+**Tested 2026-10-01 and found no edge.** A pre-registered weekly walk-forward
+(`breakout_experiment.py`, 259 tickers) found that no status or readiness
+cut beats random entries on trail-exit R. `BK_READY70` was significantly *worse* than
+random, the readiness score's weekly rank IC is about 0, and `PRE_BREAKOUT` had the weakest
+13-week forward return of any status. Full protocol and numbers:
+[`backtest_and_backfill.md`](backtest_and_backfill.md#breakout-readiness-experiment-research-only).
+
+Treat the dashboard as descriptive only. Do not use it to rank or select entries.
+
 ## Open work
 
-- No walk-forward backtest of breakout statuses yet. The next step is to
-  measure forward returns per `Status` and per factor score against Coiled
-  Cobra signals on the same universe, so weights are tuned from evidence
-  (the same approach as the Gate D recalibration in
-  [`coiled_cobra_rubric.md`](../handbook/coiled_cobra_rubric.md)).
+- Decide whether to keep `breakout_scanner.py` in `run_vibe.py` given the null result,
+  or keep it only as a descriptive dashboard.
+- The test covered weekly bars only. A daily test would need the same protocol
+  pre-registered before it is run.
 - Intraday timeframes need intraday raw bars.

@@ -37,7 +37,7 @@ Project overview and run commands stay in the root [`README.md`](../README.md).
 | ---- | -------- |
 | [`architecture/operation_manual.md`](architecture/operation_manual.md) | SOP, environment, troubleshooting |
 | [`architecture/breakout_scanner.md`](architecture/breakout_scanner.md) | Breakout readiness scanner: states, status rules, 100-pt score |
-| [`architecture/backtest_and_backfill.md`](architecture/backtest_and_backfill.md) | Data backfill, signal archives, Cobra walk-forward sims, leader experiment |
+| [`architecture/backtest_and_backfill.md`](architecture/backtest_and_backfill.md) | Data backfill, signal archives, Cobra walk-forward sims, leader + breakout experiments |
 | [`architecture/coiled_cobra_ml.md`](architecture/coiled_cobra_ml.md) | ML baseline, walk-forward, pre-registered experiment |
 | [`architecture/trade_planner_worklog.md`](architecture/trade_planner_worklog.md) | Planner/helper reference + historical work log |
 | [`architecture/code_review.md`](architecture/code_review.md) | Historical architecture review (2026-07-12 snapshot) |
@@ -83,5 +83,5 @@ and a fallback that uses only the current stack (`xgboost`, `lightgbm`,
 | Generic trade simulator | `src/finance_vibe/trade_simulator.py` |
 | GBDT trainer | `src/finance_vibe/coiled_cobra_ml_training.py` |
 | Soft ML ranking | `src/finance_vibe/ml_ranker.py` |
-| Research harnesses | `coiled_cobra_ml_walkforward.py`, `coiled_cobra_ml_experiment.py`, `coiled_cobra_leader_experiment.py` |
+| Research harnesses | `coiled_cobra_ml_walkforward.py`, `coiled_cobra_ml_experiment.py`, `coiled_cobra_leader_experiment.py`, `breakout_experiment.py` |
 | Dashboard + docs UI | `src/finance_vibe/app.py`, `src/finance_vibe/docs_routes.py` |

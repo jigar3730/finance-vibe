@@ -351,3 +351,71 @@ Protocol (fixed in the module docstring and constants before results were read):
 a trailing exit earn positive R by themselves, so a variant only counts if it beats the control.
 Tests: `tests/test_leader_experiment.py`.
 
+
+---
+
+## Breakout Readiness experiment (research only)
+
+`breakout_experiment.py` is a pre-registered walk-forward test of `breakout_scanner.py`. It
+never changes the live scanner. Question: do any of the scanner's states, or its 100-point
+readiness score, predict forward trade outcomes better than random entries?
+
+```bash
+docker exec -it finance_vibe bash
+cd /app && export PYTHONPATH=/app/src
+python -m finance_vibe.breakout_experiment                                  # whole weekly raw dir (~40 min on 4 cores)
+python -m finance_vibe.breakout_experiment --tickers AAPL,MU --out-dir /tmp/bx   # smoke test
+python -m finance_vibe.breakout_experiment --from-bars <bars.csv.gz>        # re-analyse
+```
+
+Outputs (in `data/logs/weekly/`, or `--out-dir`): `breakout_experiment_bars_<date>.csv.gz`
+(every scoreable bar with status, scores, variant flags, forward stats and trail outcome) and
+`breakout_experiment_<date>.json` (analysis).
+
+Protocol (fixed in the module docstring and constants before results were read). It reuses
+the leader experiment's exits, periods, deduplication and statistics:
+
+| Element | Definition |
+| ------- | ---------- |
+| Signals | Every weekly bar from the scanner's 80-bar floor onward is re-scanned with the live `FeatureEngine` + `ScoringEngine` on data cut at that bar (identical to an `--as-of` run) |
+| Variants | `BK_PRE`, `BK_CONFIRMED`, `BK_PRE_OR_CONF`, `BK_DISPLAY` (dashboard candidate rule minus FAILED), `BK_READY70` (readiness ≥ 70, any non-failed status); `BK_FAILED` is a negative check and never qualifies; `C0_random` is the control |
+| Exit | `trail` only: next-open entry, 2.5 ATR stop, 3 ATR chandelier, 52-bar time exit. There is no planner exit because breakout rows have no Fib levels |
+| Periods | `dev` → `lockbox` (52 weeks ending 52 weeks before the last bar) → `live` (censored, reported only) |
+| Qualification (dev, all tickers) | Q0 ≥ 100 episodes; Q1 cluster-bootstrap CI of mean trail-R > 0; Q2 paired mean-R difference vs `C0_random` CI > 0; Q3 share of episodes with a ≥ 25% drawdown inside 26 weeks ≤ control + 10 pts |
+| Lockbox | The best qualifier (highest Q2 lower bound) is evaluated **once**. It passes if its difference vs random is > 0 and its mean R > 0 with cluster t > 1.645. If nothing qualifies, the lockbox stays unspent |
+| Report only | Weekly cross-sectional rank IC of readiness and each pillar score vs the 13-week return; forward outcomes per status; Coiled Cobra `B0_baseline` on shared ticker-weeks, from the newest `leader_experiment_bars_*.csv.gz` |
+
+Tests: `tests/test_breakout_experiment.py` (variant boundaries, no-lookahead check, match with
+the live scanner on cut data, IC math, protocol plumbing).
+
+### Result (2026-10-01 run, last bar 2026-09-07, 259 tickers, 97,463 scoreable bars)
+
+**No variant qualified, so the lockbox stays unspent.** Every breakout variant earns positive
+trail-R, as random long entries do in this sample, but none beats `C0_random` (Q2):
+
+| Variant (dev) | Episodes | Mean trail-R [95% CI] | vs random [95% CI] |
+| ------------- | -------: | --------------------- | ------------------ |
+| `BK_PRE` | 366 | 0.29 [0.14, 0.43] | −0.11 [−0.28, 0.05] |
+| `BK_CONFIRMED` | 876 | 0.38 [0.20, 0.62] | −0.01 [−0.20, 0.22] |
+| `BK_PRE_OR_CONF` | 1,219 | 0.36 [0.22, 0.53] | −0.03 [−0.19, 0.14] |
+| `BK_DISPLAY` | 5,242 | 0.33 [0.24, 0.43] | −0.06 [−0.16, 0.03] |
+| `BK_READY70` | 2,042 | 0.27 [0.17, 0.37] | **−0.13 [−0.23, −0.02]** (worse than random) |
+| `BK_FAILED` (negative check) | 3,863 | 0.33 [0.22, 0.45] | — |
+| `C0_random` | 3,297 | 0.39 [0.31, 0.48] | — |
+
+Report-only findings:
+
+- **Readiness score has no cross-sectional signal.** Mean weekly rank IC vs the 13-week return
+  is −0.012 [−0.028, 0.002]. The Volume (−0.026), Momentum (−0.015) and Compression (−0.014)
+  pillar ICs are slightly *negative*, with CIs below 0. Trend is the only positive pillar (+0.011,
+  CI spans 0).
+- **The status ladder is not ordered.** `PRE_BREAKOUT`, the headline status, has the weakest
+  13-week mean return (+2% vs +6% for `WATCH`). `FAILED_BREAKOUT` does not underperform.
+  `BREAKOUT_CONFIRMED` has the most upside (+9%, 15% doubled within 26w) but also the most
+  ≥ 25% drawdowns (35%), which matches its random-like R.
+- On shared ticker-weeks, Coiled Cobra `B0_baseline` (0.22R) is also below random (0.48R) under
+  this trail exit, which agrees with the 2026-09-19 leader experiment.
+
+Conclusion: the breakout scanner's states and score add nothing over random entries on weekly
+data. Do not use them for ranking or entries, and do not tune their weights from this data,
+since there is no signal to tune toward.

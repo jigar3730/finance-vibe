@@ -51,7 +51,9 @@ Key logic:
 - **Breakout scanner** (`breakout_scanner.py`): research-only, state-first
   classifier (PRE_BREAKOUT / BREAKOUT_CONFIRMED / FAILED_BREAKOUT /
   DEVELOPING / WATCH) plus a 100-pt readiness score with factor scores, using
-  D/W/M resampled frames. Not consumed by the planner.
+  D/W/M resampled frames. Not consumed by the planner. The 2026-10-01
+  `breakout_experiment.py` walk-forward found no status or score cut that beats
+  random entries (readiness IC ≈ 0), so it is descriptive only.
 - **Planner** (`trade_planner.py`): Cobra rows → entry `max(Fib 78.6%, Close −
   0.25×ATR)`, tightest of 10-bar swing low / 1.5×ATR / 5% Close stop, 2R/3R
   targets. Legacy swing geometry stays only as a fallback in

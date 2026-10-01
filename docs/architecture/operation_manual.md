@@ -230,6 +230,7 @@ Research harnesses (read-only, never write served artifacts):
 python -m finance_vibe.coiled_cobra_ml_walkforward [--csv PATH]       # ML rank vs Score, expanding folds
 python -m finance_vibe.coiled_cobra_ml_experiment --csv PATH           # pre-registered, lockbox-gated
 python -m finance_vibe.coiled_cobra_leader_experiment                  # Leader-Expansion vs Coiled Cobra
+python -m finance_vibe.breakout_experiment                             # Breakout scanner states/score vs random
 ```
 
 Full specification: **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)**; leader experiment
@@ -315,6 +316,7 @@ which setups qualify.
 | `coiled_cobra_{xgb_model.json,lgb_model.txt,ml_model_metadata.json}` | ML artifacts (manual ML run) |
 | `coiled_cobra_ml_feature_importance.png` | ML feature-importance chart (manual ML run) |
 | `leader_experiment_*` | Leader experiment bars / runs / analysis (manual run) |
+| `breakout_experiment_*` | Breakout experiment bars / analysis (manual run) |
 
 ## Notes
 
