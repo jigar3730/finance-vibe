@@ -191,6 +191,31 @@ def test_scaled_same_bar_stop_and_target_is_pessimistic():
     assert res["blended_r"] == pytest.approx(-1.0)
 
 
+def test_trailing_stop_ignores_same_bar_high_full_exit_mode():
+    # Default no-partials mode: a wide bar must not ratchet the trailing stop
+    # with its own high before the low is checked (intrabar lookahead).
+    res = _run_scaled(
+        [(101, 102, 100, 101),
+         (99, 105, 95, 100)],
+        is_long=True,
+        partial_fraction=0.0,
+    )
+    assert res["outcome"] == "stopped_full"
+    assert res["blended_r"] == pytest.approx(-1.0)
+
+
+def test_short_trailing_stop_ignores_same_bar_low():
+    res = _run_scaled(
+        [(99, 100, 98, 99),       # fill at 100
+         (101, 105, 95, 100)],    # Low 95 would pull a same-bar trail to 103
+        is_long=False,
+        entry=100.0, stop=104.0, target1=96.0, target2=92.0,
+        partial_fraction=0.0,
+    )
+    assert res["outcome"] == "stopped_full"
+    assert res["blended_r"] == pytest.approx(-1.0)
+
+
 def test_scaled_no_fill_when_entry_not_reached():
     res = _run_scaled(
         [(102, 103, 101, 102),
