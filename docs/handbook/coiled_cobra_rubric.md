@@ -12,7 +12,7 @@ bars, scanned against 10 years of weekly OHLCV history.
 |---|---|
 | Added a **Long-Term Trend Template** hard gate (30w/40w EMA stack, both rising) | v3.1 only checked EMA20/50 — a short-term construct. Nothing stopped a coil from passing inside a dead or declining multi-year trend. |
 | `Checks Met` is now a **hard AND condition**, not a display-only counter | v3.1's fully additive scoring let strong unrelated pillars compensate for a pillar that outright failed (e.g. `structure = 0`, `coil_width = 0`), producing false positives. |
-| `structure` and `coil_width` can each **independently disqualify** a setup | Same reason — these two pillars *are* the definition of "coiled," so a zero on either should not be recoverable via volume/RS/RVOL. |
+| `structure` and `vol_contraction` (which replaced v3.1's `coil_width`) can each **independently disqualify** a setup | Same reason — these two pillars *are* the definition of "coiled," so a zero on either should not be recoverable via volume/RS/RVOL. |
 | Volatility compression now measured with **Bollinger Band Width percentile**, not MACD | MACD is a momentum/trend indicator, not a volatility indicator. Using `|Hist|/ATR` as a "squeeze" score conflated momentum convergence with range contraction and produced false compression reads. |
 | BBWidth percentile is computed over a **rolling 2-3 year window**, not the full 10-year history | Regime drift (2020 crash, 2022 bear) would otherwise distort what "tight" means for a given stock. The 10-year history is used for ATH/overhead detection instead. |
 | MACD demoted to a **small binary directional filter** | Keeps a genuinely useful, cheap check (is momentum net-positive) without double-counting volatility. |
@@ -60,8 +60,8 @@ Fail-open (`True`) when benchmark data is unavailable, same as v3.1.
 
 ## Gate C — Coil Integrity (new — replaces implicit additive credit)
 ```
-coil_width_score  ≥ 10   (i.e. range/ATR at or below the "partial" band)
-structure_score   ≥ 8    (i.e. EMA10w/20w/30w/40w alignment check passed)
+vol_contraction   ≥ 12   (GATE_C_VOL_CONTRACTION_MIN — BBWidth pctl ≤ 35th and not rising, or ≤ 10th)
+structure_score   ≥ 8    (GATE_C_STRUCTURE_MIN — EMA10w/20w/30w/40w alignment passed)
 ```
 Both must individually clear their own check threshold. A stock that isn't
 actually coiling, or isn't in aligned short-term structure, is rejected
@@ -140,7 +140,11 @@ snapshot — or halve the points. This is the actual VCP-style check that
 v3.1's static ATR ratio never performed.
 
 Check counted when `vol_contraction ≥ 12`. This check is also one half of
-Gate C (see above — must independently clear ≥10 pts equivalent).
+Gate C (see above — the same ≥ 12 threshold, `GATE_C_VOL_CONTRACTION_MIN`).
+Note the halving rule: in code the points are halved (integer) when the
+percentile is higher than it was `COIL_BARS` ago. A ≤ 10th-percentile reading
+still passes when halved (25 → 12), but a ≤ 20th-percentile reading drops to 10
+and **fails** both the check and Gate C.
 
 ## 2. MACD directional filter (not scored — gate modifier only)
 

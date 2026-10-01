@@ -36,18 +36,23 @@ only in labs 03, 05, and 06.
 Coiled Cobra is a **compression-before-expansion** scanner, not a mean-reversion
 discount hunter. The live rubric in `coiled_cobra.py` scores:
 
-| Pillar | Function | Finance rationale |
-| ------ | -------- | ----------------- |
-| Volume profile shelf | `evaluate_volume_profile_shelf` | Auction-market accumulation (high-volume node / POC) |
-| Coil width | `coil_width_score` | $N$-bar range / ATR — tight base before expansion |
-| MACD squeeze | `macd_compression_score` | Histogram compressing near zero with MACD line $> 0$ |
-| Relative strength vs QQQ | `rs_score` | Prefer names already leading the tape |
-| MA alignment | `structure_score` | EMA20 $> $ EMA50; soft `Pct_From_EMA50` haircut (leaders to 0.50) |
-| Breakout RVOL | `rvol_trigger_score` | Additive bonus; trigger at $\mathrm{RVOL} \ge 1.2\times$ |
-| Overhead clearance | `overhead_clearance_score` | Open sky at $\ge 95\%$ of 52w/ATH, else $\ge 3$ ATR to supply |
+(rubric v4.0, `config.RUBRIC_VERSION`). Four hard gates run first: A
+long-term trend template (Close > EMA30w > EMA40w, EMA40w rising), B market
+gate (Close ≥ 0.90×EMA50w, RS_13w > −15%), C coil integrity (volatility
+contraction ≥ 12 **and** structure ≥ 8), D breadth (Checks Met ≥ 4/6). Rows
+that pass are scored on six pillars:
 
-Market Gate fails only on `Close < EMA50` or negative 63d RS. Pillar
-floors are Checks Met counters, not binary drops. RVOL is never zeroed.
+| Pillar (max) | Function | Finance rationale |
+| ------------ | -------- | ----------------- |
+| Volatility contraction (25) | `vol_contraction_score` | BBWidth percentile vs its own 2–3y history, declining over the coil — tight base before expansion |
+| Structure & MA alignment (20) | `structure_score` | Full EMA10w ≥ 20w ≥ 30w ≥ 40w stack; soft extension haircut |
+| Relative strength vs QQQ (20) | `relative_strength_score` | Prefer names already leading the tape |
+| Volume profile shelf (15) | `evaluate_volume_profile_shelf` | Auction-market accumulation (high-volume node / POC) |
+| Overhead clearance (10) | `overhead_clearance_score` | Open sky near the 52w high / ATH, else ATR distance to supply |
+| Breakout RVOL (10) | `rvol_trigger_score` | Additive bonus; trigger at $\mathrm{RVOL} \ge 1.2\times$; never a drop |
+
+MACD is not a pillar: `macd_directional_penalty` subtracts 8 points when
+momentum is net-negative. RVOL is never zeroed.
 Full pillar tables: [`coiled_cobra_rubric.md`](coiled_cobra_rubric.md).
 
 `add_macro_indicators()` builds the raw series the scorecard reads: EMA10/20/50/100,
