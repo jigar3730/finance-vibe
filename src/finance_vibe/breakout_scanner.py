@@ -523,10 +523,16 @@ def add_indicators(df: pd.DataFrame, *, pctl_window: int, include_sma200: bool =
     above_res = (close > out["Resistance"]).fillna(False)
     out["Breakout Triggered"] = above_res
     wick_reject = ((high > out["Resistance"]) & (close < out["Resistance"])).fillna(False)
-    lost_level = (
+    # The level a breakout cleared is the resistance on the first bar of the
+    # run. Resistance itself rolls up to include the breakout bar's high the
+    # next day, so "not above resistance" alone is not a failure: the close
+    # has to fall back below the level that was actually broken.
+    run_start = above_res & ~above_res.shift(1, fill_value=False)
+    out["Breakout Level"] = out["Resistance"].where(run_start).ffill()
+    recently_above = (
         above_res.shift(1).rolling(FAKEOUT_LOOKBACK, min_periods=1).max().fillna(0).astype(bool)
-        & ~above_res
     )
+    lost_level = (recently_above & ~above_res & (close < out["Breakout Level"])).fillna(False)
     out["Wick Reject"] = wick_reject
     out["Failed Breakout"] = lost_level
     out["Breakout Confirmation"] = (
@@ -783,7 +789,18 @@ def _pctl_points(pctl: float | None, full: int, mid: int, bands: tuple[float, fl
     return 0
 
 
+# MTF labels with no bullish timeframe. They carry the same score penalty
+# DIVERGENT did before they were split out of it (see score_readiness).
+MTF_NO_UPTREND = {"BEARISH", "NEUTRAL"}
+
+
 def _mtf_label(feat: BreakoutFeatures) -> str:
+    """Trend agreement across daily (if native) / weekly / monthly.
+
+    ALIGNED: every known timeframe bullish. PARTIAL: some bullish, none
+    bearish. DIVERGENT: bullish on one timeframe, bearish on another.
+    BEARISH / NEUTRAL: no bullish timeframe, with / without a bearish one.
+    """
     flags = []
     bears = []
     if feat.has_daily:
@@ -799,13 +816,10 @@ def _mtf_label(feat: BreakoutFeatures) -> str:
         return "INSUFFICIENT"
     if all(known):
         return "ALIGNED"
-    if any(bears) and any(known):
-        # Primary (or any) bull against a higher-TF bear.
-        if any(known) and any(b is True for b in bears):
-            return "DIVERGENT"
+    any_bear = any(b is True for b in bears)
     if any(known):
-        return "PARTIAL"
-    return "DIVERGENT"
+        return "DIVERGENT" if any_bear else "PARTIAL"
+    return "BEARISH" if any_bear else "NEUTRAL"
 
 
 def _primary_trend_label(feat: BreakoutFeatures) -> str:
@@ -1077,7 +1091,7 @@ def score_readiness(feat: BreakoutFeatures, states: dict[str, str]) -> dict:
         penalty += 20 if feat.breakout_triggered is False else 10
     elif feat.wick_reject:
         penalty += 8
-    if states["MTF"] == "DIVERGENT":
+    if states["MTF"] == "DIVERGENT" or states["MTF"] in MTF_NO_UPTREND:
         penalty += 10
     if ext is not None and ext > 2.50:
         penalty += 10

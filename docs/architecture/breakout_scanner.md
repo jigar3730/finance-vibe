@@ -72,7 +72,8 @@ Files with fewer than 80 primary bars
 | `Compression` | BB Width pctl ≤ 30 **and** ATR pctl ≤ 40 **and** Range20 pctl ≤ 40 |
 | `Breakout Triggered` | Close > 20-bar resistance |
 | `Breakout Confirmation` | Triggered **and** RVOL20 ≥ 1.5 **and** Close > SMA20 |
-| `Failed Breakout` | Was above resistance in the last 5 bars, now back below |
+| `Breakout Level` | 20-bar resistance on the first bar of the most recent breakout run (the level actually broken) |
+| `Failed Breakout` | Was above resistance in the last 5 bars, is not now, **and** closed back below `Breakout Level`. Resistance rolls up to the breakout bar's own high the next day, so closing under it while holding the broken level is not a failure (fixed 2026-10-08; before that most next-day pullbacks were labelled failed). |
 | `Wick Reject` | High pierced resistance but Close stayed below |
 
 ## Status classification (`classify_status`)
@@ -108,7 +109,7 @@ Penalties, subtracted after the pillars and clamped to 0–100:
 | --------- | ------- |
 | Failed breakout | 20 (10 if currently re-triggered) |
 | Wick rejection (not failed) | 8 |
-| MTF `DIVERGENT` | 10 |
+| MTF `DIVERGENT`, `BEARISH` or `NEUTRAL` (no bullish timeframe) | 10 |
 | Extension > 2.5 ATR | 10 |
 | RSI > 75 | 5 |
 | Trend `BEARISH` | 10 |
@@ -123,6 +124,13 @@ Penalties, subtracted after the pillars and clamped to 0–100:
 | Raw features | `SMA20/50/200`, `RSI`, `ATR`, `Resistance`, `Support`, `BB/KC Width Pctl`, `ATR Pctl`, `Range20 Pctl`, `RVOL20`, `RSI Slope`, `MACD Hist Slope`, `Distance Resistance ATR`, `Extension ATR` |
 | Booleans | `Daily/Weekly/Monthly Trend Bull`, `MTF Alignment`, `Compression`, `Breakout Triggered`, `Breakout Confirmation`, `Failed Breakout` |
 | States | `Trend`, `Volatility`, `Volume State`, `Momentum`, `Structure`, `Breakout Distance`, `MTF`, `Status` |
+
+`MTF` compares the trend on daily (daily-native only), weekly and monthly frames:
+`ALIGNED` (all known bullish), `PARTIAL` (some bullish, none bearish), `DIVERGENT`
+(bullish on one, bearish on another), `BEARISH` (none bullish, at least one bearish),
+`NEUTRAL` (none bullish or bearish), `INSUFFICIENT` (fewer than two known). Before
+2026-10-08 `BEARISH` and `NEUTRAL` names were labelled `DIVERGENT`; they keep the same
+10-point penalty, so readiness scores are unchanged by the split.
 | Scores | `Breakout Readiness`, five pillar scores, `Penalty`, and 15 factor scores |
 
 ## Usage

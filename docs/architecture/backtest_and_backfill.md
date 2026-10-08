@@ -408,7 +408,9 @@ Report-only findings:
   pillar ICs are slightly *negative*, with CIs below 0. Trend is the only positive pillar (+0.011,
   CI spans 0).
 - **The status ladder is not ordered.** `PRE_BREAKOUT`, the headline status, has the weakest
-  13-week mean return (+2% vs +6% for `WATCH`). `FAILED_BREAKOUT` does not underperform.
+  13-week mean return (+2% vs +6% for `WATCH`). `FAILED_BREAKOUT` does not underperform (this run predates the 2026-10-08
+  failed-breakout fix, under which most `FAILED_BREAKOUT` rows were breakouts still holding
+  the broken level).
   `BREAKOUT_CONFIRMED` has the most upside (+9%, 15% doubled within 26w) but also the most
   ≥ 25% drawdowns (35%), which matches its random-like R.
 - On shared ticker-weeks, Coiled Cobra `B0_baseline` (0.22R) is also below random (0.48R) under

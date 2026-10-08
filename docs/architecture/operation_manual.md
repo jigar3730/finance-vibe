@@ -91,27 +91,39 @@ date. Runs up to then, including the 2026-09-19 run, scanned the previous week.
 
 ### Scheduled daily run
 
-The daily pipeline runs on **weekdays at 17:30 America/New_York**, after daily bars
-are final (17:00 ET):
+The daily pipeline (Coiled Cobra and the breakout scanner on daily bars) runs every
+trading day, **Monday–Friday at 18:30 America/New_York**, with a **22:30 ET retry**:
 
 ```cron
-30 21,22 * * 1-5 /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
+30 22,23,2,3 * * * /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
 ```
 
-`scripts/run_daily_pipeline.sh` mirrors the weekly runner (ET-hour guard, its own
-`daily.lock`, one `daily_<date>_<time>.log` per run in `~/.local/state/finance-vibe/`,
-`--now` for a manual run) and is a separate script, so the weekly runner is unaffected.
-Differences:
+Cron fires at the UTC hours that cover both slots in EDT and EST. The script runs
+only at 18:xx or 22:xx New York time on a weekday. Weekends have no new daily bars and
+are skipped. Market holidays still run, and the health check then expects the previous
+session's bar.
 
-- `run_vibe.py --mode daily` runs under `timeout 25m` inside the container. A timeout
-  (exit 124) is alerted. The cap also keeps a Friday daily run clear of the 18:00 weekly
-  run, since both refresh `data/active_tickers.csv`.
-- `scripts/check_daily_outputs.py` expects SPY/QQQ's newest daily bar to be the last
-  NYSE session that has closed (`daily_ingest.last_complete_session`). Market holidays
-  still run; on those days the expected bar is the previous session.
-- Alerts use the same `notify_email.py` / `notify.env` as the weekly run.
+- **Why 18:30.** Daily bars are final from 17:00 ET (`daily_ingest.DAY_FINAL_HOUR_ET`).
+  Runs at 18:00–18:11 ET have received the same day's close, and 18:30 starts after the
+  Friday 18:00 weekly run. The daily runner also waits for `weekly.lock` (up to 30 min)
+  and holds it while it runs, so the two never overlap. Both refresh
+  `data/active_tickers.csv`.
+- **Why a retry.** Yahoo sometimes publishes the daily close late. On 2026-10-07 the bar
+  was still blank at 21:00 ET for every ticker. A run that passes the health check leaves
+  `daily_ok_<date>` in the log directory, and the 22:30 slot exits at once when that
+  marker exists. Otherwise it re-runs the whole pipeline.
+- **Alerts.** A pipeline failure, or a 25-minute timeout (`timeout` inside the container,
+  exit 124), is emailed at once. A failed health check is emailed only if the 22:30 retry,
+  or a `--now` run, also fails. Email goes through the same `notify_email.py` /
+  `notify.env` as the weekly run.
+- **Health check.** `scripts/check_daily_outputs.py` expects today's five outputs and
+  checks that SPY/QQQ's newest daily bar is the last closed NYSE session
+  (`daily_ingest.last_complete_session`). It also fails if more than 20% of tickers
+  could not be ingested.
 
-Run the daily health check by hand with
+`scripts/run_daily_pipeline.sh --now` runs immediately, and a passing manual run also
+satisfies that day's schedule. Logs are `daily_<date>_<time>.log` in
+`~/.local/state/finance-vibe/`. Run the daily health check by hand with
 `docker exec -i finance_vibe python - < scripts/check_daily_outputs.py`.
 
 ### Replaying a past week (`--as-of`)
