@@ -454,8 +454,6 @@ def overhead_clearance_score(
         return 10.0
     if atr <= 0:
         return 0.0
-    if high_52 <= price or local_high <= price:
-        return 10.0
     room_atr = (min(high_52, local_high) - price) / atr
     if room_atr >= 3.0:
         return 8.0

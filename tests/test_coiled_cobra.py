@@ -121,6 +121,15 @@ def test_overhead_clearance_new_point_scale():
     assert overhead_clearance_score(df, price, atr=2.0, lookback=52) == 10.0
 
 
+def test_overhead_clearance_atr_room_bands():
+    # Flat 110 ceiling, price below the 95% open-sky line: scored by ATR room.
+    df = pd.DataFrame({"High": [110.0] * 60, "Low": [90.0] * 60, "Close": [100.0] * 60})
+    assert overhead_clearance_score(df, 100.0, atr=2.0, lookback=52) == 8.0    # 5 ATR
+    assert overhead_clearance_score(df, 100.0, atr=4.0, lookback=52) == 5.0    # 2.5 ATR
+    assert overhead_clearance_score(df, 100.0, atr=8.0, lookback=52) == 2.0    # 1.25 ATR
+    assert overhead_clearance_score(df, 100.0, atr=20.0, lookback=52) == 0.0   # 0.5 ATR
+
+
 def test_rvol_full_points_at_2x():
     df = _ohlc(40)
     df["RVOL"] = 1.0
