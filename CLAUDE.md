@@ -102,16 +102,21 @@ architecture docs are stale (e.g. `project_resurrection_prompt.md` and
 
 ## Testing without host pytest
 
-The host may not have pytest. Run the suite in the container against the
-working tree:
+The host may not have pytest. These scripts copy the working tree into the
+`finance_vibe` container and run there:
 
 ```bash
-docker exec finance_vibe rm -rf /tmp/cc && docker exec finance_vibe mkdir -p /tmp/cc
-for d in src tests docs templates; do docker cp $d finance_vibe:/tmp/cc/$d; done
-docker exec -w /tmp/cc -e PYTHONPATH=/tmp/cc/src finance_vibe python -m pytest -q -p no:cacheprovider
+scripts/test_in_container.sh                    # pytest (any pytest args pass through)
+scripts/golden_in_container.sh compare          # golden-output check, ~1.5 min
 ```
 
-(`docs/` and `templates/` are needed by `tests/test_docs_routes.py`.)
+`golden_in_container.sh` replays the weekly and daily pipelines with `--as-of` on
+a frozen raw-data fixture (`/mnt/fast/finance-vibe-data/golden/`). It diffs every
+output CSV, plus a scorecard of every ticker including rejects, against the
+stored baseline. Run `compare` before and after any refactor, dependency bump or
+data-layer change; it must print `IDENTICAL`. Only after a deliberate,
+rubric-versioned score change should you run `baseline --force` to re-record.
+`snapshot --force` re-freezes the raw data; always re-baseline right after it.
 
 ## Working style
 

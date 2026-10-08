@@ -1,7 +1,7 @@
 # Finance Vibe: Modernization Plan
 
-Status: **proposal** (2026-10-08). Nothing in this document has been implemented
-yet. Each phase is a separate, reviewable change.
+Status: **in progress.** Phase 0 is done (2026-10-08); later phases are proposals.
+Each phase is a separate, reviewable change.
 
 ## 1. Summary and reality check
 
@@ -118,7 +118,18 @@ The numeric core is already in good shape:
 
 Effort is given in relative sizes: S under a day, M a few days, L about a week.
 
-### Phase 0: Safety net (S, low risk). *Do this first.*
+### Phase 0: Safety net (S, low risk). **Done 2026-10-08.**
+> Implemented as:
+> - `constraints/2026-10-baseline.txt`, frozen from the container (pandas 3.0.5, numpy 2.2.6, pandas-ta 0.4.71b0, yfinance 1.7.0);
+> - `scripts/golden_compare.py` and `scripts/golden_in_container.sh`;
+> - `scripts/test_in_container.sh`.
+>
+> The fixture holds 270 weekly and 277 daily raw files at `/mnt/fast/finance-vibe-data/golden/`. The baseline was recorded at `be18122` with as-of dates 2026-10-02 (weekly) and 2026-10-06 (daily), and covers 12 CSVs. Besides the pipeline outputs, it includes `golden_cobra_scorecard.csv`, which holds Score, Grade and pillar points for every ticker, rejects included.
+>
+> Checks done:
+> - two runs on unchanged code came out identical;
+> - changing the MACD penalty from 8 to 7 was caught (Score differed on 171 daily and 127 weekly tickers, plus Grade/Tier and setup-count diffs).
+
 **Goal:** make every later phase provably behaviour-neutral.
 1. **Freeze today's working environment.** Snapshot `pip freeze` from the
    running `finance_vibe` container into `constraints/2026-10-baseline.txt`.
