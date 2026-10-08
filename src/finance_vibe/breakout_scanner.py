@@ -19,7 +19,6 @@ Usage::
 
     python src/finance_vibe/breakout_scanner.py weekly
     python src/finance_vibe/breakout_scanner.py daily
-    python src/finance_vibe/breakout_scanner.py high_beta
 """
 from __future__ import annotations
 
@@ -44,7 +43,7 @@ except ImportError:
 # =========================
 # PROFILE CONFIGURATION
 # =========================
-if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily", "high_beta"]:
+if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
     mode = sys.argv[1].lower()
 else:
     print("⚠️ Unknown mode parsed to scanner. Defaulting to 'weekly'.")

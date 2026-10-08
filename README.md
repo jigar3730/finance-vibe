@@ -47,7 +47,7 @@ finance-vibe/
 ├── data/
 │   ├── active_tickers.csv     # Universe from ticker_provider
 │   ├── raw/{weekly|daily}/    # Ingested OHLCV CSVs
-│   └── logs/{weekly|daily|high_beta}/  # Reports, trade plans, backtests
+│   └── logs/{weekly|daily}/   # Reports, trade plans, backtests
 └── tests/
 ```
 
@@ -55,25 +55,22 @@ finance-vibe/
 
 1. Clean `data/raw/{data_mode}/` unless `--reuse-raw`
 2. `ticker_provider.py` → `data/active_tickers.csv` (skipped with `--reuse-raw`)
-3. `data_ingestor.py` → download OHLCV (skipped with `--reuse-raw`)
+3. `data_ingestor.py` (weekly) / `daily_ingest.py` (daily; drops today's bar before 17:00 ET) → download OHLCV (skipped with `--reuse-raw`)
 4. `analysis_engine.py` → macro Vibe Score (`vibe_report_<date>.csv`)
-5. `coiled_cobra.py` → coil scorecard (profile: weekly / daily / high_beta)
+5. `coiled_cobra.py` → coil scorecard (profile: weekly / daily)
 6. `breakout_scanner.py` → pre-breakout readiness scan
 7. `trade_planner.py` → entry / stop / target context (signal, not a trade plan)
 8. `trade_plan_helper.py` → guardrails, R:R, EV / ML rank
-
-`high_beta` reads **daily** OHLCV and writes to `data/logs/high_beta/`.
 
 ## Running
 
 ```bash
 python src/finance_vibe/run_vibe.py
 python src/finance_vibe/run_vibe.py --mode daily
-python src/finance_vibe/run_vibe.py --mode high_beta
 python src/finance_vibe/run_vibe.py --mode daily --reuse-raw   # keep existing OHLCV; skip wipe + ingest
 ```
 
-Coiled Cobra (weekly / daily / high_beta):
+Coiled Cobra (weekly / daily):
 
 ```bash
 python src/finance_vibe/coiled_cobra.py weekly
@@ -86,6 +83,7 @@ Individual stages:
 ```bash
 python src/finance_vibe/ticker_provider.py
 python src/finance_vibe/data_ingestor.py weekly
+python src/finance_vibe/daily_ingest.py                    # daily ingest
 python src/finance_vibe/analysis_engine.py weekly          # also runs automatically as pipeline step 4
 python src/finance_vibe/coiled_cobra.py weekly
 python src/finance_vibe/trade_planner.py weekly
@@ -106,7 +104,7 @@ Filenames: `<TICKER>_<period>_<interval>.csv` (e.g. `AAPL_10y_1wk.csv`).
 | File | Description |
 | ---- | ----------- |
 | `vibe_report_<date>.csv` | Macro scores for all scanned tickers |
-| `coiled_cobra_setups_<date>.csv` | Coil → expansion setups (shared setup schema; weekly/daily/high_beta) |
+| `coiled_cobra_setups_<date>.csv` | Coil → expansion setups (shared setup schema; weekly/daily) |
 | `trade_plan_<date>.csv` | Signal + stock-level context (entry/stop/target; no options metadata) |
 | `trade_plan_clean_<date>.csv` | Guardrailed plan with R:R, Expected Value, and Priority |
 | `ingest_errors_<date>.csv` | Per-ticker ingestion failures (empty/invalid/insufficient data) |
@@ -149,8 +147,7 @@ python src/finance_vibe/app.py
 # http://127.0.0.1:5000
 ```
 
-Browse historic trade plans by date and mode (weekly/daily; the trade-plan
-view does not list the `high_beta` silo). Breakout scans for all three modes:
+Browse historic trade plans by date and mode (weekly/daily). Breakout scans for both modes:
 `http://127.0.0.1:5000/breakout`. Docs: `http://127.0.0.1:5000/docs/`.
 
 ## Pipeline backtest (offline validation)
@@ -172,7 +169,7 @@ python src/finance_vibe/coiled_cobra_ml_training.py \
 
 The training run writes model artifacts such as `coiled_cobra_xgb_model.json`, `coiled_cobra_lgb_model.txt`, and `coiled_cobra_ml_model_metadata.json` beside the feature-importance plot. Use them with `src/finance_vibe/ml_ranker.py` to attach `ML_Pred_Return` and `ML_Rank` to new Coiled Cobra setups. Treat those columns as a soft ranking/confirmation signal: combine them with the macro score, structure checks, and risk rules rather than using them as a standalone entry gate.
 
-Outputs land under `data/logs/{weekly|daily|high_beta}/`. ML feature isolation, temporal split, and metrics: **[`docs/architecture/coiled_cobra_ml.md`](docs/architecture/coiled_cobra_ml.md)**.
+Outputs land under `data/logs/{weekly|daily}/`. ML feature isolation, temporal split, and metrics: **[`docs/architecture/coiled_cobra_ml.md`](docs/architecture/coiled_cobra_ml.md)**.
 
 **Limitations (summary):** stock-level only (no options P&L); not part of `run_vibe.py`.
 

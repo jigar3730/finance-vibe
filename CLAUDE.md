@@ -16,7 +16,7 @@ or options positions. It is also a quant/ML lab (see `docs/labs/`).
 - `templates/`, `src/finance_vibe/static/` — Flask UI
 - `tests/` — pytest suite (imports `from finance_vibe import ...`)
 - `docs/handbook/` — theory and rubrics; `docs/architecture/` — pipeline, ops, ML; `docs/labs/` — experiments
-- `data/` — gitignored. `data/raw/{weekly|daily}/`, `data/logs/{weekly|daily|high_beta}/`, `data/active_tickers.csv`
+- `data/` — gitignored. `data/raw/{weekly|daily}/`, `data/logs/{weekly|daily}/`, `data/active_tickers.csv`
 - `notebooks/` — exploration only, not part of the pipeline
 
 ## Commands
@@ -30,7 +30,6 @@ python -m pytest tests/test_coiled_cobra.py -q
 
 python src/finance_vibe/run_vibe.py                        # weekly (default)
 python src/finance_vibe/run_vibe.py --mode daily
-python src/finance_vibe/run_vibe.py --mode high_beta       # daily OHLCV, own log silo
 python src/finance_vibe/run_vibe.py --reuse-raw            # skip wipe + ticker refresh + ingest
 python src/finance_vibe/run_vibe.py --as-of 2025-11-07     # replay from raw on disk (implies --reuse-raw)
 
@@ -43,7 +42,8 @@ Every stage script also runs standalone with a mode argument, e.g.
 ## Pipeline (`run_vibe.py`, the source of truth)
 
 Stages run as subprocesses, in order: wipe `data/raw/{mode}/` (unless
-`--reuse-raw`/`--as-of`) → `ticker_provider` → `data_ingestor` →
+`--reuse-raw`/`--as-of`) → `ticker_provider` → `data_ingestor` (weekly) or
+`daily_ingest` (daily; drops today's bar before 17:00 ET) →
 `analysis_engine` (macro Vibe Score) → `coiled_cobra` → `breakout_scanner` →
 `trade_planner` → `trade_plan_helper`. All outputs land in
 `data/logs/{mode}/` with a `_<date>` suffix.

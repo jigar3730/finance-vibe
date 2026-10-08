@@ -10,7 +10,6 @@ The planner merges **today's** `swing_setups_<date>.csv` and
 ```bash
 python src/finance_vibe/trade_planner.py weekly
 python src/finance_vibe/trade_planner.py daily
-python src/finance_vibe/trade_planner.py high_beta
 python src/finance_vibe/trade_plan_helper.py weekly
 ```
 
@@ -28,8 +27,7 @@ graph TD
     D -->|trade_plan_helper.py| E[Guardrails + EV rank]
 ```
 
-`run_vibe.py` skips Coiled Cobra in `high_beta` mode. `analysis_engine.py` is
-not an orchestrator step.
+`analysis_engine.py` is not an orchestrator step.
 
 ---
 
@@ -60,7 +58,8 @@ Local structure is swing low/high ± `0.25×ATR` (fallback EMA50). The stop is
 the tighter of that structure and `entry ± 1.5×ATR`, then capped at **5% of
 Close**. A minimum buffer of `0.25×ATR` from entry is always kept.
 
-`high_beta` then **rejects** the row if risk / ATR is outside **[0.5, 1.5]**.
+A profile that sets `min_risk_atr` / `max_risk_atr` then **rejects** the row if
+risk / ATR is outside that band. No shipped profile sets them.
 
 ### Targets
 
@@ -68,9 +67,10 @@ Close**. A minimum buffer of `0.25×ATR` from entry is always kept.
 | ------- | -- | -- |
 | `weekly` | Entry ± **1.25×ATR** | Entry ± **2.25×ATR** |
 | `daily` | Entry ± **0.85×ATR** | Entry ± **1.6×ATR** |
-| `high_beta` | Entry ± **2.0 × risk** | Entry ± **3.0 × risk** |
 
-`use_r_targets` is True only on `high_beta` (`t1_r=2.0`, `t2_r=3.0`).
+`use_r_targets` (targets at `t1_r` / `t2_r` × risk) is an opt-in option that no
+shipped profile enables; it was used only by the `high_beta` profile, removed
+on 2026-10-08.
 
 ---
 
@@ -100,7 +100,7 @@ geometry was 2R/3R, rebuilds targets from the rounded risk.
 | Mode | Contract column | Expiry window | Delta |
 | ---- | --------------- | ------------- | ----- |
 | `weekly` | `LEAPS Type` | 12–24 months | Long 0.65–0.80 / Short −0.80 to −0.65 |
-| `daily`, `high_beta` | `Options Type` | 1–3 months | Same delta bands |
+| `daily` | `Options Type` | 1–3 months | Same delta bands |
 
 ---
 
@@ -122,7 +122,7 @@ Survivors are ranked:
 - **ML override (off by default):** only if `config.ML_RANKING_ENABLED` is `True` **and every surviving row has** an `ML_Pred_Return`: `Priority = R:R T2 × max(ML_Pred_Return, 0) × propensity` (ties → Score). Otherwise — flag off, column empty, or incomplete coverage — ranking is by Score, and the helper prints why if predictions were ignored. The flag is off because the v4.0 walk-forward found no out-of-sample edge for ML over Score.
 
 The helper prefers `trade_plan_{today}.csv`, then falls back to the newest
-dated `trade_plan_*.csv` in the mode log dir (including `high_beta`).
+dated `trade_plan_*.csv` in the mode log dir.
 
 ---
 
@@ -135,7 +135,7 @@ Inputs: Close 100, EMA20 99, EMA50 95, ATR 4, swing low 96.
 3. T1 = 99 + 1.25×4 = **104.00**; T2 = 99 + 2.25×4 = **108.00**
 4. Risk = 4.00; R:R T1 = 1.25 (this weekly ATR path **fails** the helper's T1 ≥ 2.0 gate)
 
-A `high_beta` or Coiled Cobra 2R/3R path with the same 4.00 risk would print
+A Coiled Cobra 2R/3R path with the same 4.00 risk would print
 T1 = 107.00 / T2 = 111.00 and **pass** the helper T1 gate.
 
 ---

@@ -22,7 +22,6 @@ The breakout scanner's output is **not** an input.
 ```bash
 python src/finance_vibe/trade_planner.py weekly
 python src/finance_vibe/trade_planner.py daily
-python src/finance_vibe/trade_planner.py high_beta
 python src/finance_vibe/trade_plan_helper.py weekly
 python src/finance_vibe/trade_planner.py weekly --as-of 2025-11-07
 ```
@@ -37,8 +36,7 @@ python src/finance_vibe/trade_planner.py weekly --as-of 2025-11-07
 
 The planner uses **today's dated file only**, so last week's hits are never
 silently reused. A zero-setup day writes a header-only CSV so the helper does
-not crash. `high_beta` has its own log silo, and Coiled Cobra runs in every
-mode, including `high_beta`.
+not crash. Coiled Cobra runs in every mode.
 
 ### Input columns
 

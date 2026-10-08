@@ -155,9 +155,8 @@ def test_weekly_model_is_not_resolved_for_other_modes(mode_dirs):
     weekly = ml_ranker._resolve_model_paths("weekly")
     assert weekly["xgb"] and weekly["lgb"] and weekly["metadata"]
 
-    for other in ("daily", "high_beta"):
-        paths = ml_ranker._resolve_model_paths(other)
-        assert paths == {"xgb": None, "lgb": None, "metadata": None}, other
+    paths = ml_ranker._resolve_model_paths("daily")
+    assert paths == {"xgb": None, "lgb": None, "metadata": None}
 
 
 def test_predict_daily_does_not_use_weekly_model(mode_dirs):
@@ -165,7 +164,6 @@ def test_predict_daily_does_not_use_weekly_model(mode_dirs):
     X = _scan_rows()
     assert ml_ranker.predict_returns(X, "weekly").notna().all()
     assert ml_ranker.predict_returns(X, "daily").isna().all()
-    assert ml_ranker.predict_returns(X, "high_beta").isna().all()
 
 
 def test_weekly_model_copied_into_daily_dir_is_rejected_by_metadata_mode(mode_dirs, caplog):

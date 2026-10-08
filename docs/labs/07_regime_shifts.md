@@ -6,8 +6,9 @@ the single 26-week holdout.
 
 ## Why this experiment
 
-The trainer has **one** trailing test window (`_temporal_split`). High-beta
-swing logic already knows about regimes — QQQ above rising EMA50/100 and
+The trainer has **one** trailing test window (`_temporal_split`). The swing
+geometry's opt-in regime gates (`require_market_regime`,
+`require_relative_strength`) already know about regimes — QQQ above rising EMA50/100 and
 63-day relative strength — but those flags never enter `FEATURE_COLS`. The
 only vol channel in the ML table is `ATR_Pct` (feature **and** sample
 weight). A model that looks fine on a quiet holdout can fail in a high-vol
@@ -20,7 +21,7 @@ slice of the same dates.
 | Vol feature / weight | `ATR_Pct`, `WEIGHT_COL` |
 | Temporal cut | `_temporal_split()` |
 | QQQ regime helpers | `analysis_engine.market_regime_ok`, `relative_strength` |
-| High-beta profile | `config.get_swing_params("high_beta")`, `pipeline_backtest.py` |
+| Regime / RS gate options | `config._SWING_DEFAULTS` (opt-in; the `high_beta` profile that enabled them was removed 2026-10-08) |
 | Cobra RS pillar | `coiled_cobra.rs_score` (not in $X$) |
 | Manual §6 | [`QUANT_ML_MANUAL.md`](../handbook/QUANT_ML_MANUAL.md) |
 
@@ -126,9 +127,9 @@ by `regime_ok` True/False, the same way you stratified by `ATR_Pct`.
 
 ## Expected failure modes
 
-- Training and testing on the PLTR/TSLA/HOOD high_beta **tuning** basket and
-  calling it regime robustness. Those names are a promotion holdout for the
-  *swing* profile, not an ML regime test.
+- Training and testing on the PLTR/TSLA/HOOD **tuning** basket (used by the
+  former `high_beta` swing profile) and calling it regime robustness. Those
+  names were a swing-profile holdout, not an ML regime test.
 - Comparing raw MAE across 2w vs 13w targets (Lab 02) inside a vol slice.
 - Forgetting that `sample_weight=ATR_Pct` already up-weights noisy rows —
   high-vol MAE can look bad even when rank correlation is acceptable.

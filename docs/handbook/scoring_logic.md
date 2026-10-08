@@ -12,7 +12,7 @@ For tactical entry rules (EMA pullbacks), see [`swing_scanner.py`](../../src/fin
 | --- | --- |
 | Module | `src/finance_vibe/analysis_engine.py` |
 | Live pipeline | **Not** in `run_vibe.py` (step is commented out) |
-| Used by | `swing_scanner._soft_vibe_gate` (daily / high_beta) and `pipeline_backtest.py` |
+| Used by | `swing_scanner._soft_vibe_gate` (daily) and `pipeline_backtest.py` |
 | Manual run | Writes `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv` |
 | Input | All CSV files in `data/raw/{weekly\|daily}/` |
 

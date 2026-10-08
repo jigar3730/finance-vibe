@@ -3,7 +3,7 @@
 **Module:** `src/finance_vibe/breakout_scanner.py`
 **Pipeline step:** 5 of `run_vibe.py` (after `coiled_cobra.py`, before `trade_planner.py`)
 **Output:** `data/logs/{mode}/breakout_setups_<YYYY-MM-DD>.csv`
-**UI:** `/breakout` and `/breakout/<mode>/<date>` in `app.py` (weekly, daily, high_beta)
+**UI:** `/breakout` and `/breakout/<mode>/<date>` in `app.py` (weekly, daily)
 
 A research scanner that labels each ticker's **state** (trend, volatility,
 volume, momentum, structure, multi-timeframe alignment) and classifies it as a
@@ -61,8 +61,7 @@ ScoringEngine.evaluate()
 breakout_setups_<date>.csv  (sorted by status, then readiness)
 ```
 
-`high_beta` reads daily OHLCV (`config.resolve_pipeline_mode`) and writes to
-its own `data/logs/high_beta/` silo. Files with fewer than 80 primary bars
+Files with fewer than 80 primary bars
 (`MIN_PRIMARY_BARS`) are rejected as `insufficient_data`.
 
 ## Key event definitions (`add_indicators`)
@@ -131,7 +130,6 @@ Penalties, subtracted after the pillars and clamped to 0–100:
 ```bash
 python src/finance_vibe/breakout_scanner.py weekly
 python src/finance_vibe/breakout_scanner.py daily
-python src/finance_vibe/breakout_scanner.py high_beta
 python src/finance_vibe/breakout_scanner.py weekly --as-of 2025-11-07
 ```
 

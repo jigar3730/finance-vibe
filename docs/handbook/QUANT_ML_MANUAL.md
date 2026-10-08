@@ -84,7 +84,7 @@ They are **not** in `FEATURE_COLS` and are not used at inference.
 Macro Vibe Score (`analysis_engine.build_features`) is a **separate** SMA-based
 layer: trend alignment, MACD/RSI momentum, pullback timing, CCI MAD, RSI caps.
 It is **not** invoked by `run_vibe.py` (the orchestrator step is commented out).
-It is used for the swing scanner's soft vibe gate (daily / high_beta) and for
+It is used for the swing scanner's soft vibe gate (daily) and for
 walk-forward gating in `pipeline_backtest.py`, not as an ML input.
 
 ### 1.2 Data-science properties of this feature space
@@ -261,7 +261,7 @@ single expanding train + trailing holdout), not a multi-fold purged CV.
 `df.iloc[:i+1]`, then simulates fills forward. Legacy full-exit simulator
 (no scale-out).
 
-**Swing / high_beta sim** (`pipeline_backtest.py`) — same causal detect +
+**Swing sim** (`pipeline_backtest.py`) — same causal detect +
 `simulate_scaled_trade` (gap/slippage, 50% at 1R, runner to 2R). Optional
 macro gate via `analysis_engine.score_last_row`.
 
@@ -339,8 +339,9 @@ Not installed by default. See [Lab 05](../labs/05_hyperparameter_optuna.md).
 
 ## 6. Market regimes (preview of Lab 07)
 
-High-beta swing logic already gates on QQQ regime and 63-day relative
-strength (`analysis_engine.market_regime_ok` / `relative_strength`). The ML
+The swing geometry has opt-in gates on QQQ regime and 63-day relative
+strength (`analysis_engine.market_regime_ok` / `relative_strength`); no
+shipped profile enables them since `high_beta` was removed on 2026-10-08. The ML
 baseline does **not** interact those flags. `ATR_Pct` is the only explicit
 volatility channel in $X$ and in `sample_weight`.
 
@@ -349,7 +350,7 @@ A regime-robust workflow:
 - slice OOS MAE by `ATR_Pct` terciles,
 - compare a single frozen model vs periodic retrain (the current 26w test
   window is already a crude rolling holdout),
-- do not retune on the same names used as the high_beta promotion basket.
+- do not retune on the same names used as the former high_beta promotion basket.
 
 [Lab 07 — Regime Shifts](../labs/07_regime_shifts.md).
 

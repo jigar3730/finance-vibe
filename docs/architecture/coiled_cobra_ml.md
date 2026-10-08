@@ -227,7 +227,7 @@ Side-by-side horizontal bar chart (XGBoost vs LightGBM), plus serialized model w
 
 - `config.RUBRIC_VERSION` (currently `"4.0"`) is written to a `Rubric_Version` column on every backtest/backfill CSV. **Bump it whenever a gate/pillar/threshold change alters `Score` or which setups qualify** (e.g. Gate D 5/6 → 4/6) — it is the only thing that lets training and inference detect that drift.
 - Model metadata records `rubric_version`, `mode`, `feature_columns`, `trained_at`, `git_sha`, `source_csv`, split bounds/row counts, and a `sha256` for each model file. The old metadata is deleted before new binaries are written, so a crashed retrain can't leave old metadata paired with new models.
-- `ml_ranker` serves predictions only when the metadata exists and its rubric version, mode and feature list match the live pipeline, and each model file's hash matches. Models are read **only** from the requested mode's own log directory (optionally `FINANCE_VIBE_MODEL_DIR`) — there is no cross-mode fallback, so a weekly model can never score `daily`/`high_beta` setups. Any failure logs the reason and leaves `ML_Pred_Return` / `ML_Rank` null (ranking falls back to `Score`).
+- `ml_ranker` serves predictions only when the metadata exists and its rubric version, mode and feature list match the live pipeline, and each model file's hash matches. Models are read **only** from the requested mode's own log directory (optionally `FINANCE_VIBE_MODEL_DIR`) — there is no cross-mode fallback, so a weekly model can never score `daily` setups. Any failure logs the reason and leaves `ML_Pred_Return` / `ML_Rank` null (ranking falls back to `Score`).
 
 ### How to read metrics
 

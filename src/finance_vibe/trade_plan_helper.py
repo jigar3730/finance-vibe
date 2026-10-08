@@ -372,7 +372,7 @@ def process_trade_plan(
 def main(argv: list[str] | None = None) -> int:
     argv = argv if argv is not None else sys.argv[1:]
     mode = "weekly"
-    if argv and argv[0].lower() in ("weekly", "daily", "high_beta"):
+    if argv and argv[0].lower() in ("weekly", "daily"):
         mode = argv[0].lower()
     try:
         as_of = config.parse_as_of(argv)

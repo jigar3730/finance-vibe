@@ -7,7 +7,7 @@ How to read **macro Vibe Score** output from `analysis_engine.py` and
 [`coiled_cobra_rubric.md`](coiled_cobra_rubric.md).
 
 Default weekly ingest is **10-year weekly** (`config.TIMEFRAME_PROFILES`).
-Daily is **5-year daily**. `high_beta` reuses daily OHLCV.
+Daily is **5-year daily**.
 
 ---
 
@@ -38,7 +38,6 @@ Both layers use Wilder RSI(14).
 | Macro | `RSI_S` = **10-period SMA** of RSI (not an EMA-20) |
 | Swing weekly | long **45–55**, short **50–60** |
 | Swing daily | long **40–55** |
-| Swing high_beta | long **35–58** |
 
 Macro RSI risk: RSI > 80 caps the score at 5; 70 < RSI ≤ 80 is −1; RSI < 30 is +1.
 
@@ -88,7 +87,7 @@ Quality-swing longs (after next-bar confirmation):
 
 * **Limit entry:** `max(EMA20, Close − 0.25×ATR)`
 * **Stop:** dual-constraint (local swing low vs `entry − 1.5×ATR`, 5% Close cap)
-* **Targets:** weekly 1.25 / 2.25 ATR; daily 0.85 / 1.6 ATR; high_beta **2R / 3R**
+* **Targets:** weekly 1.25 / 2.25 ATR; daily 0.85 / 1.6 ATR
 
 Coiled Cobra rows use Fib 78.6% as an entry floor and the same 2R / 3R
 targets. Full formulas: [`trade_plan_calculations.md`](trade_plan_calculations.md).

@@ -11,15 +11,14 @@ Last aligned with the code: 2026-10-01 (Coiled Cobra rubric v4.0, `--as-of` repl
 ---
 
 I am working on the Finance Vibe project. It is a Python stock-signal
-pipeline with three CLI profiles: `weekly` (default, 10y × 1wk), `daily`
-(5y × 1d), and `high_beta` (daily OHLCV, same calibration as `daily`, its own
-log silo). It generates ranked *signals*, not options trades.
+pipeline with two CLI profiles: `weekly` (default, 10y × 1wk) and `daily`
+(5y × 1d). It generates ranked *signals*, not options trades.
 
 Key architecture:
 
 - Code: `src/finance_vibe/`; Flask UI `app.py` (+ `docs_routes.py`), templates in `templates/`
 - Raw: `data/raw/{weekly|daily}/`
-- Logs: `data/logs/{weekly|daily|high_beta}/`
+- Logs: `data/logs/{weekly|daily}/`
 - Orchestrator: `run_vibe.py` (`--mode`, `--reuse-raw`, `--as-of YYYY-MM-DD`)
 
 Live `run_vibe.py` chain: wipe raw (unless `--reuse-raw`) → `ticker_provider`

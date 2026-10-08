@@ -65,7 +65,7 @@ def _resolve_model_paths(mode: str = "weekly") -> dict[str, Path | None]:
 
     Strictly mode-bound: only the mode's own log directory (or the explicit
     ``FINANCE_VIBE_MODEL_DIR`` override) is consulted, so a ``weekly`` model can
-    never be picked up by ``daily``/``high_beta``. All three files come from that
+    never be picked up by ``daily``. All three files come from that
     one directory, so their vintages cannot be mixed. Missing files are None.
     """
     d = _model_dir(mode)

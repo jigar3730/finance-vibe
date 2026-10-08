@@ -44,7 +44,6 @@ def breakout_logs(tmp_path, monkeypatch):
     modes = {
         "weekly": str(tmp_path / "weekly"),
         "daily": str(tmp_path / "daily"),
-        "high_beta": str(tmp_path / "high_beta"),
     }
     monkeypatch.setattr(app_module, "BREAKOUT_MODES", modes)
     _write_scan(tmp_path / "daily", "2026-09-04")

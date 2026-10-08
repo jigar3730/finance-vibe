@@ -29,21 +29,18 @@ except ImportError:
 # =========================
 # PROFILE CONFIGURATION
 # =========================
-if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily", "high_beta"]:
+if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
     mode = sys.argv[1].lower()
 else:
     print("⚠️ Unknown mode parsed to scanner. Defaulting to 'weekly'.")
     mode = "weekly"
 
-# Data timeframe may differ from the signal profile (high_beta -> daily OHLCV,
-# its own log silo). Mirrors swing_scanner.py's former pattern.
+# Data timeframe and signal profile (identical for weekly/daily).
 _data_mode, _signal_mode = config.resolve_pipeline_mode(mode)
 mode = _signal_mode  # scanner/planner Mode column = signal profile
 
 # Timeframe-specific technical calibration (mutated by ``apply_timeframe``).
-# high_beta reads the same daily bars as ``daily`` and shares its calibration;
-# only the log silo differs (see LOG_DIR below).
-_is_daily_bars = mode in ("daily", "high_beta")
+_is_daily_bars = mode == "daily"
 LOOKBACK = 252 if _is_daily_bars else 52
 # Coil window: how many bars define "the base" (weekly ≈ 2 months, daily ≈ 6 weeks)
 COIL_BARS = 30 if _is_daily_bars else 8
@@ -72,7 +69,7 @@ def local_swing_low(df: pd.DataFrame, bars: int = STRUCTURE_STOP_BARS) -> float:
 # RUBRIC v4.0 CALIBRATION
 # =====================================================================
 # Weekly-native periods per docs/handbook/coiled_cobra_rubric.md, scaled 5x
-# for daily/high_beta bars (5 trading days ~= 1 week). This 5x rule is not
+# for daily bars (5 trading days ~= 1 week). This 5x rule is not
 # arbitrary: 10w*5=50d, 30w*5=150d, 40w*5=200d land exactly on Minervini's
 # classic daily 50/150/200-SMA trend template -- the rubric explicitly names
 # Gate A as "the weekly analog" of that daily template, so the scaling is
@@ -147,28 +144,24 @@ def _calibrate(is_daily_bars: bool) -> None:
 
 
 def apply_timeframe(tf: str) -> str:
-    """Set every mode-derived calibration constant for ``weekly``, ``daily``,
-    or ``high_beta``.
+    """Set every mode-derived calibration constant for ``weekly`` or ``daily``.
 
     Import-time defaults follow ``sys.argv`` (scanner CLI). Historical
     benchmarks and library callers should set the timeframe explicitly so
-    daily 63-bar RS and 252-bar overhead windows are used. ``high_beta``
-    shares ``daily``'s bar-frequency calibration (only the live pipeline's
-    log silo differs; this function does not touch paths).
+    daily 63-bar RS and 252-bar overhead windows are used. This function does
+    not touch paths.
     """
     global mode
     tf_l = str(tf).lower()
-    mode = tf_l if tf_l in ("daily", "high_beta") else "weekly"
-    _calibrate(mode in ("daily", "high_beta"))
+    mode = "daily" if tf_l == "daily" else "weekly"
+    _calibrate(mode == "daily")
     return mode
 
 # =========================
 # PATHS
 # =========================
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-# Raw OHLCV always comes from the data timeframe (_data_mode); high_beta reads
-# the same daily silo as the ETF pipeline but gets its own LOG_DIR below so
-# outputs don't collide.
+# Raw OHLCV comes from the data timeframe's silo; outputs go to LOG_DIR.
 RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw", _data_mode)
 ACTIVE_TICKERS_PATH = os.path.join(BASE_DIR, "data", "active_tickers.csv")
 LOG_DIR = config.get_log_dir(mode)
@@ -780,8 +773,7 @@ def run_scanner(as_of: str | None = None):
     raw_files = [f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")]
     logger.info(f"Found {len(raw_files)} historical files to analyze in target silo.")
 
-    # Benchmarks live in the data timeframe's raw silo (_data_mode), not the
-    # signal profile -- high_beta reads the same daily QQQ/SPY as `daily`.
+    # Benchmarks live in the data timeframe's raw silo (_data_mode).
     qqq_df = load_benchmark_frame(BENCHMARK, _data_mode)
     spy_df = load_benchmark_frame(SPY_BENCHMARK, _data_mode)
     if as_of:

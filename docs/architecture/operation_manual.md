@@ -34,7 +34,6 @@ Compatible with the dev container or any standard Python environment with `PYTHO
 | `data/raw/daily/` | Daily OHLCV CSVs (`*_5y_1d.csv`) |
 | `data/logs/weekly/` | Weekly reports and trade plans |
 | `data/logs/daily/` | Daily reports and trade plans |
-| `data/logs/high_beta/` | High-beta signal profile logs (shares daily raw OHLCV) |
 | `templates/`, `src/finance_vibe/static/` | Flask dashboard templates and CSS |
 | `tests/` | pytest suite |
 
@@ -45,7 +44,6 @@ Compatible with the dev container or any standard Python environment with `PYTHO
 ```bash
 python src/finance_vibe/run_vibe.py
 python src/finance_vibe/run_vibe.py --mode daily
-python src/finance_vibe/run_vibe.py --mode high_beta
 python src/finance_vibe/run_vibe.py --mode daily --reuse-raw
 python src/finance_vibe/run_vibe.py --as-of 2025-11-07
 ```
@@ -91,6 +89,31 @@ run scans the week that just closed. Before 2026-10-01, a bug dropped every
 final weekly bar, because bars are Monday-dated and the check required a Friday
 date. Runs up to then, including the 2026-09-19 run, scanned the previous week.
 
+### Scheduled daily run
+
+The daily pipeline runs on **weekdays at 17:30 America/New_York**, after daily bars
+are final (17:00 ET):
+
+```cron
+30 21,22 * * 1-5 /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
+```
+
+`scripts/run_daily_pipeline.sh` mirrors the weekly runner (ET-hour guard, its own
+`daily.lock`, one `daily_<date>_<time>.log` per run in `~/.local/state/finance-vibe/`,
+`--now` for a manual run) and is a separate script, so the weekly runner is unaffected.
+Differences:
+
+- `run_vibe.py --mode daily` runs under `timeout 25m` inside the container. A timeout
+  (exit 124) is alerted. The cap also keeps a Friday daily run clear of the 18:00 weekly
+  run, since both refresh `data/active_tickers.csv`.
+- `scripts/check_daily_outputs.py` expects SPY/QQQ's newest daily bar to be the last
+  NYSE session that has closed (`daily_ingest.last_complete_session`). Market holidays
+  still run; on those days the expected bar is the previous session.
+- Alerts use the same `notify_email.py` / `notify.env` as the weekly run.
+
+Run the daily health check by hand with
+`docker exec -i finance_vibe python - < scripts/check_daily_outputs.py`.
+
 ### Replaying a past week (`--as-of`)
 
 `--as-of YYYY-MM-DD` re-runs steps 3–7 as if it were that date, from the raw data
@@ -122,7 +145,7 @@ Execution order (`run_vibe.py`):
 | ---- | ------ | ------ |
 | 0 | (orchestrator) | Clears `data/raw/{data_mode}/` (skipped with `--reuse-raw`) |
 | 1 | `ticker_provider.py` | `data/active_tickers.csv` (skipped with `--reuse-raw`) |
-| 2 | `data_ingestor.py` | Raw CSVs in `data/raw/{data_mode}/` (skipped with `--reuse-raw`) |
+| 2 | `data_ingestor.py` (weekly) / `daily_ingest.py` (daily) | Raw CSVs in `data/raw/{data_mode}/` (skipped with `--reuse-raw`) |
 | 3 | `analysis_engine.py` | `vibe_report_<date>.csv` (macro Vibe Score) |
 | 4 | `coiled_cobra.py` | `coiled_cobra_setups_<date>.csv` — primary signal engine, runs for every mode |
 | 5 | `breakout_scanner.py` | `breakout_setups_<date>.csv` |
@@ -147,6 +170,7 @@ metadata.
 ```bash
 python src/finance_vibe/ticker_provider.py
 python src/finance_vibe/data_ingestor.py weekly
+python src/finance_vibe/daily_ingest.py                # daily ingest (takes no mode)
 python src/finance_vibe/analysis_engine.py weekly
 python src/finance_vibe/coiled_cobra.py weekly
 python src/finance_vibe/breakout_scanner.py weekly
@@ -155,9 +179,8 @@ python src/finance_vibe/trade_plan_helper.py weekly
 ```
 
 `data_ingestor.py` and `analysis_engine.py` take a data timeframe (`weekly` or
-`daily`). The signal stages take `weekly`, `daily`, or `high_beta`. `coiled_cobra.py`
-supports all three (`high_beta` reads daily OHLCV and writes to its own
-`data/logs/high_beta/` silo).
+`daily`), and so do the signal stages. The `high_beta` profile was removed on
+2026-10-08; `--mode high_beta` is no longer accepted.
 
 ## Script reference
 
@@ -172,6 +195,15 @@ supports all three (`high_beta` reads daily OHLCV and writes to its own
 - Drops the last weekly candle only while its week is still trading (complete after Friday 17:00 ET)
 - Uses `auto_adjust=True` for split/dividend-adjusted prices
 - Logs per-ticker failures to `data/logs/{mode}/ingest_errors_<date>.csv`
+
+### `daily_ingest.py` (daily mode's ingest step)
+
+- Runs `data_ingestor.ingest_market_data("daily")`, then drops today's bar from every
+  `data/raw/daily/` CSV while the session is still trading (`daily_bar_is_complete`:
+  final from 17:00 ET). A mid-session run therefore scans yesterday's close instead
+  of a partial candle. A file left under `MIN_SAVE_ROWS` is deleted and logged.
+- Holds the NYSE holiday calendar (`last_complete_session`) used by the daily health check.
+- Daily-only by design: weekly ingest (`data_ingestor.py`) is untouched.
 
 ### `analysis_engine.py` (macro layer)
 
@@ -189,9 +221,7 @@ supports all three (`high_beta` reads daily OHLCV and writes to its own
   gate, coil integrity (structure/volatility-contraction independently
   gating), and breadth (Checks Met >= 4/6, `MIN_CHECKS_MET`); BBWidth-percentile volatility
   contraction replaces the old MACD-spread squeeze proxy
-- Profiles: `weekly`, `daily`, `high_beta` (`high_beta` reads daily OHLCV via
-  `config.resolve_pipeline_mode()`, same bar-frequency calibration as
-  `daily`, own `data/logs/high_beta/` silo)
+- Profiles: `weekly`, `daily`
 - **Specification:** [`coiled_cobra_rubric.md`](../handbook/coiled_cobra_rubric.md)
 
 ### `breakout_scanner.py` (research scanner: pre-breakout states)
@@ -289,10 +319,8 @@ Docker (`docker compose up -d`) runs the dashboard by default on port 5000, with
 | Route | Contents |
 | ----- | -------- |
 | `/` , `/view/<mode>/<date>` | Trade plans (`trade_plan_clean_*` / `trade_plan_*`) for `weekly` and `daily` |
-| `/breakout`, `/breakout/<mode>/<date>` | Breakout scan: KPIs, status mix, candidates, live price vs Close (`weekly`, `daily`, `high_beta`) |
+| `/breakout`, `/breakout/<mode>/<date>` | Breakout scan: KPIs, status mix, candidates, live price vs Close (`weekly`, `daily`) |
 | `/docs/` | Rendered handbook / architecture / labs markdown (`docs_routes.py`) |
-
-The trade-plan view does not list the `high_beta` silo yet. The breakout view does.
 
 ## Data maintenance
 
@@ -348,7 +376,7 @@ which setups qualify.
 | ---- | ----- |
 | `ingest_errors_<date>.csv` | Ingestion failures (pipeline step 2) |
 | `vibe_report_<date>.csv` | Macro (pipeline step 3) |
-| `coiled_cobra_setups_<date>.csv` | Signal (weekly/daily/high_beta) |
+| `coiled_cobra_setups_<date>.csv` | Signal (weekly/daily) |
 | `breakout_setups_<date>.csv` | Breakout readiness research scan |
 | `trade_plan_<date>.csv` | Signal + stock-level context |
 | `trade_plan_clean_<date>.csv` | Signal (guardrailed + ranked) |

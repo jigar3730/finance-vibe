@@ -14,11 +14,10 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 LOGS_BASE_DIR = os.path.join(BASE_DIR, "data", "logs")
 
 # Breakout scanner log silos (breakout_scanner.py writes one CSV per run date
-# per swing profile). high_beta shares daily raw data but its own log dir.
+# per swing profile).
 BREAKOUT_MODES = {
     "weekly": os.path.join(LOGS_BASE_DIR, "weekly"),
     "daily": os.path.join(LOGS_BASE_DIR, "daily"),
-    "high_beta": os.path.join(LOGS_BASE_DIR, "high_beta"),
 }
 
 # Table columns mirror breakout_scanner.DISPLAY_COLUMNS (states first; the

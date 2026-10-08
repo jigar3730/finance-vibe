@@ -42,9 +42,9 @@ def run_workflow():
     parser = argparse.ArgumentParser(description="Finance-Vibe Pipeline Orchestrator")
     parser.add_argument(
         "--mode",
-        choices=["weekly", "daily", "high_beta"],
+        choices=["weekly", "daily"],
         default="weekly",
-        help="Execution profile (weekly, daily, or high_beta long-only single names)",
+        help="Execution profile (weekly or daily)",
     )
     parser.add_argument(
         "--reuse-raw",
@@ -66,8 +66,7 @@ def run_workflow():
     args = parser.parse_args()
     mode = args.mode.lower()
 
-    # high_beta reads daily OHLCV but keeps its own swing profile + log silo.
-    data_mode = "daily" if mode == "high_beta" else mode
+    data_mode = mode
 
     # 2. CLIMB TO ROOT
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -92,10 +91,8 @@ def run_workflow():
     # 4. SCRIPT CONFIGURATION
     # "scope" selects the argument each stage receives:
     #   data    -> data timeframe (weekly/daily); shares raw data silo
-    #   profile -> signal profile (weekly/daily/high_beta); drives geometry + logs
-    # Coiled Cobra is the primary signal engine and runs for every profile,
-    # including high_beta (reads daily OHLCV, writes its own high_beta log silo
-    # via config.resolve_pipeline_mode()).
+    #   profile -> signal profile (weekly/daily); drives geometry + logs
+    # Coiled Cobra is the primary signal engine and runs for every profile.
     scripts_config = [
         {
             "path": "src/finance_vibe/ticker_provider.py",
@@ -103,8 +100,13 @@ def run_workflow():
             "scope": "data",
         },
         {
-            "path": "src/finance_vibe/data_ingestor.py",
-            "pass_mode": True,
+            # Daily has its own ingest wrapper (drops today's in-progress bar).
+            "path": (
+                "src/finance_vibe/daily_ingest.py"
+                if data_mode == "daily"
+                else "src/finance_vibe/data_ingestor.py"
+            ),
+            "pass_mode": data_mode != "daily",
             "scope": "data",
         },
         {
@@ -153,6 +155,7 @@ def run_workflow():
     skip_ingest = {
         "src/finance_vibe/ticker_provider.py",
         "src/finance_vibe/data_ingestor.py",
+        "src/finance_vibe/daily_ingest.py",
     }
 
     # Clean the shared raw silo unless the caller wants to reuse existing OHLCV.
@@ -174,7 +177,7 @@ def run_workflow():
         print(f"🔹 Running: {script['path']}...")
 
         # Data-scope stages receive the data timeframe; profile-scope stages
-        # receive the swing profile so high_beta geometry/logs stay isolated.
+        # receive the swing profile.
         arg_mode = data_mode if script.get("scope") == "data" else mode
 
         cmd = [sys.executable, script_path]

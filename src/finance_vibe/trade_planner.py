@@ -24,7 +24,7 @@ except ImportError:
 # =========================
 # PROFILE CONFIGURATION
 # =========================
-if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily", "high_beta"]:
+if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
     mode = sys.argv[1].lower()
 else:
     print("⚠️ Unknown mode parsed to trade planner. Defaulting to 'weekly'.")
@@ -38,7 +38,6 @@ DELTA_LONG = (0.65, 0.80)
 DELTA_SHORT = (-0.80, -0.65)
 
 # Dynamic path resolution according to isolation architecture.
-# high_beta gets its own log silo via config.get_log_dir.
 SCANNER_DIR = Path(config.get_log_dir(mode))
 COILED_PREFIX = "coiled_cobra_setups_"
 OUTPUT_PREFIX = "trade_plan_"
@@ -83,7 +82,7 @@ _PLAN_EXPORT_COLUMNS = [
 def _resolve_row_mode(row: Mapping[str, Any] | pd.Series, mode: str | None) -> str:
     """Resolve which swing profile governs a row.
 
-    Row ``Mode`` is authoritative when present so a high_beta setup keeps its
+    Row ``Mode`` is authoritative when present so a setup keeps its profile's
     geometry even if the planner is invoked under a different CLI mode. An
     explicit ``mode`` argument (used by the backtest) still takes precedence.
     """
@@ -101,7 +100,6 @@ def calculate_stock_levels(
     """Derive entry, stop, targets, option side, and delta band from one setup row.
 
     Quality swing geometry is mode-aware via ``config.get_swing_params``.
-    The high_beta profile uses dual-constraint stops and true 1R/2R targets.
     Row ``Mode`` is authoritative unless an explicit ``mode`` is passed.
     """
     atr = float(row["ATR"])
@@ -245,7 +243,7 @@ def generate_trade_plan(
 
     plan_rows = []
     for _, row in df.iterrows():
-        # Row Mode is authoritative (mode=None) so high_beta setups keep their
+        # Row Mode is authoritative (mode=None) so setups keep their profile's
         # geometry even when the planner runs under a different CLI mode.
         entry, stop, t1, t2, _opt_type, _delta_range = calculate_stock_levels(row, mode=None)
         entry_r, stop_r, t1_r, t2_r, risk_per_share = _export_levels(

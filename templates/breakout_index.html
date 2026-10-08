@@ -4,7 +4,7 @@
     <h1>🎯 Breakout Readiness Scans</h1>
     <p>Each run is a dated <code>breakout_setups_&lt;date&gt;.csv</code> snapshot. Select a run to inspect setup states and the 100-point readiness score.</p>
 
-    {% set labels = {'weekly': '📅 Weekly', 'daily': '⚡ Daily', 'high_beta': '🔥 High Beta'} %}
+    {% set labels = {'weekly': '📅 Weekly', 'daily': '⚡ Daily'} %}
     <div class="container">
         {% for mode, mode_runs in runs.items() %}
         <div class="column">

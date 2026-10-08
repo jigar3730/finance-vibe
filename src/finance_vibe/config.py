@@ -102,7 +102,7 @@ BACKTEST_SLIPPAGE_PCT = 0.0005
 # Fraction of the position taken off at the first (1R) target.
 BACKTEST_PARTIAL_FRACTION = 0.5
 
-# Default benchmark for high-beta relative-strength / market-regime gating.
+# Default benchmark for relative-strength / market-regime gating.
 BENCHMARK_TICKER = "QQQ"
 
 # Quality swing profiles (weekly = swing leg; daily = tighter T1 / wider stop / soft vibe)
@@ -149,50 +149,9 @@ _SWING_DAILY = {
     "require_ema_stack": False,
 }
 
-# High-beta single names (PLTR/TSLA/HOOD-class): long-only, ATR proximity,
-# wider RSI, QQQ regime + relative-strength gating, dual-constraint stops
-# (local structure vs 1.5×ATR floor), and true 1R/2R targets.
-# Uses daily OHLCV via resolve_pipeline_mode().
-_SWING_HIGH_BETA = {
-    "entry_atr": 0.25,
-    "stop_buffer_atr": 0.25,
-    "stop_atr_cap": 1.5,        # volatility floor: stop >= entry - 1.5×ATR
-    "t1_atr": 1.0,              # unused when use_r_targets is True
-    "t2_atr": 1.8,             # unused when use_r_targets is True
-    "prox_pct": 0.03,           # fallback only if prox_atr unset
-    "prox_atr": 0.5,            # |close-EMA20| band in ATR units
-    "rsi_min_long": 35,
-    "rsi_max_long": 58,
-    "rsi_min_short": 42,
-    "rsi_max_short": 65,
-    "structure_bars": 10,       # local consolidation lookback (sessions)
-    "vibe_min": 5,
-    "cooldown_bars": 10,
-    "entry_valid_bars": 6,
-    "max_hold_bars": 20,
-    "confirm_slack_atr": 0.35,  # allow undercut of setup low/high
-    "require_ema_stack": True,  # EMA20 > EMA50 > EMA100 (long)
-    # --- hardening additions ---
-    "long_only": True,
-    "structure_slack_atr": 0.25,   # ATR-normalized structure tolerance
-    "min_risk_atr": 0.5,           # reject setups with risk below this
-    # Dual-constraint binds risk at stop_atr_cap; max_risk_atr is a safety net
-    # for anything that still lands outside the band after flooring.
-    "max_risk_atr": 1.5,
-    "use_r_targets": True,         # T1/T2 measured in R (stop distance)
-    "t1_r": 2.0,                   # hard floor: T1 R:R >= 2:1
-    "t2_r": 3.0,
-    "benchmark": BENCHMARK_TICKER,
-    "require_market_regime": True,
-    "require_relative_strength": True,
-    "rs_lookback": 63,
-    "rs_ratio_ma_bars": 20,
-}
-
 SWING_PROFILES = {
     "weekly": _SWING_WEEKLY,
     "daily": _SWING_DAILY,
-    "high_beta": _SWING_HIGH_BETA,
 }
 
 # Optional keys applied to every profile so callers can read them uniformly.
@@ -221,7 +180,7 @@ def get_swing_params(mode: str = "weekly") -> dict:
     """Return quality-swing geometry + filter params for a swing profile.
 
     Optional keys from :data:`_SWING_DEFAULTS` are always present so callers
-    can read them uniformly. Profiles: ``weekly``, ``daily``, ``high_beta``.
+    can read them uniformly. Profiles: ``weekly``, ``daily``.
     Unknown → weekly.
     """
     key = (mode or "weekly").strip().lower()
@@ -233,22 +192,16 @@ def get_swing_params(mode: str = "weekly") -> dict:
 def resolve_pipeline_mode(mode: str = "weekly") -> tuple[str, str]:
     """Map CLI/pipeline mode → (data_timeframe, swing_profile).
 
-    ``high_beta`` reads daily OHLCV but uses the high-beta swing profile.
+    Both are the mode itself; unknown modes fall back to ``DEFAULT_MODE``.
     """
     key = (mode or DEFAULT_MODE).strip().lower()
-    if key == "high_beta":
-        return "daily", "high_beta"
     if key in TIMEFRAME_PROFILES:
         return key, key
     return DEFAULT_MODE, DEFAULT_MODE
 
 
 def get_log_dir(mode: str = "weekly") -> str:
-    """Absolute log directory for a pipeline mode, isolated per swing profile.
-
-    ``high_beta`` gets its own ``data/logs/high_beta`` silo so its outputs do
-    not collide with the ETF ``daily`` pipeline that shares the same raw data.
-    """
+    """Absolute log directory for a pipeline mode (``data/logs/<mode>``)."""
     _, profile = resolve_pipeline_mode(mode)
     d = os.path.join(PROJECT_ROOT, "data", "logs", profile)
     os.makedirs(d, exist_ok=True)

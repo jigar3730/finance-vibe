@@ -24,9 +24,8 @@ these modules are part of `run_vibe.py`. They read from `data/raw/` and write un
 | -------- | -------- | -------------- | -------- |
 | `weekly` | `data/raw/weekly/` (10y × 1wk) | weekly | `data/logs/weekly/` |
 | `daily` | `data/raw/daily/` (5y × 1d) | daily | `data/logs/daily/` |
-| `high_beta` | `data/raw/daily/` (5y × 1d) | high_beta | `data/logs/high_beta/` |
 
-`high_beta` reads the same daily OHLCV as `daily` and uses the same Coiled Cobra calibration. Only the log directory differs (`config.resolve_pipeline_mode` / `config.get_log_dir`).
+The `high_beta` profile (daily OHLCV, own `data/logs/high_beta/` silo) was removed on 2026-10-08.
 
 ---
 
@@ -65,7 +64,7 @@ Backtests default to this list unless you pass `--tickers`.
 # Weekly (10y, 1wk) — weekly Coiled Cobra, ML baseline, leader experiment
 python src/finance_vibe/data_ingestor.py weekly
 
-# Daily (5y, 1d) — daily + high_beta profiles
+# Daily (5y, 1d) — daily profile
 python src/finance_vibe/data_ingestor.py daily
 ```
 
@@ -206,7 +205,7 @@ python src/finance_vibe/coiled_cobra_backtest.py weekly --backtest
 python src/finance_vibe/coiled_cobra_ml_training.py
 ```
 
-### B. Daily / high_beta Coiled Cobra
+### B. Daily Coiled Cobra
 
 ```bash
 python src/finance_vibe/data_ingestor.py daily
@@ -261,7 +260,6 @@ python -m pytest tests/ -q   # full suite
 | ML `FileNotFoundError` for trades CSV | Backtest CSV missing on volume | Run cobra `--backtest`; see **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)** |
 | Coiled Cobra empty backfill | Wrong mode / insufficient bars | Need weekly history; lookback ≈ 60+ bars |
 | `ImportError: finance_vibe` | `PYTHONPATH` unset | `export PYTHONPATH=src` (or `/app/src`) |
-| Outputs in wrong folder | Expected daily logs for high_beta | high_beta writes to `data/logs/high_beta/` |
 
 ### Quick data health checks
 

@@ -189,44 +189,50 @@ def test_daily_swing_params_tighter_than_weekly():
     assert d["cooldown_bars"] > w["cooldown_bars"]
 
 
-def test_high_beta_profile_uses_atr_proximity():
-    from finance_vibe import config
-    hb = config.get_swing_params("high_beta")
-    d = config.get_swing_params("daily")
-    assert hb["prox_atr"] is not None
-    assert hb["prox_atr"] > 0
-    assert hb["stop_atr_cap"] == pytest.approx(1.5)
-    assert hb["structure_bars"] == 10
-    assert hb["t1_atr"] > d["t1_atr"]
-    assert hb["rsi_min_long"] < d["rsi_min_long"]
-    assert hb["require_ema_stack"] is True
-    data_mode, profile = config.resolve_pipeline_mode("high_beta")
-    assert data_mode == "daily"
-    assert profile == "high_beta"
+# Opt-in swing options (R targets, risk-band rejection, ATR proximity, ...)
+# are not enabled by any shipped profile; this test-only profile keeps that
+# geometry covered.
+_OPT_IN_PROFILE = {
+    **config.SWING_PROFILES["daily"],
+    "prox_atr": 0.5,
+    "confirm_slack_atr": 0.35,
+    "require_ema_stack": True,
+    "long_only": True,
+    "structure_slack_atr": 0.25,
+    "min_risk_atr": 0.5,
+    "max_risk_atr": 1.5,
+    "use_r_targets": True,
+    "t1_r": 2.0,
+    "t2_r": 3.0,
+}
 
 
-def test_high_beta_stock_levels_use_profile():
-    from finance_vibe import config
+@pytest.fixture
+def opt_in_profile(monkeypatch):
+    monkeypatch.setitem(config.SWING_PROFILES, "opt_in", _OPT_IN_PROFILE)
+    return config.get_swing_params("opt_in")
+
+
+def test_r_target_profile_stock_levels(opt_in_profile):
     row = _base_row()
     row["Swing Low"] = 100.0
-    row["Mode"] = "high_beta"
-    entry, stop, t1, t2, *_ = calculate_stock_levels(row, mode="high_beta")
-    hb = config.get_swing_params("high_beta")
-    # high_beta uses true R targets (stop distance), not ATR multiples.
+    row["Mode"] = "opt_in"
+    entry, stop, t1, t2, *_ = calculate_stock_levels(row, mode="opt_in")
+    hb = opt_in_profile
+    # use_r_targets: true R targets (stop distance), not ATR multiples.
     risk = entry - stop
     assert risk > 0
     assert t1 == pytest.approx(entry + hb["t1_r"] * risk)
     assert t2 == pytest.approx(entry + hb["t2_r"] * risk)
 
 
-def test_high_beta_dual_constraint_floors_wide_structure():
+def test_r_target_profile_dual_constraint_floors_wide_structure(opt_in_profile):
     """Distant swing lows are floored at entry − stop_atr_cap × ATR."""
-    from finance_vibe import config
     row = _base_row(EMA50=110.0)
     row["Swing Low"] = 90.0
-    row["Mode"] = "high_beta"
-    entry, stop, t1, t2, *_ = calculate_stock_levels(row, mode="high_beta")
-    hb = config.get_swing_params("high_beta")
+    row["Mode"] = "opt_in"
+    entry, stop, t1, t2, *_ = calculate_stock_levels(row, mode="opt_in")
+    hb = opt_in_profile
     atr = 2.0
     assert stop == pytest.approx(entry - hb["stop_atr_cap"] * atr)
     risk = entry - stop
@@ -247,9 +253,9 @@ def test_short_stop_above_entry():
 # structural-risk rejection + compute_swing_levels
 # ---------------------------------------------------------------------------
 
-def test_compute_swing_levels_floors_too_wide_structure():
+def test_compute_swing_levels_floors_too_wide_structure(opt_in_profile):
     """Wide swing lows are normalized by the volatility floor, not rejected."""
-    sp = config.get_swing_params("high_beta")
+    sp = opt_in_profile
     lv = config.compute_swing_levels(
         setup_type="SETUP_LONG", close=100.0, ema20=100.0, ema50=99.0, atr=1.0,
         swing_low=90.0, swing_high=None, sp=sp,
@@ -259,8 +265,8 @@ def test_compute_swing_levels_floors_too_wide_structure():
     assert lv["risk"] == pytest.approx(sp["stop_atr_cap"] * 1.0)
 
 
-def test_compute_swing_levels_rejects_too_tight_risk():
-    sp = config.get_swing_params("high_beta")
+def test_compute_swing_levels_rejects_too_tight_risk(opt_in_profile):
+    sp = opt_in_profile
     # Swing low essentially at entry -> risk below min_risk_atr.
     lv = config.compute_swing_levels(
         setup_type="SETUP_LONG", close=100.0, ema20=100.0, ema50=99.9, atr=1.0,
@@ -270,8 +276,8 @@ def test_compute_swing_levels_rejects_too_tight_risk():
     assert "too_tight" in lv["reject_reason"]
 
 
-def test_compute_swing_levels_accepts_in_bounds_with_r_targets():
-    sp = config.get_swing_params("high_beta")
+def test_compute_swing_levels_accepts_in_bounds_with_r_targets(opt_in_profile):
+    sp = opt_in_profile
     lv = config.compute_swing_levels(
         setup_type="SETUP_LONG", close=100.0, ema20=100.0, ema50=99.0, atr=1.0,
         swing_low=99.0, swing_high=None, sp=sp,
@@ -295,15 +301,15 @@ def test_weekly_profile_has_no_risk_rejection():
 # row-Mode precedence for the planner
 # ---------------------------------------------------------------------------
 
-def test_row_mode_authoritative_when_mode_none():
-    # Row carries Mode=high_beta; planner called with mode=None must honor it.
+def test_row_mode_authoritative_when_mode_none(opt_in_profile):
+    # Row carries Mode=opt_in; planner called with mode=None must honor it.
     row = _base_row(EMA50=99.0, ATR=1.0, Close=100.0, EMA20=100.0)
     row["Swing Low"] = 99.0
-    row["Mode"] = "high_beta"
+    row["Mode"] = "opt_in"
     entry, stop, t1, t2, *_ = calculate_stock_levels(row, mode=None)
     risk = entry - stop
-    hb = config.get_swing_params("high_beta")
-    # R-based targets prove the high_beta profile was applied.
+    hb = opt_in_profile
+    # R-based targets prove the row's profile was applied.
     assert t1 == pytest.approx(entry + hb["t1_r"] * risk)
 
 
@@ -368,16 +374,16 @@ def test_relative_strength_no_lookahead_alignment():
 
 
 # ---------------------------------------------------------------------------
-# high-beta routing
+# mode routing
 # ---------------------------------------------------------------------------
 
-def test_high_beta_routing_and_log_isolation():
-    data_mode, profile = config.resolve_pipeline_mode("high_beta")
-    assert (data_mode, profile) == ("daily", "high_beta")
-    log_dir = config.get_log_dir("high_beta")
-    assert log_dir.endswith("logs/high_beta")
-    # daily and high_beta share raw data but have separate log silos.
+def test_mode_routing_and_log_dirs():
+    assert config.resolve_pipeline_mode("daily") == ("daily", "daily")
+    assert config.resolve_pipeline_mode("weekly") == ("weekly", "weekly")
     assert config.get_log_dir("daily").endswith("logs/daily")
+    assert set(config.SWING_PROFILES) == {"weekly", "daily"}
+    # The removed high_beta mode no longer routes to daily data.
+    assert config.resolve_pipeline_mode("high_beta") == (config.DEFAULT_MODE, config.DEFAULT_MODE)
 
 
 # ---------------------------------------------------------------------------

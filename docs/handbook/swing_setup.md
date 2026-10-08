@@ -2,9 +2,9 @@
 
 > **Status:** `swing_scanner.py` has been decommissioned and removed from the
 > pipeline. Coiled Cobra (`coiled_cobra.py`) is now the project's sole
-> tactical signal engine, running for every profile including `high_beta`.
-> This document is kept for historical reference only — the rules and
-> geometry below no longer run.
+> tactical signal engine. The `high_beta` profile described below was also
+> removed (2026-10-08). This document is kept for historical reference only —
+> the rules and geometry below no longer run.
 
 Companion to the macro Vibe Score in `analysis_engine.py`. This module flags
 **high-probability SETUP_LONG / SETUP_SHORT** pullbacks: bull/bear regime,
