@@ -51,6 +51,8 @@ Stages run as subprocesses, in order: wipe `data/raw/{mode}/` (unless
 If a doc disagrees with `run_vibe.py` or `config.py`, the code wins. Some
 architecture docs are stale (e.g. `project_resurrection_prompt.md` and
 `code_review.md` still describe a `swing_scanner.py` that no longer exists).
+`docs/handbook/coiled_cobra_rubric.md` was re-audited against
+`coiled_cobra.py` on 2026-10-08.
 
 ## Rules that matter
 
@@ -77,6 +79,39 @@ architecture docs are stale (e.g. `project_resurrection_prompt.md` and
   `SETUP_ROW_COLUMNS`. Reject malformed input loudly rather than mis-scoring.
 - **Signals, not advice.** Keep planner output informational (entry/stop/2R/3R
   targets); don't add options metadata or position sizing without being asked.
+
+## Coding standards
+
+- Python 3.12 (the container is the reference environment: pandas 3.x,
+  numpy 2.x). Use `from __future__ import annotations`, builtin generics and
+  `X | None`; prefer `pathlib` in new code.
+- Use `logging`, not `print`, in library code. Console tables
+  (`to_markdown`) in stage `__main__` paths are fine.
+- Import as `from finance_vibe import ...`. Don't add new `sys.path`
+  fallbacks.
+- Keep numeric code vectorized (pandas/numpy, float64 prices). Don't use
+  `iterrows`/`apply(axis=1)` in per-ticker or backtest hot paths. Reuse the
+  indicator helpers in `analysis_engine.py` / `coiled_cobra.py` instead of
+  writing new ones; numeric drift changes `Score`.
+- Catch specific exceptions (`ValueError`, `KeyError`, `OSError`) at IO and
+  data-contract boundaries. Broad catches only in per-ticker scan loops, and
+  log them with the traceback.
+- Don't add heavy dependencies (polars, duckdb, async frameworks) without a
+  measured need. See `MODERNIZATION_PLAN.md` for the phased roadmap. Add
+  `uv`/ruff/mypy commands to this file only once those phases land.
+
+## Testing without host pytest
+
+The host may not have pytest. Run the suite in the container against the
+working tree:
+
+```bash
+docker exec finance_vibe rm -rf /tmp/cc && docker exec finance_vibe mkdir -p /tmp/cc
+for d in src tests docs templates; do docker cp $d finance_vibe:/tmp/cc/$d; done
+docker exec -w /tmp/cc -e PYTHONPATH=/tmp/cc/src finance_vibe python -m pytest -q -p no:cacheprovider
+```
+
+(`docs/` and `templates/` are needed by `tests/test_docs_routes.py`.)
 
 ## Working style
 
