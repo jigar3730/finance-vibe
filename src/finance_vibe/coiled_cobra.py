@@ -92,8 +92,8 @@ BBWIDTH_WINDOW = 130 * _WK_TO_BAR
 
 # History floors. MIN_BARS_TO_EVALUATE: rubric's max(COIL_BARS+2, 60w).
 # MIN_BARS_FULL_SCORE: rubric's 160w floor for ATH/trend-template/BBWidth
-# context -- tickers between the two are flagged "Insufficient History"
-# rather than silently scored on partial data.
+# context -- tickers between the two are skipped (evaluate_coiled_cobra
+# returns None) rather than silently scored on partial data.
 MIN_BARS_TO_EVALUATE = max(COIL_BARS + 2, 60 * _WK_TO_BAR)
 MIN_BARS_FULL_SCORE = 160 * _WK_TO_BAR
 
@@ -401,8 +401,9 @@ def structure_score(df: pd.DataFrame, rs_rel: Optional[float] = None) -> int:
 def rvol_trigger_score(df: pd.DataFrame) -> tuple[int, Optional[float]]:
     """Breakout relative-volume bonus (0-10). Additive — never a drop.
 
-    RVOL ≥ 1.2 is the bonus trigger. Sub-1.0 RVOL on a tight coil is valid
-    compression and simply scores 0 on this pillar.
+    RVOL ≥ 1.2 is the bonus trigger. Sub-1.0 RVOL scores 0 here; the
+    quiet-coil credit (4 pts when vol_contraction >= 20) is applied by
+    ``evaluate_coiled_cobra``.
     """
     if df.empty or "RVOL" not in df.columns:
         return 0, None
@@ -565,7 +566,7 @@ def evaluate_coiled_cobra(
 
     Below ``MIN_BARS_FULL_SCORE`` bars of history, returns None unconditionally
     (not scored, regardless of ``include_rejects``) -- see the rubric's
-    "Insufficient History" status.
+    "Data requirements" section.
 
     Full spec: docs/handbook/coiled_cobra_rubric.md (v4.0).
     """

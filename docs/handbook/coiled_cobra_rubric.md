@@ -4,6 +4,17 @@
 Supersedes v3.1. Target: identify coils likely to break out within 1-2 weekly
 bars, scanned against 10 years of weekly OHLCV history.
 
+> **Source of truth:** `src/finance_vibe/coiled_cobra.py`
+> (`evaluate_coiled_cobra`). This doc was re-audited against the code on
+> 2026-10-08; where they disagree, the code wins.
+>
+> **Daily mode.** The rubric is weekly-native, but `coiled_cobra.py daily`
+> runs the same logic on daily bars with every week-denominated period scaled
+> ×5 (EMA 50/100/150/200, trend-rising lookback 40 bars, BBWidth window 650,
+> history floors 300/800 bars). A few constants are set separately for daily
+> rather than ×5: `COIL_BARS` = 30, RS lookback = 63, RS ratio MA = 20,
+> overhead lookback = 252.
+
 ---
 
 # What changed from v3.1 and why
@@ -27,13 +38,19 @@ bars, scanned against 10 years of weekly OHLCV history.
 # Data requirements
 
 - 10 years of weekly OHLCV (~520 bars) per ticker.
-- QQQ (primary) and SPY (secondary) weekly series, same length, for RS.
+- QQQ weekly series, same length, for RS (`BENCHMARK = "QQQ"`). SPY is
+  loaded and passed to the market gate but is currently **not used** in any
+  pass/fail or scoring decision.
 - Optional (recommended, not yet required): a sector/industry group proxy
   (ETF or custom basket) for group RS — see Known Limitations.
 
-Minimum bars to evaluate: `max(COIL_BARS + 2, 60)`. Full scoring (ATH,
-30w/40w EMA, BBWidth percentile) requires at least 160 bars (~3 years);
-tickers with less history are flagged `Insufficient History`, not scored.
+Minimum bars to evaluate: `max(COIL_BARS + 2, 60)` (`MIN_BARS_TO_EVALUATE`).
+Full scoring (ATH, 30w/40w EMA, BBWidth percentile) requires at least 160
+bars (~3 years, `MIN_BARS_FULL_SCORE`). Below 160 bars the ticker is **not
+scored**: `evaluate_coiled_cobra` returns `None` regardless of
+`include_rejects`. The scanner's rejection summary counts files with < 60
+bars as `insufficient_history`; files with 60-159 bars land in the generic
+`IGNORE` bucket. No row or `Grade` reads `Insufficient History`.
 
 ---
 
@@ -56,7 +73,10 @@ dead sideways market — the single biggest gap in v3.1.
 Close ≥ 0.90 × EMA50w   (fails if more than 10% below the 50)
 RS_13w > -15%           (fails only on outright multi-quarter lag)
 ```
-Fail-open (`True`) when benchmark data is unavailable, same as v3.1.
+EMA50w here is the plain 50-bar EMA (`EMA50`). A ticker exactly at
+`RS_13w = -15%` fails. Fail-open: when benchmark data is unavailable (RS is
+`None`) only the EMA50 check applies, same as v3.1. SPY/QQQ trend is not part
+of this gate.
 
 ## Gate C — Coil Integrity (new — replaces implicit additive credit)
 ```
@@ -123,7 +143,9 @@ properly-measured pillar.
 
 ```
 BBWidth = (UpperBB20 - LowerBB20) / MiddleBB20      # weekly, 20-period, 2 std
-percentile = rank of current BBWidth within trailing 104-156 week window
+         = 4 × std20(Close) / SMA20(Close)         # pandas sample std (ddof=1)
+percentile = rank of current BBWidth within trailing 130-week window
+             (BBWIDTH_WINDOW, midpoint of the 104-156w range; needs ≥ 40 bars)
 ```
 
 | BBWidth percentile (own history) | Points |
@@ -166,22 +188,28 @@ Required: EMA10w ≥ 0.98 × EMA20w ≥ 0.98 × EMA30w ≥ 0.98 × EMA40w   → 
 | Close ≥ 0.98 × EMA20w | +5 |
 | EMA20w > EMA40w | +5 |
 
-**Soft extension haircut** (tightened from v3.1):
-| `Pct_From_EMA50w` | Deduction |
+**Soft extension haircut** (tightened from v3.1). Measured from the **40w
+EMA** (`(Close − EMA40w) / EMA40w`), *not* EMA50w or the `Pct_From_EMA50`
+output column:
+| Extension above EMA40w | Deduction |
 |---|---:|
 | ≤ 0.20 | none |
-| 0.20 - 0.30 | scaled, max -4 |
-| 0.30 - 0.40 | max -8 (leader) / -12 (laggard) |
-| > 0.40 | floor at 0 — treat as extended, not a coil |
+| 0.20 - 0.30 | linear 0 → -4 |
+| 0.30 - 0.40 | linear -4 → -8 (leader) / -4 → -12 (laggard) |
+| > 0.40 | pillar floored at 0, treated as extended, not a coil |
+
+"Leader" means `RS_13w > +10%` (`RS_LEADER_EXT`). Deductions are rounded to
+whole points and the pillar is floored at 0.
 
 Check counted when `structure ≥ 8`. Independently gates via Gate C.
 
 ## 4. Relative Strength vs QQQ (20 Points)
 
 ```
-RS_13w = 13-week relative return vs QQQ (causal, Date <= as_of)
-RS_ratio_5wMA = 5-week MA of stock/QQQ ratio
-RS_line = cumulative stock/QQQ ratio series
+RS_13w = stock 13w return − QQQ 13w return (causal, Date <= as_of)
+ratio  = stock Close / QQQ Close (the "RS line")
+RS_ratio_5wMA = 5-week SMA of ratio
+"ratio > 5wMA" also requires RS_13w > 0 (it is relative_strength()'s `ok` flag)
 ```
 
 Smoothed scoring (replaces the old flat "-15% to 0%" plateau):
@@ -192,20 +220,29 @@ Smoothed scoring (replaces the old flat "-15% to 0%" plateau):
 | ratio > 5wMA and RS_13w > +10% | 18 |
 | ratio > 5wMA and RS_13w > 0 | 14 |
 | RS_13w between 0% and +10%, ratio ≤ 5wMA | linear 6 → 12 |
+| RS_13w between +10% and +15%, ratio ≤ 5wMA | 12 (clamped) |
 | RS_13w between -15% and 0% | linear 0 → 6 (was a flat 5 in v3.1) |
-| RS_13w < -15% | 0 (also fails Gate B) |
+| RS_13w ≤ -15% | 0 (also fails Gate B) |
+| No benchmark / too little overlap | 0 |
 
-**+2 bonus** if `RS_line` is at a new 13-week high concurrent with the
-price coil (RS-line cresting into a base — a leading institutional-
-accumulation tell, previously not checked at all).
+**+2 bonus** (capped at 20) if the ratio is at its trailing 13-week high on
+the as-of bar, i.e. the RS line cresting, a leading institutional-accumulation
+tell that v3.1 didn't check. It applies only when the pillar already scores
+> 0 and does not check the price coil itself. The final value is rounded to
+an integer.
+
+The group-RS part of the pillar is **not implemented** (see Known
+Limitations).
 
 Check counted when `relative_strength ≥ 14`.
 
 ## 5. Volume Profile Shelf (15 Points, scaled down from v3.1's 20)
 
-Unchanged methodology (30-bin, volume-weighted-on-Close, over full
-available history now that 10yr is on hand — was capped at 52-week
-`LOOKBACK`):
+Unchanged methodology: 30 equal-width price bins spanning the window's
+Low-min to High-max, with Close histogrammed and weighted by Volume. The
+pillar takes the **better of two windows**: the last 20 bars (the coil) and
+the full available history (up to 10yr, previously capped at the 52-week
+`LOOKBACK`). The sub-scores are summed and rounded to an integer.
 
 | Sub-score | Max | Rule |
 |---|---:|---|
@@ -218,20 +255,30 @@ Check counted when `volume_shelf ≥ 8`.
 ## 6. Overhead Clearance / Open Sky (10 Points, Fib removed)
 
 ```
-lookback_high = max(Close) over full available history (up to 10yr)
-prior_swing_high = nearest prior swing high above current price
+high_52   = max(High) over the last LOOKBACK bars (52w)
+ath       = max(High) over full available history (up to 10yr)
+local_high = max(High) over the last RS_LOOKBACK bars (13w)
 ```
 
 | Condition | Points |
 |---|---:|
-| Open sky: Close ≥ 0.95 × all-time-high | 10 |
-| ≥ 3 ATR to nearest prior swing high | 8 |
+| Open sky: Close ≥ 0.95 × `high_52`, `ath`, **or** `local_high` | 10 |
+| ≥ 3 ATR below `local_high` | 8 |
 | ≥ 2 ATR | 5 |
 | ≥ 1 ATR | 2 |
 | < 1 ATR | 0 |
 
-Fib 61.8%/78.6% levels are **dropped from scoring**; retained only as an
-informational CSV column (`Fib_Ref`) for manual chart review.
+Levels use bar **Highs**, not Closes. There is no swing-high detection: the
+code measures room up to `min(high_52, local_high)`, which is always the
+13-week high. In practice the 13-week "local open sky" clause gives full
+points to any stock within 5% of its quarter high, so most tight coils near
+the top of their base score 10. The rubric's original intent (ATH open sky,
+then ATR distance to the nearest prior swing high) was **never
+implemented**. The local-high clause dates from v3.x. ATR is ATR(14).
+
+Fib 61.8%/78.6% levels (52-bar rolling High/Low range) are **dropped from
+scoring**. They appear only as informational CSV columns (`Fib 61.8%`,
+`Fib 78.6%`) for manual chart review. `Fib Score` is always written as 0.0.
 
 Check counted when `overhead_clearance ≥ 5`.
 
@@ -249,6 +296,8 @@ RVOL = Volume / SMA20w(Volume)
 | < 1.0× on a confirmed tight coil (`vol_contraction ≥ 20`) | 4 (quiet-coil credit) |
 | else | 0 |
 
+`SMA20w(Volume)` includes the current bar.
+
 Check counted when `rvol_trigger ≥ 6`. Never gates — same non-gating
 philosophy as v3.1, this pillar is about timing, not candidate quality.
 
@@ -261,7 +310,7 @@ the CSV:
 
 | Tier | Condition |
 |---|---|
-| **Actionable** | Above, AND `rvol_trigger ≥ 6` AND Close breaking above the `COIL_BARS`-window high |
+| **Actionable** | Above, AND `rvol_trigger ≥ 6` (i.e. RVOL ≥ 1.2×) AND Close > max High of the prior `COIL_BARS` bars (excluding the current bar) |
 | **Watchlist** | Above, but no volume trigger yet / still inside the coil range |
 
 This directly fixes the v3.1 problem of well-coiled-but-not-yet-firing
@@ -284,7 +333,7 @@ question.
 | 85-100, all gates pass, Watchlist tier | A - Watch |
 | 70-84, all gates pass, Actionable tier | B - Valid Coil |
 | 70-84, all gates pass, Watchlist tier | B - Watch |
-| Any gate fail | Rejected - Gate Fail (A/B/C/D recorded) |
+| Any gate fail | `Rejected - Gate Fail (A/C)`: every failing gate listed, `/`-joined |
 | Score < 70 with gates passed | Rejected - Below Threshold |
 
 ---
@@ -296,14 +345,19 @@ question.
   (non-gating, informational-then-scored-later) check — leadership within
   a hot group is a meaningfully different signal than absolute RS vs. QQQ
   alone, and this rubric doesn't yet capture it.
-- **BBWidth percentile window (104-156w) is a starting heuristic**, not
-  back-tested here — worth validating against your existing trade archive
-  (`backtest_and_backfill.md`) before fully replacing the old ATR-ratio
-  method in production.
-- **IPO / short-history names** still can't pass Stage 2 in full (need
-  ≥160 weekly bars for EMA40w and 10yr ATH context) — same limitation as
-  v3.1, now formalized as an explicit `Insufficient History` status rather
-  than silently scoring on partial data.
+- **BBWidth percentile window (130w, chosen from the 104-156w range) is a
+  starting heuristic**, not back-tested here. Worth validating against your
+  existing trade archive (`backtest_and_backfill.md`) before fully replacing
+  the old ATR-ratio method in production.
+- **IPO / short-history names** (< 160 weekly bars) are not scored at all, so
+  they never reach Stage 2. Nothing scores them on partial data, but nothing
+  surfaces an explicit `Insufficient History` status either. They show up
+  only in the scanner's rejection-summary log (`insufficient_history` / `IGNORE`).
+- **Overhead Clearance is looser than intended.** See pillar 6: the 13-week
+  local-high clause gives full marks well short of true open sky, and there
+  is no prior-swing-high detection. Fixing it changes `Score`, so it needs a
+  `RUBRIC_VERSION` bump and backtest validation.
+- **SPY is unused.** It is loaded and passed to the market gate but ignored.
 - Daily-bar trigger confirmation (mentioned in Stage 3) is a **process
   recommendation**, not implemented in this rubric — it's a second, smaller
   scanner pass, not a rewrite of this one.
