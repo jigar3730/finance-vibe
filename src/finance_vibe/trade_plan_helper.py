@@ -154,7 +154,9 @@ def _apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         stats["kept"] = 0
         return out, stats
 
-    price = pd.to_numeric(
+    # pandas-stubs has no to_numeric(None) overload; at runtime it returns None,
+    # which the `is not None` checks below handle.
+    price = pd.to_numeric(  # type: ignore[call-overload]
         out["Close"] if "Close" in out.columns else out.get("Stock Entry"),
         errors="coerce",
     )
@@ -163,7 +165,7 @@ def _apply_ingestion_filters(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
         entry = pd.to_numeric(out["Stock Entry"], errors="coerce")
         price = price.fillna(entry) if hasattr(price, "fillna") else entry
 
-    risk = pd.to_numeric(out.get("Risk Per Share"), errors="coerce")
+    risk = pd.to_numeric(out.get("Risk Per Share"), errors="coerce")  # type: ignore[call-overload]
     if price is not None and risk is not None:
         risk_pct = risk / price.replace(0, np.nan)
         mask_risk = (risk_pct > MAX_RISK_PCT_OF_CLOSE).fillna(False)

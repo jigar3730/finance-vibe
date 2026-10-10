@@ -50,7 +50,7 @@ def _download_batch(
     Raises the last exception once retries are exhausted; the caller logs
     that as a batch-level failure for every ticker in the batch.
     """
-    last_err = None
+    last_err: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
             return yf.download(
@@ -70,6 +70,8 @@ def _download_batch(
             sleep_s = backoff**attempt
             print(f"⚠️ Batch download failed ({e}); retry {attempt}/{retries} in {sleep_s:.0f}s")
             time.sleep(sleep_s)
+    if last_err is None:
+        raise ValueError(f"retries must be >= 1, got {retries}")
     raise last_err
 
 

@@ -434,7 +434,7 @@ def add_indicators(
     out["MACD_Signal"] = _series_or_nan(macd_signal, out.index)
     out["MACD_Hist"] = _series_or_nan(macd_hist, out.index)
 
-    bb = ta.bbands(close, length=BB_LEN, std=BB_STD)
+    bb = ta.bbands(close, length=BB_LEN, std=BB_STD)  # type: ignore[arg-type]  # pandas_ta mis-annotates std
     bb_lower = _ta_col(bb, "BBL_")
     bb_mid = _ta_col(bb, "BBM_")
     bb_upper = _ta_col(bb, "BBU_")
@@ -568,7 +568,7 @@ def _trend_bull(df: pd.DataFrame, *, require_sma50: bool = True) -> bool | None:
     return bool(bull)
 
 
-def _trend_bear(df: pd.DataFrame) -> bool | None:
+def _trend_bear(df: pd.DataFrame | None) -> bool | None:
     if df is None or df.empty:
         return None
     last = df.iloc[-1]
@@ -1163,7 +1163,7 @@ def _is_display_candidate(row: dict) -> bool:
     status = row.get("Status")
     if status in CANDIDATE_STATUSES:
         return True
-    floor = DISPLAY_SCORE_FLOOR.get(status)
+    floor = DISPLAY_SCORE_FLOOR.get(status) if isinstance(status, str) else None
     if floor is None:
         return False
     score = row.get("Breakout Readiness")

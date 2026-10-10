@@ -62,6 +62,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from pandas.api.typing import NaTType
 
 from finance_vibe import coiled_cobra as cc
 from finance_vibe import coiled_cobra_backtest as cbt
@@ -382,7 +383,7 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], list[dict], dict]:
 
 def collect(
     paths: list[str], workers: int | None = None
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp | NaTType]:
     """Run the pass over ``paths`` in a process pool; returns (bars, runs, last_bar_date)."""
     cc.apply_timeframe(MODE)
     rows: list[dict] = []
@@ -532,14 +533,14 @@ def monster_capture(bars: pd.DataFrame, runs: pd.DataFrame, variant: str) -> dic
         g = by_sym.get(run.sym)
         if (
             g is None
-            or not ((g["idx"] >= run.low_idx - RUN_LEAD_BARS) & (g["idx"] <= run.peak_idx)).any()
+            or not ((g["idx"] >= run.low_idx - RUN_LEAD_BARS) & (g["idx"] <= run.peak_idx)).any()  # type: ignore[operator]
         ):
             continue  # no scoreable bar in the run window
         scoreable += 1
         f = flag_by_sym.get(run.sym)
         if f is None:
             continue
-        hit = f[(f["idx"] >= run.low_idx - RUN_LEAD_BARS) & (f["idx"] <= run.peak_idx)]
+        hit = f[(f["idx"] >= run.low_idx - RUN_LEAD_BARS) & (f["idx"] <= run.peak_idx)]  # type: ignore[operator]
         if hit.empty:
             continue
         first = hit.iloc[0]

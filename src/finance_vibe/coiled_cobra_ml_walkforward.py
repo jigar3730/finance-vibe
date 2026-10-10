@@ -140,7 +140,11 @@ def weekly_metrics(
                 DATE_COL: date,
                 "n": len(g),
                 "ic": spearman(g[rank_col], g[ret_col]),
-                "spread": _tercile_spread(g[rank_col], g[ret_col], int(date.value % (2**31))),
+                "spread": _tercile_spread(
+                    g[rank_col],
+                    g[ret_col],
+                    int(date.value % (2**31)),  # type: ignore[union-attr]
+                ),
             }
         )
     return pd.DataFrame(rows, columns=[DATE_COL, "n", "ic", "spread"])

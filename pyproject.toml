@@ -90,7 +90,8 @@ check_untyped_defs = true
 # Untyped third-party packages.
 module = [
     "yfinance.*", "yahooquery.*", "pandas_ta.*",
-    "xgboost.*", "lightgbm.*", "sklearn.*", "markdown.*",
+    "xgboost.*", "lightgbm.*", "sklearn.*", "markdown.*", "pygments.*",
+    "matplotlib.*",  # in the ml group, which the lint venv does not install
 ]
 ignore_missing_imports = true
 

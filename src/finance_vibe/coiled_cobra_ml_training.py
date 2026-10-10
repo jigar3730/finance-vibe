@@ -23,6 +23,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -260,11 +261,11 @@ def _build_matrices(
     test: pd.DataFrame,
 ) -> dict:
     """Build X / y / sample_weight arrays for each temporal partition."""
-    parts = {}
+    parts: dict[str, dict[str, Any]] = {}
     for name, frame in (("train", train), ("val", val), ("test", test)):
         X = frame[FEATURE_COLS].copy()
         y = frame[TARGET_COL].astype(float).to_numpy()
-        w = frame[WEIGHT_COL].astype(float).to_numpy()
+        w: np.ndarray = frame[WEIGHT_COL].astype(float).to_numpy()
         w = np.where(np.isfinite(w) & (w > 0), w, np.nan)
         parts[name] = {"X": X, "y": y, "w": w, "n": len(frame)}
 

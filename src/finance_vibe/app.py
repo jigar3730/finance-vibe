@@ -61,7 +61,7 @@ MODES = {
 
 def _get_available_runs() -> dict[str, list[dict]]:
     """Scan weekly/daily log folders and return dated trade-plan files."""
-    runs = {"weekly": [], "daily": []}
+    runs: dict[str, list[dict]] = {"weekly": [], "daily": []}
 
     for mode, folder_path in MODES.items():
         if not os.path.exists(folder_path):
@@ -129,7 +129,7 @@ def _get_breakout_runs() -> dict[str, list[dict]]:
 def _breakout_kpis(df: pd.DataFrame) -> dict[str, object]:
     """Compute run-level KPI counts from the full (unfiltered) scan frame."""
     total = int(len(df))
-    readiness = pd.to_numeric(df.get("Breakout Readiness"), errors="coerce")
+    readiness = pd.to_numeric(df.get("Breakout Readiness"), errors="coerce")  # type: ignore[call-overload]
     median_readiness = readiness.median()
     actionable = int((readiness >= 70).sum())
     status = df.get("Status")

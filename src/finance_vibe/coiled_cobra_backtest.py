@@ -260,7 +260,7 @@ def backtest_ticker(
             if ts not in bench_ctx.index:
                 return None
             val = bench_ctx.at[ts, col]
-            return None if pd.isna(val) else float(val)
+            return None if pd.isna(val) else float(val)  # type: ignore[arg-type]
 
         forward_return_2w = _forward_return(2)
         excess_return_2w = None

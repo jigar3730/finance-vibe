@@ -62,6 +62,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from pandas.api.typing import NaTType
 
 from finance_vibe import breakout_scanner as bs
 from finance_vibe import coiled_cobra_leader_experiment as lx
@@ -180,7 +181,9 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], dict]:
     return symbol, rows, {"sym": symbol, "last_date": df["Date"].iloc[-1]}
 
 
-def collect(paths: list[str], workers: int | None = None) -> tuple[pd.DataFrame, pd.Timestamp]:
+def collect(
+    paths: list[str], workers: int | None = None
+) -> tuple[pd.DataFrame, pd.Timestamp | NaTType]:
     """Run the pass over ``paths`` in a process pool; returns (bars, last_bar_date)."""
     rows: list[dict] = []
     last_dates: list[pd.Timestamp] = []

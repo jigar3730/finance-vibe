@@ -52,3 +52,9 @@ def test_previous_week_is_always_complete():
     assert di.weekly_bar_is_complete(
         pd.Timestamp("2026-09-07"), now=datetime(2026, 9, 14, 9, 0, tzinfo=ET)
     )
+
+
+def test_batch_download_rejects_zero_retries(monkeypatch):
+    monkeypatch.setattr(di.yf, "download", lambda *a, **k: pytest.fail("must not download"))
+    with pytest.raises(ValueError, match="retries"):
+        di._download_batch(["AAPL"], "5y", "1wk", retries=0)

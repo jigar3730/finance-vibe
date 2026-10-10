@@ -9,7 +9,9 @@ from __future__ import annotations
 import os
 import sys
 from datetime import date, datetime
+from typing import Any
 
+import numpy as np
 import pandas as pd
 
 _CONFIG_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -49,7 +51,7 @@ RUBRIC_VERSION_COL = "Rubric_Version"
 ML_RANKING_ENABLED = False
 
 
-def get_mode_config(mode: str | None = None) -> dict:
+def get_mode_config(mode: str | None = None) -> dict[str, Any]:
     """Return download settings and directory paths for ``weekly`` or ``daily``.
 
     Creates ``raw_dir`` and ``logs_dir`` if they do not exist.
@@ -81,12 +83,12 @@ BASE_DIR = os.path.join(PROJECT_ROOT, "data")
 TICKER_LIST_PATH = os.path.join(BASE_DIR, "active_tickers.csv")
 
 
-def _get_raw_filename(ticker: str, cfg: dict) -> str:
+def _get_raw_filename(ticker: str, cfg: dict[str, Any]) -> str:
     """Build a standardized raw CSV name, e.g. ``AAPL_10y_1wk.csv``."""
     return f"{ticker}_{cfg['period']}_{cfg['interval']}.csv"
 
 
-def get_raw_path(ticker: str, cfg: dict) -> str:
+def get_raw_path(ticker: str, cfg: dict[str, Any]) -> str:
     """Absolute path to one ticker's raw CSV inside the active mode directory."""
     return os.path.join(cfg["raw_dir"], _get_raw_filename(ticker, cfg))
 
@@ -178,7 +180,7 @@ _SWING_DEFAULTS = {
 }
 
 
-def get_swing_params(mode: str = "weekly") -> dict:
+def get_swing_params(mode: str = "weekly") -> dict[str, Any]:
     """Return quality-swing geometry + filter params for a swing profile.
 
     Optional keys from :data:`_SWING_DEFAULTS` are always present so callers
@@ -250,6 +252,10 @@ def run_stamp(as_of: str | None = None) -> str:
     return as_of or datetime.now().strftime("%Y-%m-%d")
 
 
+# Anything pd.to_datetime turns into a single Timestamp.
+type AsOf = str | date | np.datetime64
+
+
 def cut_to_as_of(df: pd.DataFrame, as_of: str | None, *, weekly: bool) -> pd.DataFrame:
     """Keep only bars that are complete on ``as_of`` (no lookahead).
 
@@ -285,7 +291,7 @@ def _structural_stop_long(
     entry: float,
     atr: float,
     ema50: float,
-    swing_low,
+    swing_low: float | None,
     *,
     stop_buffer_atr: float,
     stop_atr_cap: float | None = None,
@@ -316,7 +322,7 @@ def _structural_stop_short(
     entry: float,
     atr: float,
     ema50: float,
-    swing_high,
+    swing_high: float | None,
     *,
     stop_buffer_atr: float,
     stop_atr_cap: float | None = None,
@@ -345,8 +351,8 @@ def compute_swing_levels(
     atr: float,
     swing_low: float | None = None,
     swing_high: float | None = None,
-    sp: dict,
-) -> dict:
+    sp: dict[str, Any],
+) -> dict[str, Any]:
     """Compute entry/stop/targets + risk for the non-cobra swing path.
 
     Returns a dict with ``entry``, ``stop``, ``target1``, ``target2``,
@@ -502,7 +508,7 @@ SETUP_ROW_COLUMNS = [
 ]
 
 
-def blank_setup_row() -> dict:
+def blank_setup_row() -> dict[str, Any]:
     """Return a setup-row dict with every schema key present and set to None."""
     return {col: None for col in SETUP_ROW_COLUMNS}
 

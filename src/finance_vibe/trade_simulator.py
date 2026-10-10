@@ -186,7 +186,7 @@ def simulate_scaled_trade(
             fill_idx = j
             break
 
-    if fill_idx is None:
+    if fill_idx is None or fill_price is None:  # set together above
         return result
 
     fill_price = fill_price * (1 + slippage_pct) if is_long else fill_price * (1 - slippage_pct)
@@ -336,7 +336,9 @@ def simulate_scaled_trade(
             runner_price, runner_date = last_close, last_date
             outcome = "expired_no_partial"
 
+    blended_r: float | None
     if partialed:
+        assert partial_r is not None and runner_r is not None  # both set once partialed
         blended_r = partial_fraction * partial_r + (1 - partial_fraction) * runner_r
     else:
         blended_r = full_r

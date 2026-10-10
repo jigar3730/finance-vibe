@@ -19,6 +19,7 @@ import numpy as np
 import pandas as pd
 
 from finance_vibe import config
+from finance_vibe.config import AsOf
 
 # -----------------------------
 # Tunables
@@ -204,7 +205,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 def _select_benchmark_path(benchmark: str, data_mode: str) -> str | None:
     """Find the longest-history raw CSV for *benchmark* in the mode's raw dir."""
     cfg = config.get_mode_config(data_mode)
-    raw_dir = cfg["raw_dir"]
+    raw_dir: str = cfg["raw_dir"]
     if not os.path.isdir(raw_dir):
         return None
     bench = benchmark.upper()
@@ -259,7 +260,7 @@ def load_benchmark_frame(benchmark: str, data_mode: str) -> pd.DataFrame | None:
 
 
 def _index_above_ema21_or_sma50(
-    frame: pd.DataFrame | None, as_of: object | None = None
+    frame: pd.DataFrame | None, as_of: AsOf | None = None
 ) -> bool | None:
     """Causal check: index close is above its 21-bar EMA or 50-bar SMA.
 
@@ -293,7 +294,7 @@ def check_coiled_cobra_market_gate(
     *,
     spy_df: pd.DataFrame | None = None,
     qqq_df: pd.DataFrame | None = None,
-    as_of: object | None = None,
+    as_of: AsOf | None = None,
     close: float | None = None,
     ema50: float | None = None,
     rs_63d: float | None = None,
@@ -325,7 +326,7 @@ def check_coiled_cobra_market_gate(
     return True
 
 
-def market_regime_ok(benchmark_df: pd.DataFrame, as_of: object | None) -> bool:
+def market_regime_ok(benchmark_df: pd.DataFrame, as_of: AsOf | None) -> bool:
     """True when the benchmark is in an uptrend as of *as_of* (causal lookup).
 
     Requires close above EMA50 and EMA100 with a rising EMA50.
@@ -350,7 +351,7 @@ def relative_strength(
     stock_df: pd.DataFrame,
     benchmark_df: pd.DataFrame,
     *,
-    as_of: object | None = None,
+    as_of: AsOf | None = None,
     lookback: int = 63,
     ratio_ma_bars: int = 20,
 ) -> tuple[bool, float | None]:

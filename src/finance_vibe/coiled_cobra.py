@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import logging
 import os
 import sys
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -13,6 +16,7 @@ from finance_vibe.analysis_engine import (
     load_benchmark_frame,
     relative_strength,
 )
+from finance_vibe.config import AsOf
 
 # =========================
 # PROFILE CONFIGURATION
@@ -170,7 +174,7 @@ logger = logging.getLogger(__name__)
 # =========================
 
 
-def add_macro_indicators(df: pd.DataFrame, lookback=None) -> pd.DataFrame:
+def add_macro_indicators(df: pd.DataFrame, lookback: int | None = None) -> pd.DataFrame:
     """EMA stack, MACD, RSI, ATR, RVOL, BBWidth, and rolling Fib levels for coil scoring."""
     lookback = LOOKBACK if lookback is None else lookback
     out = df.copy()
@@ -264,7 +268,9 @@ def _volume_shelf_once(df: pd.DataFrame, current_price: float, lookback: int) ->
     return int(round(topology_score + value_score + behavior_score))
 
 
-def evaluate_volume_profile_shelf(df: pd.DataFrame, current_price: float, lookback=None) -> int:
+def evaluate_volume_profile_shelf(
+    df: pd.DataFrame, current_price: float, lookback: int | None = None
+) -> int:
     """Auction-market volume shelf score (0-15).
 
     Rewards price sitting near the Point of Control / high-volume node.
@@ -367,7 +373,7 @@ def structure_score(df: pd.DataFrame, rs_rel: float | None = None) -> int:
     slow = latest.get("TT_EMA_SLOW")
     if any(v is None or pd.isna(v) for v in (s1, s2, fast, slow)):
         return 0
-    s1, s2, fast, slow = float(s1), float(s2), float(fast), float(slow)
+    s1, s2, fast, slow = float(s1), float(s2), float(fast), float(slow)  # type: ignore[arg-type]  # None ruled out above
 
     if not (s1 >= 0.98 * s2 and s2 >= 0.98 * fast and fast >= 0.98 * slow):
         return 0
@@ -452,7 +458,7 @@ def overhead_clearance_score(
 def _rs_line_new_high(
     stock_df: pd.DataFrame,
     benchmark_df: pd.DataFrame | None,
-    as_of=None,
+    as_of: AsOf | None = None,
     lookback: int = 13,
 ) -> bool:
     """True when the stock/benchmark ratio (RS line) is at its own trailing
@@ -480,7 +486,7 @@ def _rs_line_new_high(
 def relative_strength_score(
     stock_df: pd.DataFrame,
     benchmark_df: pd.DataFrame | None,
-    as_of=None,
+    as_of: AsOf | None = None,
 ) -> tuple[int, float | None]:
     """Relative strength vs QQQ (0-20), smoothed bands + RS-line-new-high bonus.
 
@@ -535,7 +541,7 @@ def evaluate_coiled_cobra(
     qqq_df: pd.DataFrame | None = None,
     apply_market_gate: bool = True,
     include_rejects: bool = False,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """100-point coil scorecard v4.0: catch compressed leaders before they expand.
 
     Pillars (v4.0): Volatility contraction 25 (BBWidth percentile) ·
@@ -702,12 +708,12 @@ def evaluate_coiled_cobra(
 
 def evaluate_as_of(
     df: pd.DataFrame,
-    as_of,
+    as_of: AsOf,
     benchmark_df: pd.DataFrame | None = None,
     *,
     spy_df: pd.DataFrame | None = None,
     include_rejects: bool = True,
-) -> dict | None:
+) -> dict[str, Any] | None:
     """Score the last bar on or before *as_of* (causal). Used by benchmarks."""
     if df.empty or "Date" not in df.columns:
         return None
@@ -745,7 +751,7 @@ def evaluate_as_of(
 # =========================
 
 
-def run_scanner(as_of: str | None = None):
+def run_scanner(as_of: str | None = None) -> None:
     """Scan the active universe; ``as_of`` (YYYY-MM-DD) replays a past date.
 
     With ``as_of`` every bar not complete on that date is dropped (ticker and
@@ -791,7 +797,7 @@ def run_scanner(as_of: str | None = None):
         )
 
     results = []
-    rejection_counts = {}
+    rejection_counts: dict[str, int] = {}
 
     # Cheap file-level pre-filter (evaluate_coiled_cobra's own MIN_BARS_FULL_SCORE
     # check is the real "not scored below this floor" gate; this just skips
