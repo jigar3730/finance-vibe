@@ -74,6 +74,9 @@ architecture docs are stale (e.g. `project_resurrection_prompt.md` and
   thresholds in a way that changes `Score` or which setups qualify, bump
   `config.RUBRIC_VERSION` and update `docs/handbook/coiled_cobra_rubric.md`.
   Training data, model artifacts and inference refuse to mix vintages.
+  Breakout scanner state/status/score changes update
+  `docs/architecture/breakout_scanner.md`. `tests/test_rubric_docs_sync.py`
+  fails when a quoted threshold in either doc drifts from the code.
 - **ML ranking stays off.** `ML_RANKING_ENABLED = False` because walk-forward
   found no out-of-sample edge over raw Score. Don't flip it without the
   paired ML-minus-Score IC interval excluding 0 (see

@@ -1,19 +1,23 @@
 # Coiled Cobra Scanner
-## Rubric v4.0 — Weekly-Only, 10-Year Lookback, Hard-Gated
+## Rubric v4.0 — Weekly-Native, Hard-Gated (daily mode scales ×5)
 
 Supersedes v3.1. Target: identify coils likely to break out within 1-2 weekly
 bars, scanned against 10 years of weekly OHLCV history.
 
 > **Source of truth:** `src/finance_vibe/coiled_cobra.py`
-> (`evaluate_coiled_cobra`). This doc was re-audited against the code on
-> 2026-10-08; where they disagree, the code wins.
+> (`evaluate_coiled_cobra`; `config.RUBRIC_VERSION = "4.0"`). Indicator math
+> is in `src/finance_vibe/indicators.py`. This doc was re-audited line by
+> line against the code on 2026-10-10; where they disagree, the code wins.
 >
 > **Daily mode.** The rubric is weekly-native, but `coiled_cobra.py daily`
 > runs the same logic on daily bars with every week-denominated period scaled
-> ×5 (EMA 50/100/150/200, trend-rising lookback 40 bars, BBWidth window 650,
-> history floors 300/800 bars). A few constants are set separately for daily
-> rather than ×5: `COIL_BARS` = 30, RS lookback = 63, RS ratio MA = 20,
-> overhead lookback = 252.
+> ×5 (EMA 50/100/150/200, trend-rising lookback 40 bars, BBWidth window 650
+> with at least 162 bars, history floors 300/800 bars). A few constants are
+> set separately for daily rather than ×5: `COIL_BARS` = 30, RS lookback = 63
+> (also the local-high and RS-line windows), RS ratio MA = 20, overhead
+> lookback = 252. Bar-count settings are **not** scaled: EMA50 in Gate B,
+> ATR(14), RVOL's 20-bar volume SMA, the 20-bar volume-shelf window, and
+> MACD 12/26/9. All of these are defined in `coiled_cobra.Timeframe`.
 
 ---
 
@@ -21,7 +25,7 @@ bars, scanned against 10 years of weekly OHLCV history.
 
 | Change | Reason |
 |---|---|
-| Added a **Long-Term Trend Template** hard gate (30w/40w EMA stack, both rising) | v3.1 only checked EMA20/50 — a short-term construct. Nothing stopped a coil from passing inside a dead or declining multi-year trend. |
+| Added a **Long-Term Trend Template** hard gate (Close > 30w EMA > 40w EMA, 40w rising) | v3.1 only checked EMA20/50 — a short-term construct. Nothing stopped a coil from passing inside a dead or declining multi-year trend. |
 | `Checks Met` is now a **hard AND condition**, not a display-only counter | v3.1's fully additive scoring let strong unrelated pillars compensate for a pillar that outright failed (e.g. `structure = 0`, `coil_width = 0`), producing false positives. |
 | `structure` and `vol_contraction` (which replaced v3.1's `coil_width`) can each **independently disqualify** a setup | Same reason — these two pillars *are* the definition of "coiled," so a zero on either should not be recoverable via volume/RS/RVOL. |
 | Volatility compression now measured with **Bollinger Band Width percentile**, not MACD | MACD is a momentum/trend indicator, not a volatility indicator. Using `|Hist|/ATR` as a "squeeze" score conflated momentum convergence with range contraction and produced false compression reads. |
@@ -51,6 +55,35 @@ scored**: `evaluate_coiled_cobra` returns `None` regardless of
 `include_rejects`. The scanner's rejection summary counts files with < 60
 bars as `insufficient_history`; files with 60-159 bars land in the generic
 `IGNORE` bucket. No row or `Grade` reads `Insufficient History`.
+
+A row is also not scored (returns `None`) when any of `Close`, `EMA50`,
+`MACD`, `ATR` or the four trend-template EMAs is NaN on the last bar.
+
+Rejection-summary keys logged by the live scan: `inactive_ticker` (not in
+`active_tickers.csv`), `read_error` (file unreadable), `missing_columns`
+(fails the `REQUIRED_OHLCV` contract), `insufficient_history`,
+`IGNORE` (not scored, gate fail or below threshold), and `execution_error`
+(unexpected exception, logged with traceback).
+
+---
+
+# Indicator definitions
+
+All computed by `add_macro_indicators` on the full history up to the as-of
+bar (`indicators.py` reproduces pandas-ta 0.4.71b0, which the project used
+until 2026-10):
+
+| Column | Definition |
+|---|---|
+| `EMA10/20/50/100`, `TT_EMA_*` | EMA seeded with the SMA of the first *n* closes, then `ewm(span=n, adjust=False)` |
+| `SMA50` | Simple 50-bar mean of Close |
+| `MACD` | EMA12 − EMA26 of Close (signal EMA9; only the MACD line is used) |
+| `RSI` | RSI(14), Wilder smoothing (output column only, not scored) |
+| `ATR` | ATR(14): true range smoothed with Wilder's RMA, SMA-seeded |
+| `RVOL` | Volume / SMA20(Volume), current bar included |
+| `BBWidth` | 4 × std20(Close, ddof=1) / SMA20(Close) |
+| `BBWidth_Pctile` | rolling percentile rank (0-100, current bar included) of `BBWidth` over `BBWIDTH_WINDOW` bars, `min_periods = max(40, BBWIDTH_WINDOW // 4)` |
+| `Fib_618/786` | `LOOKBACK`-bar rolling High/Low range retracements (informational) |
 
 ---
 
@@ -156,9 +189,9 @@ percentile = rank of current BBWidth within trailing 130-week window
 | ≤ 50th percentile | 6 |
 | > 50th percentile | 0 |
 
-Additionally require the percentile to have been **declining over the
-trailing `COIL_BARS` (8 weeks)** — i.e. contraction is a trend, not a
-snapshot — or halve the points. This is the actual VCP-style check that
+Additionally the percentile must **not be higher than it was `COIL_BARS`
+bars ago (8 weeks)**, or the points are halved: contraction is a trend, not
+a snapshot. An unchanged percentile keeps full points. This is the actual VCP-style check that
 v3.1's static ATR ratio never performed.
 
 Check counted when `vol_contraction ≥ 12`. This check is also one half of
@@ -224,6 +257,10 @@ Smoothed scoring (replaces the old flat "-15% to 0%" plateau):
 | RS_13w between -15% and 0% | linear 0 → 6 (was a flat 5 in v3.1) |
 | RS_13w ≤ -15% | 0 (also fails Gate B) |
 | No benchmark / too little overlap | 0 |
+
+`RS_13w` is rounded to 4 decimals before these bands are applied, and the
+stock and QQQ series are inner-joined on Date (RS needs at least
+`RS_LOOKBACK + 1` common bars).
 
 **+2 bonus** (capped at 20) if the ratio is at its trailing 13-week high on
 the as-of bar, i.e. the RS line cresting, a leading institutional-accumulation
@@ -315,6 +352,25 @@ the CSV:
 
 This directly fixes the v3.1 problem of well-coiled-but-not-yet-firing
 names being visually indistinguishable from names breaking out today.
+
+## Output row
+
+Each passing setup is written to `coiled_cobra_setups_<date>.csv`, with
+columns exactly `config.SETUP_ROW_COLUMNS`. The scorecard fields are:
+
+- `Score`: the six pillars minus the MACD penalty, rounded to 2 decimals.
+- `Grade`, also copied to `Notes`.
+- `Tier`.
+- `Checks Met`, formatted `"n/6"`.
+- `RS 63d`: the `RS_LOOKBACK` value, i.e. **13 weeks on weekly runs**.
+- `RVOL`.
+- `Market Gate`, also copied to `Regime OK`.
+- `Fib Score`, always 0.0.
+
+The per-pillar `Parts` and `BBWidth Pctile` are **not** in the live CSV; the
+backtest archives keep them (`Part_*`, `BBWidth Pctile`). Rows are sorted by
+`Score`, descending (ML ranking is off, `ML_RANKING_ENABLED = False`). Ties
+have no guaranteed order.
 
 **Recommended pipeline:** run this weekly scorecard to produce the
 candidate list, then re-check `Actionable` names against **daily** bars for
