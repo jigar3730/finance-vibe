@@ -155,11 +155,10 @@ def _run_pipeline(repo: Path, fixture: Path, as_of: dict[str, str], out: Path) -
 
 def _scorecard(mode: str, as_of: str, out_csv: str) -> int:
     """Score every raw ticker with include_rejects=True (mirrors run_scanner's loading)."""
-    sys.argv = [sys.argv[0], mode]  # coiled_cobra reads its mode from argv at import
     from finance_vibe import coiled_cobra as cc
     from finance_vibe import config
 
-    cc.apply_timeframe(mode)
+    cc.apply_timeframe(mode)  # calibration constants and RAW_DATA_DIR
     weekly = mode == "weekly"
     bench = {}
     for sym in (cc.BENCHMARK, cc.SPY_BENCHMARK):

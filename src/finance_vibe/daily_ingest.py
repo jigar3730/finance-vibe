@@ -144,6 +144,12 @@ def ingest_daily(now: datetime | None = None) -> None:
         )
 
 
+def main(argv: list[str] | None = None) -> int:
+    """CLI: ``daily_ingest.py`` (takes no arguments)."""
+    ingest_daily()
+    return 0
+
+
 if __name__ == "__main__":
     setup_logging()
-    ingest_daily()
+    raise SystemExit(main())

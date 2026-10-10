@@ -22,15 +22,6 @@ from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
 
-# =========================
-# PROFILE CONFIGURATION
-# =========================
-if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
-    mode = sys.argv[1].lower()
-else:
-    logger.warning("Unknown mode parsed to trade planner. Defaulting to 'weekly'.")
-    mode = "weekly"
-
 # --------- CONFIG ----------
 # Retained internally by calculate_stock_levels()'s return signature (still
 # consumed by coiled_cobra_backtest.py); no longer written to trade_plan
@@ -38,8 +29,20 @@ else:
 DELTA_LONG = (0.65, 0.80)
 DELTA_SHORT = (-0.80, -0.65)
 
-# Dynamic path resolution according to isolation architecture.
-SCANNER_DIR = Path(config.get_log_dir(mode))
+# Mode and its log directory, set by set_mode() (the module imports as weekly).
+mode: str
+SCANNER_DIR: Path
+
+
+def set_mode(new_mode: str) -> str:
+    """Select the planner mode and its log directory; unknown modes fall back to weekly."""
+    global mode, SCANNER_DIR
+    _, mode = config.resolve_pipeline_mode(new_mode)
+    SCANNER_DIR = Path(config.PROJECT_ROOT) / "data" / "logs" / mode
+    return mode
+
+
+set_mode("weekly")
 COILED_PREFIX = "coiled_cobra_setups_"
 OUTPUT_PREFIX = "trade_plan_"
 
@@ -309,6 +312,24 @@ def generate_trade_plan(
 
 
 # --------- USAGE ----------
+def main(argv: list[str] | None = None) -> int:
+    """CLI: ``trade_planner.py [weekly|daily] [--as-of YYYY-MM-DD]``."""
+    args = sys.argv[1:] if argv is None else argv
+    cli_mode = args[0].lower() if args and not args[0].startswith("-") else "weekly"
+    if cli_mode not in ("weekly", "daily"):
+        logger.warning(
+            f"Unknown mode {cli_mode!r} parsed to trade planner. Defaulting to 'weekly'."
+        )
+    try:
+        as_of = config.parse_as_of(args)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return 2
+    set_mode(cli_mode)
+    generate_trade_plan(as_of=as_of)
+    return 0
+
+
 if __name__ == "__main__":
     setup_logging()
-    generate_trade_plan(as_of=config.parse_as_of())
+    raise SystemExit(main())

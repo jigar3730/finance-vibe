@@ -96,6 +96,12 @@ def refresh_active_tickers():
             )
 
 
+def main(argv: list[str] | None = None) -> int:
+    """CLI: ``ticker_provider.py`` (takes no arguments)."""
+    refresh_active_tickers()
+    return 0
+
+
 if __name__ == "__main__":
     setup_logging()
-    refresh_active_tickers()
+    raise SystemExit(main())

@@ -221,15 +221,20 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
         logger.info(f"   Failure log: {os.path.join(logs_dir, 'ingest_errors_<date>.csv')}")
 
 
-if __name__ == "__main__":
-    setup_logging()
-    # Check for CLI argument, otherwise default to weekly execution
+def main(argv: list[str] | None = None) -> int:
+    """CLI: ``data_ingestor.py [weekly|daily]`` (default weekly)."""
+    args = sys.argv[1:] if argv is None else argv
     selected_mode = "weekly"
-    if len(sys.argv) > 1:
-        arg_mode = sys.argv[1].lower()
+    if args:
+        arg_mode = args[0].lower()
         if arg_mode in ["weekly", "daily"]:
             selected_mode = arg_mode
         else:
             logger.warning(f"Unknown mode '{arg_mode}'. Defaulting to 'weekly'.")
-
     ingest_market_data(mode=selected_mode)
+    return 0
+
+
+if __name__ == "__main__":
+    setup_logging()
+    raise SystemExit(main())

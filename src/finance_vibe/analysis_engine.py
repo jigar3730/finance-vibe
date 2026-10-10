@@ -591,9 +591,21 @@ def run_scan(
     return out
 
 
+def main(argv: list[str] | None = None) -> int:
+    """CLI: ``analysis_engine.py [weekly|daily] [--as-of YYYY-MM-DD]``."""
+    args = sys.argv[1:] if argv is None else argv
+    cli_mode = config.DEFAULT_MODE
+    if args and args[0].lower() in config.TIMEFRAME_PROFILES:
+        cli_mode = args[0].lower()
+    try:
+        as_of = config.parse_as_of(args)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return 2
+    run_scan(mode=cli_mode, as_of=as_of)
+    return 0
+
+
 if __name__ == "__main__":
     setup_logging()
-    cli_mode = config.DEFAULT_MODE
-    if len(sys.argv) > 1 and sys.argv[1].lower() in config.TIMEFRAME_PROFILES:
-        cli_mode = sys.argv[1].lower()
-    run_scan(mode=cli_mode, as_of=config.parse_as_of())
+    raise SystemExit(main())

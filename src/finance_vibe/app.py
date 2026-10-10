@@ -28,8 +28,8 @@ BREAKOUT_MODES = {
 }
 
 # Table columns mirror breakout_scanner.DISPLAY_COLUMNS (states first; the
-# 100-pt score is secondary). Defined locally to avoid importing the scanner
-# module (which reads sys.argv at import time).
+# 100-pt score is secondary). Defined locally so the UI doesn't import the
+# scanner and its indicator stack.
 BREAKOUT_DISPLAY_COLUMNS = [
     "Symbol",
     "Status",

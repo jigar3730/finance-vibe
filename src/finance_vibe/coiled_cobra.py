@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -20,31 +21,13 @@ from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
 
-# =========================
-# PROFILE CONFIGURATION
-# =========================
-if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
-    mode = sys.argv[1].lower()
-else:
-    logger.warning("Unknown mode parsed to scanner. Defaulting to 'weekly'.")
-    mode = "weekly"
-
-# Data timeframe and signal profile (identical for weekly/daily).
-_data_mode, _signal_mode = config.resolve_pipeline_mode(mode)
-mode = _signal_mode  # scanner/planner Mode column = signal profile
-
-# Timeframe-specific technical calibration (mutated by ``apply_timeframe``).
-_is_daily_bars = mode == "daily"
-LOOKBACK = 252 if _is_daily_bars else 52
-# Coil window: how many bars define "the base" (weekly ≈ 2 months, daily ≈ 6 weeks)
-COIL_BARS = 30 if _is_daily_bars else 8
-# Local structural floor for dual-constraint stops (not the macro Fib lookback)
-STRUCTURE_STOP_BARS = 10
-# RS lookback in bars (weekly ≈ 1 quarter, daily ≈ 63 sessions)
-RS_LOOKBACK = 63 if _is_daily_bars else 13
-RS_RATIO_MA = 20 if _is_daily_bars else 5
+# =====================================================================
+# RUBRIC v4.0 CALIBRATION
+# =====================================================================
 BENCHMARK = "QQQ"
 SPY_BENCHMARK = "SPY"
+# Local structural floor for dual-constraint stops (not the macro Fib lookback)
+STRUCTURE_STOP_BARS = 10
 
 # Open-sky / extension allowances (daily-calibrated fractions; used on both TFs)
 OPEN_SKY_PCT = 0.95  # Close >= 95% of 52-week / ATH → full space score
@@ -53,45 +36,94 @@ RS_LEADER_EXT = 0.10  # RS above this = "leader" for extension-haircut purposes
 RVOL_BONUS = 1.2  # RVOL threshold for the quiet-coil credit check
 
 
+@dataclass(frozen=True)
+class Timeframe:
+    """Every mode-dependent calibration constant, derived from one mode.
+
+    Weekly-native periods per docs/handbook/coiled_cobra_rubric.md, scaled 5x
+    for daily bars (5 trading days ~= 1 week). This 5x rule is not
+    arbitrary: 10w*5=50d, 30w*5=150d, 40w*5=200d land exactly on Minervini's
+    classic daily 50/150/200-SMA trend template -- the rubric explicitly names
+    Gate A as "the weekly analog" of that daily template, so the scaling is
+    self-consistent rather than an independent daily calibration.
+    """
+
+    mode: str  # "weekly" | "daily"; data timeframe and signal profile alike
+
+    @classmethod
+    def for_mode(cls, mode: str) -> Timeframe:
+        """Unknown modes fall back to ``config.DEFAULT_MODE``."""
+        _, profile = config.resolve_pipeline_mode(mode)
+        return cls(profile)
+
+    @property
+    def is_daily_bars(self) -> bool:
+        return self.mode == "daily"
+
+    @property
+    def wk_to_bar(self) -> int:
+        return 5 if self.is_daily_bars else 1
+
+    @property
+    def lookback(self) -> int:
+        return 252 if self.is_daily_bars else 52
+
+    @property
+    def coil_bars(self) -> int:
+        """Bars that define "the base" (weekly ~ 2 months, daily ~ 6 weeks)."""
+        return 30 if self.is_daily_bars else 8
+
+    @property
+    def rs_lookback(self) -> int:
+        """RS lookback in bars (weekly ~ 1 quarter, daily ~ 63 sessions)."""
+        return 63 if self.is_daily_bars else 13
+
+    @property
+    def rs_ratio_ma(self) -> int:
+        return 20 if self.is_daily_bars else 5
+
+
+# Mode-derived module constants, (re)set by apply_timeframe(). Trend-template
+# EMAs are prefixed TT_ to keep them distinct from the bar-count
+# EMA10/20/50/100 columns, which stay native-bar-length (used for
+# Pct_From_EMA20/50 ML features, output columns, etc.) and are NOT week-scaled.
+TIMEFRAME: Timeframe
+mode: str  # scanner/planner Mode column = signal profile
+_data_mode: str
+_is_daily_bars: bool
+LOOKBACK: int
+COIL_BARS: int
+RS_LOOKBACK: int
+RS_RATIO_MA: int
+_WK_TO_BAR: int
+TT_EMA_S1: int  # structure stack: fast
+TT_EMA_S2: int  # structure stack: mid
+TT_EMA_FAST: int  # Gate A fast (== Minervini 150-SMA on daily)
+TT_EMA_SLOW: int  # Gate A slow / structure's third anchor (== Minervini 200-SMA on daily)
+TREND_RISING_LOOKBACK: int  # bars EMA_SLOW must be rising over
+# BBWidth percentile rolling window: rubric specifies 104-156 weeks (2-3y);
+# 130w midpoint, same 5x daily scaling.
+BBWIDTH_WINDOW: int
+# History floors. MIN_BARS_TO_EVALUATE: rubric's max(COIL_BARS+2, 60w).
+# MIN_BARS_FULL_SCORE: rubric's 160w floor for ATH/trend-template/BBWidth
+# context -- tickers between the two are skipped (evaluate_coiled_cobra
+# returns None) rather than silently scored on partial data.
+MIN_BARS_TO_EVALUATE: int
+MIN_BARS_FULL_SCORE: int
+
+# Paths (also set by apply_timeframe). Raw OHLCV comes from the data
+# timeframe's silo; outputs go to LOG_DIR (created by run_scanner).
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
+ACTIVE_TICKERS_PATH = os.path.join(BASE_DIR, "data", "active_tickers.csv")
+RAW_DATA_DIR: str
+LOG_DIR: str
+
+
 def local_swing_low(df: pd.DataFrame, bars: int = STRUCTURE_STOP_BARS) -> float:
     """Minimum Low over the last ``bars`` sessions (local consolidation floor)."""
     window = df.iloc[-bars:] if len(df) >= bars else df
     return float(window["Low"].min())
 
-
-# =====================================================================
-# RUBRIC v4.0 CALIBRATION
-# =====================================================================
-# Weekly-native periods per docs/handbook/coiled_cobra_rubric.md, scaled 5x
-# for daily bars (5 trading days ~= 1 week). This 5x rule is not
-# arbitrary: 10w*5=50d, 30w*5=150d, 40w*5=200d land exactly on Minervini's
-# classic daily 50/150/200-SMA trend template -- the rubric explicitly names
-# Gate A as "the weekly analog" of that daily template, so the scaling is
-# self-consistent rather than an independent daily calibration.
-_WK_TO_BAR = 5 if _is_daily_bars else 1
-
-# Trend-template EMAs (Gate A + Structure pillar). Prefixed TT_ to keep them
-# distinct from the pre-existing bar-count EMA10/20/50/100 columns, which
-# stay native-bar-length (used for Pct_From_EMA20/50 ML features, output
-# columns, etc.) and are NOT week-scaled.
-TT_EMA_S1 = 10 * _WK_TO_BAR  # structure stack: fast
-TT_EMA_S2 = 20 * _WK_TO_BAR  # structure stack: mid
-TT_EMA_FAST = 30 * _WK_TO_BAR  # Gate A fast (== Minervini 150-SMA on daily)
-TT_EMA_SLOW = (
-    40 * _WK_TO_BAR
-)  # Gate A slow / structure's third anchor (== Minervini 200-SMA on daily)
-TREND_RISING_LOOKBACK = 8 * _WK_TO_BAR  # bars EMA_SLOW must be rising over
-
-# BBWidth percentile rolling window: rubric specifies 104-156 weeks (2-3y);
-# 130w midpoint, same 5x daily scaling.
-BBWIDTH_WINDOW = 130 * _WK_TO_BAR
-
-# History floors. MIN_BARS_TO_EVALUATE: rubric's max(COIL_BARS+2, 60w).
-# MIN_BARS_FULL_SCORE: rubric's 160w floor for ATH/trend-template/BBWidth
-# context -- tickers between the two are skipped (evaluate_coiled_cobra
-# returns None) rather than silently scored on partial data.
-MIN_BARS_TO_EVALUATE = max(COIL_BARS + 2, 60 * _WK_TO_BAR)
-MIN_BARS_FULL_SCORE = 160 * _WK_TO_BAR
 
 # Stage 1 hard-gate thresholds (Gate C reuses the same per-pillar thresholds
 # that drive Gate D's Checks-Met counter -- see each pillar's docstring).
@@ -114,56 +146,35 @@ MIN_PASS_SCORE = 70
 GRADE_A_SCORE = 85
 
 
-def _calibrate(is_daily_bars: bool) -> None:
-    """Recompute every mode-derived constant from a single ``is_daily_bars``
-    flag. Shared by module load and ``apply_timeframe`` so the two never
-    drift out of sync.
+def apply_timeframe(tf: str) -> str:
+    """Set every mode-derived constant and path for ``weekly`` or ``daily``.
+
+    The module imports as weekly; ``main()`` and library callers (backtests,
+    golden scorecard) select the timeframe explicitly. Returns the mode used.
     """
+    global TIMEFRAME, mode, _data_mode, _is_daily_bars
     global LOOKBACK, COIL_BARS, RS_LOOKBACK, RS_RATIO_MA, _WK_TO_BAR
     global TT_EMA_S1, TT_EMA_S2, TT_EMA_FAST, TT_EMA_SLOW, TREND_RISING_LOOKBACK
     global BBWIDTH_WINDOW, MIN_BARS_TO_EVALUATE, MIN_BARS_FULL_SCORE
+    global RAW_DATA_DIR, LOG_DIR
 
-    LOOKBACK = 252 if is_daily_bars else 52
-    COIL_BARS = 30 if is_daily_bars else 8
-    RS_LOOKBACK = 63 if is_daily_bars else 13
-    RS_RATIO_MA = 20 if is_daily_bars else 5
-
-    _WK_TO_BAR = 5 if is_daily_bars else 1
-    TT_EMA_S1 = 10 * _WK_TO_BAR
-    TT_EMA_S2 = 20 * _WK_TO_BAR
-    TT_EMA_FAST = 30 * _WK_TO_BAR
-    TT_EMA_SLOW = 40 * _WK_TO_BAR
-    TREND_RISING_LOOKBACK = 8 * _WK_TO_BAR
-    BBWIDTH_WINDOW = 130 * _WK_TO_BAR
-    MIN_BARS_TO_EVALUATE = max(COIL_BARS + 2, 60 * _WK_TO_BAR)
-    MIN_BARS_FULL_SCORE = 160 * _WK_TO_BAR
-
-
-def apply_timeframe(tf: str) -> str:
-    """Set every mode-derived calibration constant for ``weekly`` or ``daily``.
-
-    Import-time defaults follow ``sys.argv`` (scanner CLI). Historical
-    benchmarks and library callers should set the timeframe explicitly so
-    daily 63-bar RS and 252-bar overhead windows are used. This function does
-    not touch paths.
-    """
-    global mode
-    tf_l = str(tf).lower()
-    mode = "daily" if tf_l == "daily" else "weekly"
-    _calibrate(mode == "daily")
+    t = TIMEFRAME = Timeframe.for_mode(str(tf))
+    mode = _data_mode = t.mode
+    _is_daily_bars = t.is_daily_bars
+    LOOKBACK, COIL_BARS = t.lookback, t.coil_bars
+    RS_LOOKBACK, RS_RATIO_MA = t.rs_lookback, t.rs_ratio_ma
+    _WK_TO_BAR = w = t.wk_to_bar
+    TT_EMA_S1, TT_EMA_S2, TT_EMA_FAST, TT_EMA_SLOW = 10 * w, 20 * w, 30 * w, 40 * w
+    TREND_RISING_LOOKBACK = 8 * w
+    BBWIDTH_WINDOW = 130 * w
+    MIN_BARS_TO_EVALUATE = max(COIL_BARS + 2, 60 * w)
+    MIN_BARS_FULL_SCORE = 160 * w
+    RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw", _data_mode)
+    LOG_DIR = os.path.join(config.PROJECT_ROOT, "data", "logs", mode)
     return mode
 
 
-# =========================
-# PATHS
-# =========================
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-# Raw OHLCV comes from the data timeframe's silo; outputs go to LOG_DIR.
-RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw", _data_mode)
-ACTIVE_TICKERS_PATH = os.path.join(BASE_DIR, "data", "active_tickers.csv")
-LOG_DIR = config.get_log_dir(mode)
-
-os.makedirs(LOG_DIR, exist_ok=True)
+apply_timeframe("weekly")
 
 # =========================
 # INDICATORS
@@ -760,6 +771,7 @@ def run_scanner(as_of: str | None = None) -> None:
     ranking is skipped (a model trained later would leak the future).
     """
     logger.info(f"--- STEP 5: Scanning Coil Setups [{mode.upper()} MODE] ---")
+    os.makedirs(LOG_DIR, exist_ok=True)
     weekly_bars = not _is_daily_bars
     if as_of:
         logger.info(f"AS-OF replay: {as_of} (bars completed on/before this date only)")
@@ -937,6 +949,22 @@ def run_scanner(as_of: str | None = None) -> None:
 # =========================
 # ENTRY
 # =========================
+def main(argv: list[str] | None = None) -> int:
+    """CLI: ``coiled_cobra.py [weekly|daily] [--as-of YYYY-MM-DD]``."""
+    args = sys.argv[1:] if argv is None else argv
+    cli_mode = args[0].lower() if args and not args[0].startswith("-") else "weekly"
+    if cli_mode not in ("weekly", "daily"):
+        logger.warning(f"Unknown mode {cli_mode!r} parsed to scanner. Defaulting to 'weekly'.")
+    try:
+        as_of = config.parse_as_of(args)
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return 2
+    apply_timeframe(cli_mode)
+    run_scanner(as_of=as_of)
+    return 0
+
+
 if __name__ == "__main__":
     setup_logging()
-    run_scanner(as_of=config.parse_as_of())
+    raise SystemExit(main())
