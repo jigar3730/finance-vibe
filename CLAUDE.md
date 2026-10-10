@@ -22,10 +22,12 @@ or options positions. It is also a quant/ML lab (see `docs/labs/`).
 ## Commands
 
 ```bash
-python -m pip install -r requirements.txt
-export PYTHONPATH=src                      # required; Docker uses /app/src
+uv sync                                    # deps from uv.lock + editable install (ml, dev groups by default)
+uv lock                                    # after editing pyproject.toml deps; commit uv.lock
+# without uv: pip install -r requirements.txt && export PYTHONPATH=src
+# commands below assume the .venv is active (or prefix with `uv run`)
 
-python -m pytest -q                        # full suite, ~30s
+python -m pytest -q                        # full suite, ~30s (or: uv run pytest -q)
 python -m pytest tests/test_coiled_cobra.py -q
 
 python src/finance_vibe/run_vibe.py                        # weekly (default)
@@ -83,8 +85,11 @@ architecture docs are stale (e.g. `project_resurrection_prompt.md` and
 ## Coding standards
 
 - Python 3.12 (the container is the reference environment: pandas 3.x,
-  numpy 2.x). Use `from __future__ import annotations`, builtin generics and
-  `X | None`; prefer `pathlib` in new code.
+  numpy 2.x). Dependencies live in `pyproject.toml` and are pinned in
+  `uv.lock`; `requirements.txt` is a `uv export` of it, regenerate it after a
+  lock change. Upgrading a pinned package is a golden-compare event.
+- Use `from __future__ import annotations`, builtin generics and `X | None`;
+  prefer `pathlib` in new code.
 - Use `logging`, not `print`, in library code. Console tables
   (`to_markdown`) in stage `__main__` paths are fine.
 - Import as `from finance_vibe import ...`. Don't add new `sys.path`

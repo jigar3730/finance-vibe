@@ -133,12 +133,20 @@ Cobra signal (not an options trade plan):
 
 ## Requirements
 
-- Python 3.10+
-- See `requirements.txt` (`pandas`, `numpy`, `pandas_ta`, `yfinance`, `yahooquery`, `Flask`, `xgboost`, `lightgbm`, `scikit-learn`, `matplotlib`, …)
+- Python 3.12 or 3.13 (3.12 is the reference: the Docker image and `.python-version`)
+- [uv](https://docs.astral.sh/uv/). Dependencies are declared in `pyproject.toml` and pinned in `uv.lock`:
+  runtime (`pandas`, `numpy`, `pandas-ta`, `yfinance`, `yahooquery`, `Flask`, …), plus the
+  `ml` group (`xgboost`, `lightgbm`, `scikit-learn`, `matplotlib`) and the `dev` group (`pytest`).
+- `libgomp1` (OpenMP) on Linux for lightgbm/xgboost.
 
 ```bash
-python -m pip install -r requirements.txt
+uv sync                  # creates .venv with an editable install; no PYTHONPATH needed
+uv run pytest -q
+uv run finance-vibe --mode weekly --reuse-raw   # = python src/finance_vibe/run_vibe.py ...
 ```
+
+Without uv: `pip install -r requirements.txt` (exported from `uv.lock`, kept for one
+release) and `export PYTHONPATH=src`.
 
 ## Optional UI
 

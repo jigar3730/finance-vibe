@@ -1,0 +1,12 @@
+# data/ is bind-mounted at runtime; never bake it into the image.
+data/
+.git/
+.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+notebooks/
+*.docx
+.devcontainer/
+.env

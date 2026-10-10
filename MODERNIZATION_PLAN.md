@@ -1,6 +1,6 @@
 # Finance Vibe: Modernization Plan
 
-Status: **in progress.** Phase 0 is done (2026-10-08); later phases are proposals.
+Status: **in progress.** Phase 0 is done (2026-10-08), Phase 1 is done (2026-10-10); later phases are proposals.
 Each phase is a separate, reviewable change.
 
 ## 1. Summary and reality check
@@ -145,6 +145,14 @@ Effort is given in relative sizes: S under a day, M a few days, L about a week.
 **Exit:** the baseline is captured, the compare script passes on unchanged code, and pytest is green.
 
 ### Phase 1: Dependencies and packaging with `uv` (M, medium risk)
+> **Done 2026-10-10.** Implemented as:
+> - `pyproject.toml` (hatchling, src layout) and `uv.lock`, which resolves to exactly the 59 versions in `constraints/2026-10-baseline.txt`. `requires-python = ">=3.12,<3.14"` because numpy 2.2.6 has no 3.14 wheels; `.python-version` is 3.12. Groups `ml` and `dev` are both default groups (tests import the ML modules).
+> - `src/finance_vibe/__init__.py`; every `sys.path` / `ImportError` fallback removed, including `data_ingestor`'s `src.finance_vibe` and `ticker_provider`'s bare `import config`. Console scripts `finance-vibe` (`run_vibe:run_workflow`) and `finance-vibe-app` (`app:main`).
+> - Dockerfile: uv copied from `ghcr.io/astral-sh/uv:0.8.22`, `uv sync --frozen` into `/app/.venv` (first on `PATH`), `PYTHONPATH=/app/src` kept for path-based stage runs, `build-essential`/`gcc` dropped, `.dockerignore` added. Image 2.36 GB → 1.71 GB. The `dev` group (pytest) stays in the image because `scripts/test_in_container.sh` runs there; the `ml` group stays too (decide later).
+> - `.devcontainer` runs `uv sync --frozen`; `requirements.txt` is now `uv export` output (remove after one release).
+>
+> Checks: golden compare IDENTICAL and 313 tests pass on the old image and on the new one; a fresh copy passes `uv sync && uv run pytest` with no `PYTHONPATH` (needs `libgomp1` on the host).
+
 **Goal:** reproducible builds and normal imports.
 1. Add `pyproject.toml`:
    - `requires-python = ">=3.12"`;
