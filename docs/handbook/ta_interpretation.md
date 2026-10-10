@@ -58,7 +58,7 @@ Both layers use the **standard 12 / 26 / 9** parameterization — not 15 / 30 / 
 | Layer | Series | Role |
 | ----- | ------ | ---- |
 | Macro | `MACD_H` = histogram; `MACD_S` = 9-EMA **of the histogram** | Momentum vs decay |
-| Swing | `MACD_Hist` (pandas_ta) | Early turn: rising two bars while still ≤ 0, and `< 2 × 20-bar hist std` |
+| Swing | `MACD_Hist` (`indicators.macd`) | Early turn: rising two bars while still ≤ 0, and `< 2 × 20-bar hist std` |
 | Cobra | MACD line + hist / ATR | Squeeze state (0–15); deduct 5 if MACD line ≤ 0 |
 
 ---

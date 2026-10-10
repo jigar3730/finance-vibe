@@ -97,9 +97,10 @@ architecture docs are stale (e.g. `project_resurrection_prompt.md` and
 - Import as `from finance_vibe import ...`. Don't add new `sys.path`
   fallbacks.
 - Keep numeric code vectorized (pandas/numpy, float64 prices). Don't use
-  `iterrows`/`apply(axis=1)` in per-ticker or backtest hot paths. Reuse the
-  indicator helpers in `analysis_engine.py` / `coiled_cobra.py` instead of
-  writing new ones; numeric drift changes `Score`.
+  `iterrows`/`apply(axis=1)` in per-ticker or backtest hot paths. Reuse
+  `indicators.py` (EMA/SMA/RSI/ATR/MACD/BB/KC/OBV, frozen against pandas-ta by
+  `tests/test_indicators_parity.py`) and the helpers in `analysis_engine.py`
+  instead of writing new ones; numeric drift changes `Score`.
 - Catch specific exceptions (`ValueError`, `KeyError`, `OSError`) at IO and
   data-contract boundaries. Broad catches only in per-ticker scan loops, and
   log them with the traceback.

@@ -7,10 +7,9 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
 
 # --- PACKAGE IMPORT ---
-from finance_vibe import config, raw_data
+from finance_vibe import config, indicators, raw_data
 from finance_vibe.analysis_engine import (
     check_coiled_cobra_market_gate,
     load_benchmark_frame,
@@ -175,42 +174,46 @@ def add_macro_indicators(df: pd.DataFrame, lookback: int | None = None) -> pd.Da
     """EMA stack, MACD, RSI, ATR, RVOL, BBWidth, and rolling Fib levels for coil scoring."""
     lookback = LOOKBACK if lookback is None else lookback
     out = df.copy()
-    out["EMA10"] = ta.ema(out["Close"], length=10)
-    out["EMA20"] = ta.ema(out["Close"], length=20)
-    out["EMA50"] = ta.ema(out["Close"], length=50)
-    out["EMA100"] = ta.ema(out["Close"], length=100)
-    out["SMA50"] = ta.sma(out["Close"], length=50)
+    out["EMA10"] = indicators.ema(out["Close"], length=10)
+    out["EMA20"] = indicators.ema(out["Close"], length=20)
+    out["EMA50"] = indicators.ema(out["Close"], length=50)
+    out["EMA100"] = indicators.ema(out["Close"], length=100)
+    out["SMA50"] = indicators.sma(out["Close"], length=50)
 
     # Rubric v4.0 trend-template EMAs (Gate A + Structure pillar) -- distinct
     # from the bar-count EMA10/20/50/100 above, which stay untouched since
     # they drive Pct_From_EMA20/50 ML features and other output columns.
-    out["TT_EMA_S1"] = ta.ema(out["Close"], length=TT_EMA_S1)
-    out["TT_EMA_S2"] = ta.ema(out["Close"], length=TT_EMA_S2)
-    out["TT_EMA_FAST"] = ta.ema(out["Close"], length=TT_EMA_FAST)
-    out["TT_EMA_SLOW"] = ta.ema(out["Close"], length=TT_EMA_SLOW)
+    out["TT_EMA_S1"] = indicators.ema(out["Close"], length=TT_EMA_S1)
+    out["TT_EMA_S2"] = indicators.ema(out["Close"], length=TT_EMA_S2)
+    out["TT_EMA_FAST"] = indicators.ema(out["Close"], length=TT_EMA_FAST)
+    out["TT_EMA_SLOW"] = indicators.ema(out["Close"], length=TT_EMA_SLOW)
 
-    macd = ta.macd(out["Close"])
+    macd = indicators.macd(out["Close"])
+    if macd is None:
+        raise ValueError(f"insufficient history for MACD: {len(out)} bars")
     out["MACD"] = macd["MACD_12_26_9"]
     out["MACD_Signal"] = macd["MACDs_12_26_9"]
     out["MACD_Hist"] = macd["MACDh_12_26_9"]
 
-    out["RSI"] = ta.rsi(out["Close"], length=14)
+    out["RSI"] = indicators.rsi(out["Close"], length=14)
 
     rolling_max = out["High"].rolling(window=lookback, min_periods=lookback).max()
     rolling_min = out["Low"].rolling(window=lookback, min_periods=lookback).min()
     out["Fib_786"] = rolling_max - ((rolling_max - rolling_min) * 0.786)
     out["Fib_618"] = rolling_max - ((rolling_max - rolling_min) * 0.618)
 
-    out["ATR"] = ta.atr(out["High"], out["Low"], out["Close"], length=14)
+    out["ATR"] = indicators.atr(out["High"], out["Low"], out["Close"], length=14)
 
-    out["VOL_SMA20"] = ta.sma(out["Volume"], length=20)
+    out["VOL_SMA20"] = indicators.sma(out["Volume"], length=20)
     out["RVOL"] = out["Volume"] / out["VOL_SMA20"]
 
     # Bollinger Band Width (20-period, 2 std) and its percentile rank within
     # its own trailing BBWIDTH_WINDOW history -- true volatility contraction,
     # not the MACD-spread proxy v3.1 used. min_periods kept generous (a
     # quarter of the window) so shorter histories still get a reading.
-    sma20 = ta.sma(out["Close"], length=20)
+    sma20 = indicators.sma(out["Close"], length=20)
+    if sma20 is None:
+        raise ValueError(f"insufficient history for SMA20: {len(out)} bars")
     std20 = out["Close"].rolling(20, min_periods=20).std()
     bbwidth = (4 * std20) / sma20.replace(0, np.nan)
     out["BBWidth"] = bbwidth

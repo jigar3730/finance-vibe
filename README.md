@@ -135,7 +135,7 @@ Cobra signal (not an options trade plan):
 
 - Python 3.12 or 3.13 (3.12 is the reference: the Docker image and `.python-version`)
 - [uv](https://docs.astral.sh/uv/). Dependencies are declared in `pyproject.toml` and pinned in `uv.lock`:
-  runtime (`pandas`, `numpy`, `pandas-ta`, `yfinance`, `yahooquery`, `Flask`, …), plus the
+  runtime (`pandas`, `numpy`, `yfinance`, `yahooquery`, `Flask`, …), plus the
   `ml` group (`xgboost`, `lightgbm`, `scikit-learn`, `matplotlib`) and the `dev` group (`pytest`).
 - `libgomp1` (OpenMP) on Linux for lightgbm/xgboost.
 

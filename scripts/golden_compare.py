@@ -212,7 +212,7 @@ def _git_rev(repo: Path) -> str | None:
 
 def _versions() -> dict[str, str]:
     out = {"python": sys.version.split()[0]}
-    for name in ("pandas", "numpy", "pandas_ta", "yfinance"):
+    for name in ("pandas", "numpy", "yfinance"):
         try:
             out[name] = __import__(name).__version__
         except Exception:

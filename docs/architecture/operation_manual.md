@@ -17,7 +17,7 @@ This manual describes how to operate the Finance Vibe pipeline: data ingestion, 
 python -m pip install -r requirements.txt
 ```
 
-Core packages: `pandas`, `numpy`, `pandas_ta`, `yfinance`, `yahooquery`, `Flask`.
+Core packages: `pandas`, `numpy`, `yfinance`, `yahooquery`, `Flask`. Technical indicators are in-house (`finance_vibe/indicators.py`, pandas-ta-compatible; pandas-ta was dropped in 2026-10).
 
 ML baseline extras (in `requirements.txt`): `xgboost`, `lightgbm`, `scikit-learn`, `matplotlib`.
 

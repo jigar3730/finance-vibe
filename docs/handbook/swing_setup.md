@@ -51,7 +51,7 @@ Output columns follow the shared setup schema (`config.SETUP_ROW_COLUMNS`), incl
 | Indicator | Settings |
 | --- | --- |
 | EMA20 / EMA50 / EMA100 | Length 20 / 50 / 100 on `Close` |
-| MACD histogram | pandas_ta default **12 / 26 / 9** |
+| MACD histogram | `indicators.macd` default **12 / 26 / 9** |
 | RSI | Length 14 |
 | ATR | Length 14 on High / Low / Close |
 | Swing Low / High | Rolling min/max of Low/High over `structure_bars` (all profiles: **10**) |

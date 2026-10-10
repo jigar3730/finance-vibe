@@ -31,9 +31,8 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-import pandas_ta as ta
 
-from finance_vibe import config, raw_data
+from finance_vibe import config, indicators, raw_data
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -293,7 +292,7 @@ def _series_or_nan(value, index: pd.Index) -> pd.Series:
 
 
 def _sma(series: pd.Series, length: int) -> pd.Series:
-    computed = ta.sma(series, length=length)
+    computed = indicators.sma(series, length=length)
     if computed is None:
         return series.rolling(length, min_periods=length).mean()
     return _series_or_nan(computed, series.index)
@@ -417,10 +416,10 @@ def add_indicators(
     else:
         out["SMA200"] = np.nan
 
-    rsi = ta.rsi(close, length=RSI_LEN)
+    rsi = indicators.rsi(close, length=RSI_LEN)
     out["RSI"] = _series_or_nan(rsi, out.index)
 
-    macd = ta.macd(close, fast=MACD_FAST, slow=MACD_SLOW, signal=MACD_SIGNAL)
+    macd = indicators.macd(close, fast=MACD_FAST, slow=MACD_SLOW, signal=MACD_SIGNAL)
     macd_line = _ta_col(macd, "MACD_15_30_9")
     macd_signal = _ta_col(macd, "MACDs_15_30_9", "MACDs_")
     macd_hist = _ta_col(macd, "MACDh_15_30_9", "MACDh_")
@@ -428,7 +427,7 @@ def add_indicators(
     out["MACD_Signal"] = _series_or_nan(macd_signal, out.index)
     out["MACD_Hist"] = _series_or_nan(macd_hist, out.index)
 
-    bb = ta.bbands(close, length=BB_LEN, std=BB_STD)  # type: ignore[arg-type]  # pandas_ta mis-annotates std
+    bb = indicators.bbands(close, length=BB_LEN, num_std=BB_STD)
     bb_lower = _ta_col(bb, "BBL_")
     bb_mid = _ta_col(bb, "BBM_")
     bb_upper = _ta_col(bb, "BBU_")
@@ -444,7 +443,7 @@ def add_indicators(
         mid = bb_mid.replace(0, np.nan)
         out["BB_Width"] = (bb_upper - bb_lower) / mid
 
-    kc = ta.kc(high, low, close, length=KC_LEN, scalar=KC_SCALAR)
+    kc = indicators.kc(high, low, close, length=KC_LEN, scalar=KC_SCALAR)
     kc_lower = _ta_col(kc, "KCLe_", "KCL_")
     kc_mid = _ta_col(kc, "KCBe_", "KCB_")
     kc_upper = _ta_col(kc, "KCUe_", "KCU_")
@@ -460,7 +459,7 @@ def add_indicators(
         kmid = kc_mid.replace(0, np.nan)
         out["KC_Width"] = (kc_upper - kc_lower) / kmid
 
-    out["ATR"] = _series_or_nan(ta.atr(high, low, close, length=ATR_LEN), out.index)
+    out["ATR"] = _series_or_nan(indicators.atr(high, low, close, length=ATR_LEN), out.index)
 
     vol_sma = _sma(volume, RVOL_LEN)
     out["VOL_SMA20"] = vol_sma
@@ -470,7 +469,7 @@ def add_indicators(
     out["VOL_SMA5"] = vol_fast
     out["Volume Dryup"] = (vol_fast / vol_sma.replace(0, np.nan)) < VOL_DRYUP_RATIO
 
-    out["OBV"] = _series_or_nan(ta.obv(close, volume), out.index)
+    out["OBV"] = _series_or_nan(indicators.obv(close, volume), out.index)
     out["OBV_SMA20"] = _sma(out["OBV"], RVOL_LEN)
 
     out["Range20"] = (

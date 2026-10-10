@@ -9,7 +9,6 @@ requires-python = ">=3.12,<3.14"  # numpy 2.2.6 (baseline) has no 3.14 wheels
 dependencies = [
     "pandas>=3.0.5,<4",
     "numpy>=2.2.6,<3",
-    "pandas-ta==0.4.71b0", # beta; any change can move Score (MODERNIZATION_PLAN Phase 4.4)
     "yfinance>=1.7.0,<2",
     "yahooquery>=2.4.1,<3",
     "flask>=3.1.3,<4",
@@ -89,7 +88,7 @@ check_untyped_defs = true
 [[tool.mypy.overrides]]
 # Untyped third-party packages.
 module = [
-    "yfinance.*", "yahooquery.*", "pandas_ta.*",
+    "yfinance.*", "yahooquery.*",
     "xgboost.*", "lightgbm.*", "sklearn.*", "markdown.*", "pygments.*",
     "matplotlib.*",  # in the ml group, which the lint venv does not install
 ]
