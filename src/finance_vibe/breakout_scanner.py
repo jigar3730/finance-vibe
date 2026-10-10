@@ -33,7 +33,7 @@ import numpy as np
 import pandas as pd
 import pandas_ta as ta
 
-from finance_vibe import config
+from finance_vibe import config, raw_data
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -1199,6 +1199,15 @@ def evaluate_ticker(
     return ScoringEngine().evaluate(features)
 
 
+def _rejection_key(reason: str) -> str:
+    """Rejection bucket for a ValueError raised while loading or scoring a ticker."""
+    if "insufficient" in reason:
+        return "insufficient_data"
+    if "empty" in reason or "usable" in reason or "Missing required" in reason:
+        return "missing_columns"
+    return "invalid_ohlcv"
+
+
 def scan_files(
     raw_files: Iterable[str],
     active_tickers: set[str],
@@ -1224,25 +1233,14 @@ def scan_files(
 
         path = os.path.join(raw_dir, file)
         try:
-            raw = pd.read_csv(path)
-        except (OSError, ValueError) as exc:
-            logger.warning("Failed to read %s: %s", path, exc)
-            rejection_counts["read_error"] = rejection_counts.get("read_error", 0) + 1
-            continue
-
-        try:
-            if as_of:
-                raw = config.cut_to_as_of(raw, as_of, weekly=(native_tf == "weekly"))
+            raw = raw_data.load_raw(path, weekly=(native_tf == "weekly"), as_of=as_of)
             features = engine.extract(raw, symbol, scan_mode)
             results.append(scorer.evaluate(features))
+        except OSError as exc:
+            logger.warning("Failed to read %s: %s", path, exc)
+            rejection_counts["read_error"] = rejection_counts.get("read_error", 0) + 1
         except ValueError as exc:
-            reason = str(exc)
-            if "insufficient" in reason:
-                key = "insufficient_data"
-            elif "empty" in reason or "usable" in reason or "Missing required" in reason:
-                key = "missing_columns"
-            else:
-                key = "invalid_ohlcv"
+            key = _rejection_key(str(exc))
             rejection_counts[key] = rejection_counts.get(key, 0) + 1
         except Exception:  # per-ticker: one bad file must not stop the scan
             logger.exception("Error scoring %s", symbol)
@@ -1277,7 +1275,7 @@ def run_scanner(as_of: str | None = None) -> pd.DataFrame:
         logger.warning("Target raw directory empty or non-existent: %s", RAW_DATA_DIR)
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
 
-    raw_files = [f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")]
+    raw_files = [os.path.basename(f.path) for f in raw_data.raw_files(RAW_DATA_DIR)]
     logger.info("Found %s raw data files in target silo", len(raw_files))
 
     results, rejection_counts = scan_files(

@@ -19,9 +19,10 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from finance_vibe import config
+from finance_vibe import config, raw_data
 from finance_vibe.config import AsOf
 from finance_vibe.log import setup_logging
+from finance_vibe.raw_data import ticker_from_filename
 
 logger = logging.getLogger(__name__)
 
@@ -80,17 +81,7 @@ class ScanRow:
 
 def iter_raw_csv_paths(raw_dir: str) -> Iterable[str]:
     """Yield absolute paths to CSV files in ``raw_dir``, sorted by name."""
-    if not os.path.isdir(raw_dir):
-        raise FileNotFoundError(f"RAW_DIR does not exist: {raw_dir}")
-    for name in sorted(os.listdir(raw_dir)):
-        if name.lower().endswith(".csv"):
-            yield os.path.join(raw_dir, name)
-
-
-def ticker_from_filename(path: str) -> str:
-    """Parse the ticker symbol from a raw CSV filename (text before the first ``_``)."""
-    base = os.path.basename(path)
-    return base.split("_")[0].upper()
+    return (f.path for f in raw_data.raw_files(raw_dir))
 
 
 # -----------------------------
@@ -99,29 +90,11 @@ def ticker_from_filename(path: str) -> str:
 
 
 def load_ohlc_csv(path: str) -> pd.DataFrame:
-    """Load a raw OHLC CSV, normalize Date/Close, and drop unusable rows."""
-    df = pd.read_csv(path)
+    """Load a raw OHLCV CSV through the data contract (no as-of cut; callers cut)."""
+    df = raw_data.load_raw(path)
     if df.empty:
         raise ValueError("empty csv")
-
-    df.columns = [c.strip().capitalize() for c in df.columns]
-    date_col = next((c for c in df.columns if "Date" in c), None)
-    close_col = next((c for c in df.columns if "Close" in c), None)
-
-    if not date_col or not close_col:
-        raise ValueError(f"Missing Date or Close in {path}")
-
-    df = df.rename(columns={date_col: "Date", close_col: "Close"})
-    df["Date"] = pd.to_datetime(df["Date"])
-    df = df.sort_values("Date").reset_index(drop=True)
-    df["Close"] = pd.to_numeric(df["Close"], errors="coerce")
-
-    if "High" in df.columns:
-        df["High"] = pd.to_numeric(df["High"], errors="coerce")
-    if "Low" in df.columns:
-        df["Low"] = pd.to_numeric(df["Low"], errors="coerce")
-
-    return df.dropna(subset=["Date", "Close"])
+    return df
 
 
 # -----------------------------

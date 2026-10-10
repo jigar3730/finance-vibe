@@ -67,9 +67,10 @@ from pandas.api.typing import NaTType
 from finance_vibe import coiled_cobra as cc
 from finance_vibe import coiled_cobra_backtest as cbt
 from finance_vibe import config
-from finance_vibe.analysis_engine import load_ohlc_csv, ticker_from_filename
+from finance_vibe.analysis_engine import load_ohlc_csv
 from finance_vibe.coiled_cobra import add_macro_indicators, evaluate_coiled_cobra, local_swing_low
 from finance_vibe.log import setup_logging
+from finance_vibe.raw_data import ticker_from_filename
 from finance_vibe.trade_planner import calculate_stock_levels
 from finance_vibe.trade_simulator import simulate_trade
 

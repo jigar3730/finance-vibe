@@ -66,9 +66,9 @@ from pandas.api.typing import NaTType
 
 from finance_vibe import breakout_scanner as bs
 from finance_vibe import coiled_cobra_leader_experiment as lx
-from finance_vibe import config
-from finance_vibe.analysis_engine import ticker_from_filename
+from finance_vibe import config, raw_data
 from finance_vibe.log import setup_logging
+from finance_vibe.raw_data import ticker_from_filename
 
 MODE = "weekly"  # 10y of weekly bars; same horizon and exits as the leader experiment
 SEED = 20261001
@@ -123,7 +123,7 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], dict]:
     """One row per scoreable bar for one ticker.  Causal at every bar."""
     symbol = ticker_from_filename(path)
     try:
-        df = bs.normalize_ohlcv(pd.read_csv(path))
+        df = bs.normalize_ohlcv(raw_data.load_raw(path))
     except (OSError, ValueError, KeyError) as exc:
         print(f"{symbol}: error - {exc}", file=sys.stderr)
         return symbol, [], {}

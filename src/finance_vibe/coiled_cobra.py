@@ -10,7 +10,7 @@ import pandas as pd
 import pandas_ta as ta
 
 # --- PACKAGE IMPORT ---
-from finance_vibe import config
+from finance_vibe import config, raw_data
 from finance_vibe.analysis_engine import (
     check_coiled_cobra_market_gate,
     load_benchmark_frame,
@@ -772,8 +772,8 @@ def run_scanner(as_of: str | None = None) -> None:
         logger.warning(f"Target raw directory empty or non-existent: {RAW_DATA_DIR}")
         return
 
-    raw_files = [f for f in os.listdir(RAW_DATA_DIR) if f.endswith(".csv")]
-    logger.info(f"Found {len(raw_files)} historical files to analyze in target silo.")
+    files = raw_data.raw_files(RAW_DATA_DIR)
+    logger.info(f"Found {len(files)} historical files to analyze in target silo.")
 
     # Benchmarks live in the data timeframe's raw silo (_data_mode).
     qqq_df = load_benchmark_frame(BENCHMARK, _data_mode)
@@ -802,24 +802,22 @@ def run_scanner(as_of: str | None = None) -> None:
     # files with almost no data before paying the indicator-computation cost).
     min_required_history = MIN_BARS_TO_EVALUATE
 
-    for file in raw_files:
-        symbol = file.split(".")[0].split("_")[0].upper()
+    for raw in files:
+        symbol = raw.ticker
 
         if symbol not in active_tickers:
             rejection_counts["inactive_ticker"] = rejection_counts.get("inactive_ticker", 0) + 1
             continue
 
-        path = os.path.join(RAW_DATA_DIR, file)
-        df = pd.read_csv(path)
-
         try:
-            df = config.validate_and_clean_ohlcv(df, require_volume=True)
+            df = raw_data.load_raw(raw.path, weekly=weekly_bars, as_of=as_of)
+        except OSError as exc:
+            logger.warning(f"Failed to read {raw.path}: {exc}")
+            rejection_counts["read_error"] = rejection_counts.get("read_error", 0) + 1
+            continue
         except ValueError:
             rejection_counts["missing_columns"] = rejection_counts.get("missing_columns", 0) + 1
             continue
-
-        if as_of:
-            df = config.cut_to_as_of(df, as_of, weekly=weekly_bars)
 
         if len(df) < min_required_history:
             rejection_counts["insufficient_history"] = (
