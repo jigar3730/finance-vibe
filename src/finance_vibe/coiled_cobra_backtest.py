@@ -15,34 +15,18 @@ from typing import Optional
 
 import pandas as pd
 
-try:
-    from finance_vibe import config
-    from finance_vibe import coiled_cobra as cc
-    from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
-    from finance_vibe.coiled_cobra import (
-        BENCHMARK,
-        SPY_BENCHMARK,
-        add_macro_indicators,
-        evaluate_coiled_cobra,
-        local_swing_low,
-    )
-    from finance_vibe.trade_simulator import simulate_trade
-    from finance_vibe.trade_planner import calculate_stock_levels
-except ImportError:  # pragma: no cover
-    # Package lives under src/; repo root alone is not enough for `finance_vibe`.
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    from finance_vibe import config
-    from finance_vibe import coiled_cobra as cc
-    from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
-    from finance_vibe.coiled_cobra import (
-        BENCHMARK,
-        SPY_BENCHMARK,
-        add_macro_indicators,
-        evaluate_coiled_cobra,
-        local_swing_low,
-    )
-    from finance_vibe.trade_simulator import simulate_trade
-    from finance_vibe.trade_planner import calculate_stock_levels
+from finance_vibe import config
+from finance_vibe import coiled_cobra as cc
+from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
+from finance_vibe.coiled_cobra import (
+    BENCHMARK,
+    SPY_BENCHMARK,
+    add_macro_indicators,
+    evaluate_coiled_cobra,
+    local_swing_low,
+)
+from finance_vibe.trade_simulator import simulate_trade
+from finance_vibe.trade_planner import calculate_stock_levels
 
 
 def detect_cobra_setup_at_bar(

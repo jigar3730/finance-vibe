@@ -33,14 +33,8 @@ import pandas as pd
 from sklearn.linear_model import Ridge
 from xgboost import XGBRegressor
 
-try:
-    from finance_vibe import coiled_cobra_ml_training as trn
-    from finance_vibe import coiled_cobra_ml_walkforward as wf
-except ImportError:  # pragma: no cover - local direct execution
-    import os
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    from finance_vibe import coiled_cobra_ml_training as trn
-    from finance_vibe import coiled_cobra_ml_walkforward as wf
+from finance_vibe import coiled_cobra_ml_training as trn
+from finance_vibe import coiled_cobra_ml_walkforward as wf
 
 DATE = trn.DATE_COL
 PRIMARY = "R Multiple"

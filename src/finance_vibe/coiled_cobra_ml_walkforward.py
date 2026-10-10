@@ -31,14 +31,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-try:
-    from finance_vibe import config
-    from finance_vibe import coiled_cobra_ml_training as trn
-except ImportError:  # pragma: no cover - local direct execution
-    import os
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    from finance_vibe import config
-    from finance_vibe import coiled_cobra_ml_training as trn
+from finance_vibe import config
+from finance_vibe import coiled_cobra_ml_training as trn
 
 DATE_COL = trn.DATE_COL
 TARGET_COL = trn.TARGET_COL

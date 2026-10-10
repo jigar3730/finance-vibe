@@ -61,23 +61,13 @@ from typing import Any, Mapping, Optional
 import numpy as np
 import pandas as pd
 
-try:
-    from finance_vibe import config
-    from finance_vibe import coiled_cobra as cc
-    from finance_vibe import coiled_cobra_backtest as cbt
-    from finance_vibe.analysis_engine import load_ohlc_csv, ticker_from_filename
-    from finance_vibe.coiled_cobra import add_macro_indicators, evaluate_coiled_cobra, local_swing_low
-    from finance_vibe.trade_planner import calculate_stock_levels
-    from finance_vibe.trade_simulator import simulate_trade
-except ImportError:  # pragma: no cover - local direct execution
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    from finance_vibe import config
-    from finance_vibe import coiled_cobra as cc
-    from finance_vibe import coiled_cobra_backtest as cbt
-    from finance_vibe.analysis_engine import load_ohlc_csv, ticker_from_filename
-    from finance_vibe.coiled_cobra import add_macro_indicators, evaluate_coiled_cobra, local_swing_low
-    from finance_vibe.trade_planner import calculate_stock_levels
-    from finance_vibe.trade_simulator import simulate_trade
+from finance_vibe import config
+from finance_vibe import coiled_cobra as cc
+from finance_vibe import coiled_cobra_backtest as cbt
+from finance_vibe.analysis_engine import load_ohlc_csv, ticker_from_filename
+from finance_vibe.coiled_cobra import add_macro_indicators, evaluate_coiled_cobra, local_swing_low
+from finance_vibe.trade_planner import calculate_stock_levels
+from finance_vibe.trade_simulator import simulate_trade
 
 MODE = "weekly"          # the rubric is weekly-only; other modes are out of scope
 SEED = 20260919

@@ -47,10 +47,7 @@ app = Flask(
     static_folder=os.path.join(os.path.dirname(__file__), "static"),
 )
 
-try:
-    from finance_vibe.docs_routes import docs_bp
-except ImportError:
-    from docs_routes import docs_bp
+from finance_vibe.docs_routes import docs_bp
 
 app.register_blueprint(docs_bp)
 
@@ -364,11 +361,16 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
     except Exception as e:
         return f"<h3>❌ Failed to parse data contents:</h3><pre>{str(e)}</pre>", 500
 
-if __name__ == "__main__":
+def main() -> None:
+    """Serve the dashboard (``finance-vibe-app`` console script)."""
     # Ensure standard fallback logs dirs exist locally
     for path in list(MODES.values()) + list(BREAKOUT_MODES.values()):
         os.makedirs(path, exist_ok=True)
-        
+
     debug = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")
     print("🚀 Launching Upgraded Finance Vibe UI Dashboard Context...")
     app.run(host="0.0.0.0", port=5000, debug=debug)
+
+
+if __name__ == "__main__":
+    main()

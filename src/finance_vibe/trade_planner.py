@@ -15,11 +15,7 @@ from typing import Any, Mapping
 
 import pandas as pd
 
-try:
-    from finance_vibe import config
-except ImportError:
-    sys.path.append(str(Path(__file__).resolve().parents[2] / "src"))
-    from finance_vibe import config
+from finance_vibe import config
 
 # =========================
 # PROFILE CONFIGURATION

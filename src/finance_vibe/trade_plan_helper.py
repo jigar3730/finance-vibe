@@ -12,13 +12,8 @@ import numpy as np
 import pandas as pd
 import pandas.errors
 
-try:
-    from finance_vibe import config
-    from finance_vibe.coiled_cobra import MIN_CHECKS_MET, N_SCORED_PILLARS
-except ImportError:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-    from finance_vibe import config
-    from finance_vibe.coiled_cobra import MIN_CHECKS_MET, N_SCORED_PILLARS
+from finance_vibe import config
+from finance_vibe.coiled_cobra import MIN_CHECKS_MET, N_SCORED_PILLARS
 
 # Ingestion guardrails (Part 3): drop broken / unprofitable rows before ranking.
 MAX_RISK_PCT_OF_CLOSE = config.MAX_RISK_PCT_OF_CLOSE

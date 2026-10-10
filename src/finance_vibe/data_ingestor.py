@@ -6,20 +6,7 @@ import sys
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-# --- 1. PACKAGE IMPORT (Upgraded for Multi-Environment Paths) ---
-try:
-    # 1st Priority: Docker module structure (python -m src.finance_vibe.data_ingestor)
-    from src.finance_vibe import config
-except ImportError:
-    try:
-        # 2nd Priority: Flat direct package fallback
-        from finance_vibe import config
-    except ImportError:
-        # 3rd Priority: Manual repository root insertion for local direct execution
-        repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-        if repo_root not in sys.path:
-            sys.path.append(repo_root)
-        from src.finance_vibe import config
+from finance_vibe import config
 
 
 def _log_ingest_error(logs_dir: str, ticker: str, message: str) -> None:

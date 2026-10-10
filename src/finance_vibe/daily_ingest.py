@@ -15,7 +15,6 @@ Also holds the NYSE session calendar the daily health check uses
 from __future__ import annotations
 
 import os
-import sys
 from datetime import date, datetime
 
 import pandas as pd
@@ -33,11 +32,7 @@ from pandas.tseries.holiday import (
 )
 from pandas.tseries.offsets import CustomBusinessDay
 
-try:
-    from finance_vibe import config, data_ingestor
-except ImportError:
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    from finance_vibe import config, data_ingestor
+from finance_vibe import config, data_ingestor
 
 MODE = "daily"
 MARKET_TZ = data_ingestor.MARKET_TZ

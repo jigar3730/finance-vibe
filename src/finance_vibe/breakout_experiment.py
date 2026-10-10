@@ -61,17 +61,10 @@ from typing import Any, Mapping, Optional
 import numpy as np
 import pandas as pd
 
-try:
-    from finance_vibe import config
-    from finance_vibe import breakout_scanner as bs
-    from finance_vibe import coiled_cobra_leader_experiment as lx
-    from finance_vibe.analysis_engine import ticker_from_filename
-except ImportError:  # pragma: no cover - local direct execution
-    sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-    from finance_vibe import config
-    from finance_vibe import breakout_scanner as bs
-    from finance_vibe import coiled_cobra_leader_experiment as lx
-    from finance_vibe.analysis_engine import ticker_from_filename
+from finance_vibe import config
+from finance_vibe import breakout_scanner as bs
+from finance_vibe import coiled_cobra_leader_experiment as lx
+from finance_vibe.analysis_engine import ticker_from_filename
 
 MODE = "weekly"          # 10y of weekly bars; same horizon and exits as the leader experiment
 SEED = 20261001

@@ -18,12 +18,7 @@ from typing import Iterable, Optional
 import numpy as np
 import pandas as pd
 
-try:
-    from finance_vibe import config
-except ImportError:
-    sys.path.append(os.path.abspath(
-        os.path.join(os.path.dirname(__file__), "..")))
-    from finance_vibe import config
+from finance_vibe import config
 
 # -----------------------------
 # Tunables

@@ -80,7 +80,6 @@ def run_workflow():
     # Validate --as-of once, up front, with the same parser every stage uses.
     as_of = None
     if args.as_of:
-        sys.path.insert(0, SRC_DIR)
         from finance_vibe import config
         try:
             as_of = config.parse_as_of(["--as-of", args.as_of])
