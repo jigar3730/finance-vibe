@@ -15,11 +15,13 @@ def _log_ingest_error(logs_dir: str, ticker: str, message: str) -> None:
     stamp = datetime.now().strftime("%Y-%m-%d")
     err_path = os.path.join(logs_dir, f"ingest_errors_{stamp}.csv")
     row = pd.DataFrame(
-        [{
-            "Ticker": ticker,
-            "Error": message,
-            "Timestamp": datetime.now().isoformat(timespec="seconds"),
-        }]
+        [
+            {
+                "Ticker": ticker,
+                "Error": message,
+                "Timestamp": datetime.now().isoformat(timespec="seconds"),
+            }
+        ]
     )
     header = not os.path.exists(err_path)
     row.to_csv(err_path, mode="a", header=header, index=False)
@@ -34,8 +36,15 @@ DOWNLOAD_BACKOFF_SECONDS = 2.0
 DOWNLOAD_TIMEOUT_SECONDS = 15
 
 
-def _download_batch(tickers, period, interval, *, retries=DOWNLOAD_RETRIES,
-                     backoff=DOWNLOAD_BACKOFF_SECONDS, timeout=DOWNLOAD_TIMEOUT_SECONDS):
+def _download_batch(
+    tickers,
+    period,
+    interval,
+    *,
+    retries=DOWNLOAD_RETRIES,
+    backoff=DOWNLOAD_BACKOFF_SECONDS,
+    timeout=DOWNLOAD_TIMEOUT_SECONDS,
+):
     """Fetch many tickers in one yfinance call, with retry + backoff.
 
     Raises the last exception once retries are exhausted; the caller logs
@@ -45,15 +54,20 @@ def _download_batch(tickers, period, interval, *, retries=DOWNLOAD_RETRIES,
     for attempt in range(1, retries + 1):
         try:
             return yf.download(
-                tickers, period=period, interval=interval,
-                group_by="ticker", threads=True, progress=False,
-                auto_adjust=True, timeout=timeout,
+                tickers,
+                period=period,
+                interval=interval,
+                group_by="ticker",
+                threads=True,
+                progress=False,
+                auto_adjust=True,
+                timeout=timeout,
             )
         except Exception as e:
             last_err = e
             if attempt == retries:
                 break
-            sleep_s = backoff ** attempt
+            sleep_s = backoff**attempt
             print(f"⚠️ Batch download failed ({e}); retry {attempt}/{retries} in {sleep_s:.0f}s")
             time.sleep(sleep_s)
     raise last_err
@@ -103,10 +117,10 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
     mode_cfg = config.get_mode_config(mode)
 
     csv_path = config.TICKER_LIST_PATH
-    raw_dir = mode_cfg['raw_dir']
-    logs_dir = mode_cfg['logs_dir']
-    PERIOD = mode_cfg['period']
-    INTERVAL = mode_cfg['interval']
+    raw_dir = mode_cfg["raw_dir"]
+    logs_dir = mode_cfg["logs_dir"]
+    PERIOD = mode_cfg["period"]
+    INTERVAL = mode_cfg["interval"]
 
     if not os.path.exists(csv_path):
         print(f"❌ Could not find ticker list at {csv_path}. Please run ticker_provider.py first.")
@@ -116,7 +130,7 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
     os.makedirs(raw_dir, exist_ok=True)
 
     # Read tickers and drop any duplicates/NaNs
-    tickers = pd.read_csv(csv_path)['Ticker'].dropna().unique().tolist()
+    tickers = pd.read_csv(csv_path)["Ticker"].dropna().unique().tolist()
 
     print(f"\n--- STEP 2: Ingesting [{mode.upper()}] {PERIOD} {INTERVAL} data ---")
     print(f"Target Directory: {raw_dir}")
@@ -125,7 +139,7 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
     rejected = 0
 
     for chunk_start in range(0, len(tickers), batch_size):
-        chunk = tickers[chunk_start: chunk_start + batch_size]
+        chunk = tickers[chunk_start : chunk_start + batch_size]
         try:
             # --- 3. DOWNLOAD (whole batch, one round-trip) ---
             # auto_adjust=True handles splits/dividends for cleaner backtesting
@@ -168,8 +182,7 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
                 if len(clean) < config.MIN_SAVE_ROWS:
                     print(f"⚠️ Only {len(clean)} valid rows (< {config.MIN_SAVE_ROWS}). Skipped.")
                     _log_ingest_error(
-                        logs_dir, ticker,
-                        f"insufficient_rows:{len(clean)}<{config.MIN_SAVE_ROWS}"
+                        logs_dir, ticker, f"insufficient_rows:{len(clean)}<{config.MIN_SAVE_ROWS}"
                     )
                     rejected += 1
                     continue

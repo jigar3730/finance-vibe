@@ -8,6 +8,7 @@ A run can exit 0 and still be wrong (a stale day, a Yahoo outage, an empty
 stage), so this checks the outputs themselves. It prints one line per problem
 and exits 1 if there are any.
 """
+
 from __future__ import annotations
 
 import glob
@@ -23,7 +24,13 @@ from finance_vibe.daily_ingest import MARKET_TZ, last_complete_session
 MODE = "daily"
 MAX_INGEST_ERROR_SHARE = 0.20
 BENCHMARKS = ("SPY", "QQQ")
-EXPECTED_PREFIXES = ("vibe_report_", "coiled_cobra_setups_", "breakout_setups_", "trade_plan_", "trade_plan_clean_")
+EXPECTED_PREFIXES = (
+    "vibe_report_",
+    "coiled_cobra_setups_",
+    "breakout_setups_",
+    "trade_plan_",
+    "trade_plan_clean_",
+)
 
 
 def main() -> int:
@@ -55,14 +62,18 @@ def main() -> int:
     err_path = os.path.join(logs, f"ingest_errors_{stamp}.csv")
     errors = len(pd.read_csv(err_path)) if os.path.exists(err_path) else 0
     if tickers and errors / tickers > MAX_INGEST_ERROR_SHARE:
-        problems.append(f"ingest errors {errors}/{tickers} tickers (> {MAX_INGEST_ERROR_SHARE:.0%})")
+        problems.append(
+            f"ingest errors {errors}/{tickers} tickers (> {MAX_INGEST_ERROR_SHARE:.0%})"
+        )
 
     if problems:
         print("HEALTH CHECK FAILED:")
         for p in problems:
             print(f"  - {p}")
         return 1
-    print(f"health check ok: outputs for {stamp}, newest bar {want.date()}, ingest errors {errors}/{tickers}")
+    print(
+        f"health check ok: outputs for {stamp}, newest bar {want.date()}, ingest errors {errors}/{tickers}"
+    )
     return 0
 
 

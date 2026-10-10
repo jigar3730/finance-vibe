@@ -13,6 +13,7 @@ when the training metadata's rubric version, mode, feature list and artifact
 hashes all match the live pipeline. Anything else fails soft with a logged
 reason rather than serving an incompatible model.
 """
+
 from __future__ import annotations
 
 import json
@@ -72,10 +73,7 @@ def _metadata_problem(meta: dict, mode: str) -> str | None:
     """Return why ``meta`` is incompatible with the live pipeline, or None."""
     _, profile = config.resolve_pipeline_mode(mode)
     if meta.get("rubric_version") != config.RUBRIC_VERSION:
-        return (
-            f"rubric_version {meta.get('rubric_version')!r} != live "
-            f"{config.RUBRIC_VERSION!r}"
-        )
+        return f"rubric_version {meta.get('rubric_version')!r} != live {config.RUBRIC_VERSION!r}"
     if meta.get("mode") != profile:
         return f"model bound to mode {meta.get('mode')!r}, requested {profile!r}"
     if list(meta.get("feature_columns") or []) != list(FEATURE_COLS):
@@ -88,8 +86,9 @@ def _load_validated_metadata(paths: dict[str, Path | None], mode: str) -> dict |
     if paths["metadata"] is None:
         if paths["xgb"] or paths["lgb"]:
             logger.warning(
-                "ML model files found for mode %r but no %s; refusing to serve "
-                "unverified models.", mode, MODEL_METADATA_FILENAME,
+                "ML model files found for mode %r but no %s; refusing to serve unverified models.",
+                mode,
+                MODEL_METADATA_FILENAME,
             )
         else:
             logger.info("No ML model artifacts for mode %r.", mode)
@@ -112,7 +111,8 @@ def _artifact_verified(meta: dict, key: str, path: Path) -> bool:
     if not expected or _sha256(path) != expected:
         logger.warning(
             "ML %s artifact %s does not match its recorded sha256; skipping it.",
-            key, path.name,
+            key,
+            path.name,
         )
         return False
     return True
@@ -128,7 +128,11 @@ def build_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
     out = pd.DataFrame(index=df.index)
 
     def _num(col: str) -> pd.Series:
-        return pd.to_numeric(df[col], errors="coerce") if col in df.columns else pd.Series(np.nan, index=df.index)
+        return (
+            pd.to_numeric(df[col], errors="coerce")
+            if col in df.columns
+            else pd.Series(np.nan, index=df.index)
+        )
 
     close = _num("Close")
 
@@ -211,6 +215,7 @@ def predict_returns(df: pd.DataFrame, mode: str = "weekly") -> pd.Series:
         if booster is not None:
             try:
                 import xgboost as xgb
+
                 preds.append(booster.predict(xgb.DMatrix(X, feature_names=list(X.columns))))
             except Exception as exc:  # pragma: no cover
                 logger.warning("XGB prediction failed (%s); continuing without it.", exc)

@@ -6,17 +6,12 @@ from yahooquery import Screener
 # --- 1. PACKAGE IMPORT ---
 from finance_vibe import config
 
-MANIFEST_PATH = os.path.join(os.path.dirname(
-    os.path.abspath(__file__)), 'ticker_manifest.csv')
+MANIFEST_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ticker_manifest.csv")
 
 
 def _normalize_symbols(symbols) -> list[str]:
     """Uppercase, strip, drop blank / index / dotted symbols."""
-    return [
-        t.upper().strip()
-        for t in symbols
-        if t and "^" not in str(t) and "." not in str(t)
-    ]
+    return [t.upper().strip() for t in symbols if t and "^" not in str(t) and "." not in str(t)]
 
 
 def refresh_active_tickers():
@@ -30,7 +25,7 @@ def refresh_active_tickers():
     if os.path.exists(MANIFEST_PATH):
         try:
             manifest_df = pd.read_csv(MANIFEST_PATH)
-            col_name = 'Symbol' if 'Symbol' in manifest_df.columns else manifest_df.columns[0]
+            col_name = "Symbol" if "Symbol" in manifest_df.columns else manifest_df.columns[0]
             static_tickers = manifest_df[col_name].dropna().unique().tolist()
             print(f"📦 Loaded {len(static_tickers)} static tickers from manifest.")
         except Exception as e:
@@ -79,8 +74,7 @@ def refresh_active_tickers():
             final_list = final_list[:cap]
 
         # 5. Save using config path
-        pd.Series(final_list, name='Ticker').to_csv(
-            config.TICKER_LIST_PATH, index=False)
+        pd.Series(final_list, name="Ticker").to_csv(config.TICKER_LIST_PATH, index=False)
 
         print(
             f"✅ Success! Saved {len(final_list)} total tickers "
@@ -92,12 +86,8 @@ def refresh_active_tickers():
         # Still persist the priority baseline so the pipeline is not blocked.
         if static_tickers:
             fallback = static_tickers[:cap]
-            pd.Series(fallback, name='Ticker').to_csv(
-                config.TICKER_LIST_PATH, index=False)
-            print(
-                f"⚠️ Fell back to {len(fallback)} static tickers "
-                f"at {config.TICKER_LIST_PATH}"
-            )
+            pd.Series(fallback, name="Ticker").to_csv(config.TICKER_LIST_PATH, index=False)
+            print(f"⚠️ Fell back to {len(fallback)} static tickers at {config.TICKER_LIST_PATH}")
 
 
 if __name__ == "__main__":

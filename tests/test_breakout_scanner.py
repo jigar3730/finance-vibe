@@ -1,4 +1,5 @@
 """Breakout scanner labels: failed breakouts and multi-timeframe (MTF) agreement."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -12,17 +13,20 @@ from finance_vibe import breakout_scanner as bs
 # Failed Breakout: judged against the level that was actually broken
 # ---------------------------------------------------------------------------
 
+
 def _bars(tail: list[tuple[float, float]]) -> pd.DataFrame:
     """30 bars ranging 9.0-10.0, then ``tail`` as (high, close) bars."""
     rows = [(10.0, 9.5)] * 30 + tail
-    return pd.DataFrame({
-        "Date": pd.bdate_range("2026-01-01", periods=len(rows)).strftime("%Y-%m-%d"),
-        "Open": [c for _, c in rows],
-        "High": [h for h, _ in rows],
-        "Low": [min(9.0, c - 0.1) for _, c in rows],
-        "Close": [c for _, c in rows],
-        "Volume": 1000,
-    })
+    return pd.DataFrame(
+        {
+            "Date": pd.bdate_range("2026-01-01", periods=len(rows)).strftime("%Y-%m-%d"),
+            "Open": [c for _, c in rows],
+            "High": [h for h, _ in rows],
+            "Low": [min(9.0, c - 0.1) for _, c in rows],
+            "Close": [c for _, c in rows],
+            "Volume": 1000,
+        }
+    )
 
 
 def _last(tail):
@@ -63,27 +67,35 @@ def test_failure_window_expires_after_fakeout_lookback():
 # MTF label
 # ---------------------------------------------------------------------------
 
-_BASE = bs.BreakoutFeatures(**{
-    f.name: None for f in dataclasses.fields(bs.BreakoutFeatures) if f.name != "has_daily"
-}, has_daily=True)
+_BASE = bs.BreakoutFeatures(
+    **{f.name: None for f in dataclasses.fields(bs.BreakoutFeatures) if f.name != "has_daily"},
+    has_daily=True,
+)
 
 
 def _feat(daily, weekly, monthly, *, bears=(False, False, False)):
     return dataclasses.replace(
         _BASE,
-        daily_trend_bull=daily, weekly_trend_bull=weekly, monthly_trend_bull=monthly,
-        daily_trend_bear=bears[0], weekly_trend_bear=bears[1], monthly_trend_bear=bears[2],
+        daily_trend_bull=daily,
+        weekly_trend_bull=weekly,
+        monthly_trend_bull=monthly,
+        daily_trend_bear=bears[0],
+        weekly_trend_bear=bears[1],
+        monthly_trend_bear=bears[2],
     )
 
 
-@pytest.mark.parametrize("feat, label", [
-    (_feat(True, True, True), "ALIGNED"),
-    (_feat(True, False, True), "PARTIAL"),
-    (_feat(True, False, False, bears=(False, True, False)), "DIVERGENT"),
-    (_feat(False, False, False, bears=(True, True, False)), "BEARISH"),
-    (_feat(False, False, False), "NEUTRAL"),
-    (_feat(None, None, True), "INSUFFICIENT"),
-])
+@pytest.mark.parametrize(
+    "feat, label",
+    [
+        (_feat(True, True, True), "ALIGNED"),
+        (_feat(True, False, True), "PARTIAL"),
+        (_feat(True, False, False, bears=(False, True, False)), "DIVERGENT"),
+        (_feat(False, False, False, bears=(True, True, False)), "BEARISH"),
+        (_feat(False, False, False), "NEUTRAL"),
+        (_feat(None, None, True), "INSUFFICIENT"),
+    ],
+)
 def test_mtf_label(feat, label):
     assert bs._mtf_label(feat) == label
 

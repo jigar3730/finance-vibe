@@ -4,6 +4,7 @@ This module evaluates the Coiled Cobra strategy across historical raw OHLC data,
 exports signal archives, and simulates stock trade outcomes using the existing
 trade-planner stock level calculator.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -47,9 +48,7 @@ def detect_cobra_setup_at_bar(
     if len(window) < 2:
         return None
 
-    setup = evaluate_coiled_cobra(
-        window, benchmark_df, spy_df=spy_df, qqq_df=benchmark_df
-    )
+    setup = evaluate_coiled_cobra(window, benchmark_df, spy_df=spy_df, qqq_df=benchmark_df)
     if not setup:
         return None
 
@@ -111,9 +110,7 @@ def generate_backfill(mode: str = "weekly", tickers: str | None = None) -> pd.Da
         ticker_filter = {t.strip().upper() for t in tickers.split(",") if t.strip()}
 
     file_paths = sorted(
-        os.path.join(raw_dir, f)
-        for f in os.listdir(raw_dir)
-        if f.lower().endswith(".csv")
+        os.path.join(raw_dir, f) for f in os.listdir(raw_dir) if f.lower().endswith(".csv")
     )
     work_paths = [
         path
@@ -182,7 +179,9 @@ def _benchmark_context(benchmark_df) -> pd.DataFrame | None:
     b = b.sort_values("Date").drop_duplicates("Date").set_index("Date")
     close = b["Close"].astype(float)
     ctx = pd.DataFrame({"Close": close})
-    ctx["Pct_From_EMA50"] = (close / b["EMA50"].astype(float) - 1.0) if "EMA50" in b.columns else float("nan")
+    ctx["Pct_From_EMA50"] = (
+        (close / b["EMA50"].astype(float) - 1.0) if "EMA50" in b.columns else float("nan")
+    )
     ctx["Ret_13w"] = close.pct_change(13)
     return ctx
 
@@ -413,14 +412,10 @@ def run_backtest(
         ticker_filter = {t.strip().upper() for t in tickers.split(",") if t.strip()}
 
     paths = sorted(
-        os.path.join(raw_dir, f)
-        for f in os.listdir(raw_dir)
-        if f.lower().endswith(".csv")
+        os.path.join(raw_dir, f) for f in os.listdir(raw_dir) if f.lower().endswith(".csv")
     )
     work_paths = [
-        path
-        for path in paths
-        if not ticker_filter or ticker_from_filename(path) in ticker_filter
+        path for path in paths if not ticker_filter or ticker_from_filename(path) in ticker_filter
     ]
 
     max_workers = os.cpu_count() or 1
@@ -474,10 +469,16 @@ def run_backtest(
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Coiled Cobra historical backfill and backtest")
-    parser.add_argument("mode", nargs="?", default=config.DEFAULT_MODE, choices=list(config.TIMEFRAME_PROFILES))
+    parser.add_argument(
+        "mode", nargs="?", default=config.DEFAULT_MODE, choices=list(config.TIMEFRAME_PROFILES)
+    )
     parser.add_argument("--tickers", help="Comma-separated tickers to include")
-    parser.add_argument("--backfill", action="store_true", help="Export historical Coiled Cobra signal archive")
-    parser.add_argument("--backtest", action="store_true", help="Run walk-forward Coiled Cobra backtest")
+    parser.add_argument(
+        "--backfill", action="store_true", help="Export historical Coiled Cobra signal archive"
+    )
+    parser.add_argument(
+        "--backtest", action="store_true", help="Run walk-forward Coiled Cobra backtest"
+    )
     parser.add_argument("--entry-valid", type=int, default=config.BACKTEST_ENTRY_VALID_BARS)
     parser.add_argument("--max-hold", type=int, default=config.BACKTEST_MAX_HOLD_BARS)
     args = parser.parse_args(argv)

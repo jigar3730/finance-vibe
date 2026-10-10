@@ -1,4 +1,5 @@
 """Docs blueprint: route registration, rendering, and path-safety checks."""
+
 from __future__ import annotations
 
 import os

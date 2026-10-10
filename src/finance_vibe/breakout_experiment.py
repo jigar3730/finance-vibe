@@ -46,6 +46,7 @@ results:
     python -m finance_vibe.breakout_experiment [--tickers A,B] [--out-dir D] [--out r.json]
     python -m finance_vibe.breakout_experiment --from-bars breakout_experiment_bars_<date>.csv.gz
 """
+
 from __future__ import annotations
 
 import argparse
@@ -67,7 +68,7 @@ from finance_vibe import coiled_cobra_leader_experiment as lx
 from finance_vibe import config
 from finance_vibe.analysis_engine import ticker_from_filename
 
-MODE = "weekly"          # 10y of weekly bars; same horizon and exits as the leader experiment
+MODE = "weekly"  # 10y of weekly bars; same horizon and exits as the leader experiment
 SEED = 20261001
 
 # --- pre-registered thresholds --------------------------------------------------
@@ -75,14 +76,14 @@ MIN_EPISODES = 100
 Q3_DD_MARGIN = 0.10
 LOCKBOX_T = 1.645
 READY_MIN = 70
-IC_HORIZON = 13          # weeks, close-to-close, for the report-only rank IC
-IC_MIN_NAMES = 10        # weeks with fewer scored names are skipped for IC
+IC_HORIZON = 13  # weeks, close-to-close, for the report-only rank IC
+IC_MIN_NAMES = 10  # weeks with fewer scored names are skipped for IC
 
 CONTROL = "C0_random"
 NEGATIVE = "BK_FAILED"
 QUALIFYING = ("BK_PRE", "BK_CONFIRMED", "BK_PRE_OR_CONF", "BK_DISPLAY", "BK_READY70")
 VARIANTS = (*QUALIFYING, NEGATIVE, CONTROL)
-COBRA = "B0_cobra"       # report-only, joined from the leader experiment's bars file
+COBRA = "B0_cobra"  # report-only, joined from the leader experiment's bars file
 
 PILLARS = ("Trend Score", "Compression Score", "Momentum Score", "Volume Score", "Structure Score")
 STATUSES = (bs.STATUS_PRE, bs.STATUS_CONFIRMED, bs.STATUS_FAILED, bs.STATUS_WATCH, bs.STATUS_DEV)
@@ -91,6 +92,7 @@ STATUSES = (bs.STATUS_PRE, bs.STATUS_CONFIRMED, bs.STATUS_FAILED, bs.STATUS_WATC
 # ---------------------------------------------------------------------------
 # Variant predicates (fixed; inputs are one scanner row)
 # ---------------------------------------------------------------------------
+
 
 def variant_flags(row: Mapping[str, Any]) -> dict[str, bool]:
     """Flag which variants fire on one bar.  ``C0_random`` is set by the caller."""
@@ -114,6 +116,7 @@ def variant_flags(row: Mapping[str, Any]) -> dict[str, bool]:
 # Per-ticker walk-forward pass (process-pool worker)
 # ---------------------------------------------------------------------------
 
+
 def _ticker_pass(path: str) -> tuple[str, list[dict], dict]:
     """One row per scoreable bar for one ticker.  Causal at every bar."""
     symbol = ticker_from_filename(path)
@@ -128,20 +131,29 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], dict]:
     engine, scorer = bs.FeatureEngine(MODE), bs.ScoringEngine()
     rng = np.random.default_rng([SEED, zlib.crc32(symbol.encode())])
     rows: list[dict] = []
-    for idx in range(bs.MIN_PRIMARY_BARS - 1, len(df) - 1):         # need a next bar to enter
-        control = bool(rng.random() < lx.P_CONTROL)                  # draw every bar: deterministic
+    for idx in range(bs.MIN_PRIMARY_BARS - 1, len(df) - 1):  # need a next bar to enter
+        control = bool(rng.random() < lx.P_CONTROL)  # draw every bar: deterministic
         try:
             res = scorer.evaluate(engine.extract(df.iloc[: idx + 1], symbol, MODE))
         except Exception:
             continue
         rec: dict[str, Any] = {
-            "sym": symbol, "idx": idx, "date": df["Date"].iloc[idx], "close": closes[idx],
-            "atr": res.get("ATR"), "status": res.get("Status"), "ready": res.get("Breakout Readiness"),
+            "sym": symbol,
+            "idx": idx,
+            "date": df["Date"].iloc[idx],
+            "close": closes[idx],
+            "atr": res.get("ATR"),
+            "status": res.get("Status"),
+            "ready": res.get("Breakout Readiness"),
             "penalty": res.get("Penalty"),
             **{p: res.get(p) for p in PILLARS},
-            "trend": res.get("Trend"), "volatility": res.get("Volatility"), "momentum": res.get("Momentum"),
-            "structure": res.get("Structure"), "mtf": res.get("MTF"),
-            "dist_res_atr": res.get("Distance Resistance ATR"), "rvol20": res.get("RVOL20"),
+            "trend": res.get("Trend"),
+            "volatility": res.get("Volatility"),
+            "momentum": res.get("Momentum"),
+            "structure": res.get("Structure"),
+            "mtf": res.get("MTF"),
+            "dist_res_atr": res.get("Distance Resistance ATR"),
+            "rvol20": res.get("RVOL20"),
         }
         rec["mu13"], rec["dd13"] = lx._forward(highs, lows, closes, idx, 13)
         rec["mu26"], rec["dd26"] = lx._forward(highs, lows, closes, idx, 26)
@@ -155,8 +167,15 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], dict]:
         if any(flags.values()) and atr is not None and pd.notna(atr):
             tr = lx.simulate_trail_trade(df, idx + 1, float(atr))
             if tr:
-                rec.update({"tr_outcome": tr["outcome"], "tr_r": tr["r"], "tr_censored": tr["censored"],
-                            "tr_mfe_r": tr["mfe_r"], "tr_bars": tr["exit_idx"] - idx})
+                rec.update(
+                    {
+                        "tr_outcome": tr["outcome"],
+                        "tr_r": tr["r"],
+                        "tr_censored": tr["censored"],
+                        "tr_mfe_r": tr["mfe_r"],
+                        "tr_bars": tr["exit_idx"] - idx,
+                    }
+                )
         rows.append(rec)
     return symbol, rows, {"sym": symbol, "last_date": df["Date"].iloc[-1]}
 
@@ -181,6 +200,7 @@ def collect(paths: list[str], workers: int | None = None) -> tuple[pd.DataFrame,
 # ---------------------------------------------------------------------------
 # Aggregation
 # ---------------------------------------------------------------------------
+
 
 def _resolved(ep: pd.DataFrame) -> pd.DataFrame:
     """Episodes with a trail trade that ran to an exit (censored trades dropped)."""
@@ -207,8 +227,14 @@ def summarize(ep: pd.DataFrame, n_boot: int, seed: int = 0) -> dict:
     return out
 
 
-def weekly_ic(bars: pd.DataFrame, col: str, n_boot: int, seed: int = 0,
-              target: str = "fr13", min_names: int = IC_MIN_NAMES) -> dict:
+def weekly_ic(
+    bars: pd.DataFrame,
+    col: str,
+    n_boot: int,
+    seed: int = 0,
+    target: str = "fr13",
+    min_names: int = IC_MIN_NAMES,
+) -> dict:
     """Mean per-week Spearman IC of ``col`` vs ``target`` with a week-bootstrap CI."""
     d = bars.dropna(subset=[col, target])
     ics: list[float] = []
@@ -221,9 +247,13 @@ def weekly_ic(bars: pd.DataFrame, col: str, n_boot: int, seed: int = 0,
         return {"weeks": 0, "mean_ic": np.nan, "lo": np.nan, "hi": np.nan}
     draws = np.random.default_rng(seed).integers(0, len(arr), size=(n_boot, len(arr)))
     boots = arr[draws].mean(axis=1)
-    return {"weeks": int(len(arr)), "mean_ic": float(arr.mean()),
-            "lo": float(np.percentile(boots, 2.5)), "hi": float(np.percentile(boots, 97.5)),
-            "share_positive": float((arr > 0).mean())}
+    return {
+        "weeks": int(len(arr)),
+        "mean_ic": float(arr.mean()),
+        "lo": float(np.percentile(boots, 2.5)),
+        "hi": float(np.percentile(boots, 97.5)),
+        "share_positive": float((arr > 0).mean()),
+    }
 
 
 def status_ladder(bars: pd.DataFrame) -> dict:
@@ -232,8 +262,11 @@ def status_ladder(bars: pd.DataFrame) -> dict:
     for s in STATUSES:
         sel = bars[bars["status"] == s]
         fr = sel["fr13"].dropna()
-        out[s] = {"bars": int(len(sel)), "mean_fr13": float(fr.mean()) if len(fr) else np.nan,
-                  **lx.forward_stats(sel)}
+        out[s] = {
+            "bars": int(len(sel)),
+            "mean_fr13": float(fr.mean()) if len(fr) else np.nan,
+            **lx.forward_stats(sel),
+        }
     return out
 
 
@@ -244,8 +277,10 @@ def qualifies(res: dict, ctrl: dict, ctrl_diff: dict) -> dict:
         "Q0_episodes": res.get("episodes", 0) >= MIN_EPISODES,
         "Q1_ci_above_0": bool(tr.get("lo", np.nan) > 0),
         "Q2_beats_random": bool(ctrl_diff.get("lo", np.nan) > 0),
-        "Q3_drawdown": bool(res.get("forward", {}).get("dd26_worse25", np.inf)
-                            <= ctrl.get("forward", {}).get("dd26_worse25", -np.inf) + Q3_DD_MARGIN),
+        "Q3_drawdown": bool(
+            res.get("forward", {}).get("dd26_worse25", np.inf)
+            <= ctrl.get("forward", {}).get("dd26_worse25", -np.inf) + Q3_DD_MARGIN
+        ),
     }
     return {"checks": checks, "qualified": all(checks.values())}
 
@@ -254,7 +289,19 @@ def cobra_reference(bars: pd.DataFrame, cobra_bars: pd.DataFrame | None, n_boot:
     """Coiled Cobra baseline on the ticker-weeks both experiments scored (dev period)."""
     if cobra_bars is None or cobra_bars.empty:
         return {"available": False}
-    keep = ["sym", "date", "idx", "f_B0_baseline", "tr_r", "tr_censored", "tr_mfe_r", "mu13", "dd13", "mu26", "dd26"]
+    keep = [
+        "sym",
+        "date",
+        "idx",
+        "f_B0_baseline",
+        "tr_r",
+        "tr_censored",
+        "tr_mfe_r",
+        "mu13",
+        "dd13",
+        "mu26",
+        "dd26",
+    ]
     cb = cobra_bars[[c for c in keep if c in cobra_bars.columns]].copy()
     cb["date"] = pd.to_datetime(cb["date"])
     common = bars[["sym", "date"]].merge(cb, on=["sym", "date"], how="inner")
@@ -272,8 +319,12 @@ def cobra_reference(bars: pd.DataFrame, cobra_bars: pd.DataFrame | None, n_boot:
     return out
 
 
-def run_analysis(bars: pd.DataFrame, last_date: pd.Timestamp, n_boot: int = 2000,
-                 cobra_bars: pd.DataFrame | None = None) -> dict:
+def run_analysis(
+    bars: pd.DataFrame,
+    last_date: pd.Timestamp,
+    n_boot: int = 2000,
+    cobra_bars: pd.DataFrame | None = None,
+) -> dict:
     """Full pre-registered analysis over a collected bar table."""
     bars = bars.copy()
     bars["period"] = lx.split_periods(bars, last_date)
@@ -283,10 +334,17 @@ def run_analysis(bars: pd.DataFrame, last_date: pd.Timestamp, n_boot: int = 2000
         return lx.dedup_episodes(sel[sel[f"f_{v}"]])
 
     result: dict[str, Any] = {
-        "protocol": {"seed": SEED, "trail": [lx.TRAIL_INIT_ATR, lx.TRAIL_ATR, lx.TRAIL_MAX_HOLD],
-                     "p_control": lx.P_CONTROL, "min_episodes": MIN_EPISODES, "q3_margin": Q3_DD_MARGIN,
-                     "ready_min": READY_MIN, "lockbox_weeks": lx.LOCKBOX_WEEKS,
-                     "censor_weeks": lx.CENSOR_WEEKS, "n_boot": n_boot},
+        "protocol": {
+            "seed": SEED,
+            "trail": [lx.TRAIL_INIT_ATR, lx.TRAIL_ATR, lx.TRAIL_MAX_HOLD],
+            "p_control": lx.P_CONTROL,
+            "min_episodes": MIN_EPISODES,
+            "q3_margin": Q3_DD_MARGIN,
+            "ready_min": READY_MIN,
+            "lockbox_weeks": lx.LOCKBOX_WEEKS,
+            "censor_weeks": lx.CENSOR_WEEKS,
+            "n_boot": n_boot,
+        },
         "last_date": str(last_date.date()) if pd.notna(last_date) else None,
         "tickers": int(bars["sym"].nunique()),
         "dev": {"all_bars": {"bars": int(len(dev)), **lx.forward_stats(dev)}},
@@ -309,8 +367,13 @@ def run_analysis(bars: pd.DataFrame, last_date: pd.Timestamp, n_boot: int = 2000
         ep, ctrl_lock = _resolved(episodes(lock, best)), _resolved(episodes(lock, CONTROL))
         st = lx.cluster_stats(ep, "tr_r", n_boot, SEED)
         diff = lx.paired_diff(ep, ctrl_lock, "tr_r", n_boot, SEED)
-        result["lockbox"] = {"spent": True, "best": best, "trail": st, "vs_random": diff,
-                             "passed": bool(diff["diff"] > 0 and st["mean"] > 0 and st["t"] > LOCKBOX_T)}
+        result["lockbox"] = {
+            "spent": True,
+            "best": best,
+            "trail": st,
+            "vs_random": diff,
+            "passed": bool(diff["diff"] > 0 and st["mean"] > 0 and st["t"] > LOCKBOX_T),
+        }
 
     result["report_only"] = {
         "ic_dev": {c: weekly_ic(dev, c, n_boot, SEED) for c in ("ready", *PILLARS, "penalty")},
@@ -332,15 +395,19 @@ def _variant_line(name: str, r: dict) -> str:
     if r.get("episodes", 0) == 0 or "trail" not in r:
         return f"{name:18s}{r.get('episodes', 0):6d}"
     t, fw = r["trail"], r["forward"]
-    return (f"{name:18s}{r['episodes']:6d}{t['n']:6d}{_f(t['mean']):>7s}{_f(t['lo']):>7s}{_f(t['hi']):>7s}"
-            f"{_f(t['win_rate'], pct=True):>6s}{_f(t['profit_factor']):>6s}{_f(fw['hit20_13w'], pct=True):>7s}"
-            f"{_f(fw['runner_26w'], pct=True):>8s}{_f(fw['dd26_worse25'], pct=True):>8s}")
+    return (
+        f"{name:18s}{r['episodes']:6d}{t['n']:6d}{_f(t['mean']):>7s}{_f(t['lo']):>7s}{_f(t['hi']):>7s}"
+        f"{_f(t['win_rate'], pct=True):>6s}{_f(t['profit_factor']):>6s}{_f(fw['hit20_13w'], pct=True):>7s}"
+        f"{_f(fw['runner_26w'], pct=True):>8s}{_f(fw['dd26_worse25'], pct=True):>8s}"
+    )
 
 
 def format_report(res: dict) -> str:
     ab = res["dev"]["all_bars"]
-    header = (f"{'variant':18s}{'eps':>6s}{'res':>6s}{'meanR':>7s}{'CI lo':>7s}{'CI hi':>7s}{'win':>6s}"
-              f"{'PF':>6s}{'+20%13':>7s}{'runner':>8s}{'DD<-25':>8s}")
+    header = (
+        f"{'variant':18s}{'eps':>6s}{'res':>6s}{'meanR':>7s}{'CI lo':>7s}{'CI hi':>7s}{'win':>6s}"
+        f"{'PF':>6s}{'+20%13':>7s}{'runner':>8s}{'DD<-25':>8s}"
+    )
     lines = [
         f"Breakout Readiness walk-forward   last bar {res['last_date']}   tickers {res['tickers']}",
         "Primary outcome: mean R of the trail exit, dev period. C0_random is the bar to beat.",
@@ -354,34 +421,53 @@ def format_report(res: dict) -> str:
     for v, q in res["qualification"].items():
         marks = " ".join(f"{k.split('_')[0]}={'Y' if ok else 'n'}" for k, ok in q["checks"].items())
         d = q["vs_random"]
-        lines.append(f"{v:18s}{'QUALIFIED' if q['qualified'] else 'no':10s}{marks}   "
-                     f"vs random: {_f(d['diff'])} [{_f(d['lo'])}, {_f(d['hi'])}]")
+        lines.append(
+            f"{v:18s}{'QUALIFIED' if q['qualified'] else 'no':10s}{marks}   "
+            f"vs random: {_f(d['diff'])} [{_f(d['lo'])}, {_f(d['hi'])}]"
+        )
     lb = res["lockbox"]
     if lb["spent"]:
-        lines += ["", f"LOCKBOX spent once on {lb['best']}: mean R {_f(lb['trail']['mean'])} "
-                      f"[{_f(lb['trail']['lo'])}, {_f(lb['trail']['hi'])}] t={_f(lb['trail']['t'])}  "
-                      f"vs random {_f(lb['vs_random']['diff'])}  -> {'PASS' if lb['passed'] else 'FAIL'}"]
+        lines += [
+            "",
+            f"LOCKBOX spent once on {lb['best']}: mean R {_f(lb['trail']['mean'])} "
+            f"[{_f(lb['trail']['lo'])}, {_f(lb['trail']['hi'])}] t={_f(lb['trail']['t'])}  "
+            f"vs random {_f(lb['vs_random']['diff'])}  -> {'PASS' if lb['passed'] else 'FAIL'}",
+        ]
     else:
         lines += ["", "LOCKBOX left unspent: no variant qualified on the development period."]
 
     ro = res["report_only"]
     lines += ["", "== REPORT ONLY: weekly rank IC vs 13w return (dev) =="]
     for c, ic in ro["ic_dev"].items():
-        lines.append(f"{c:18s} IC {_f(ic['mean_ic'], 3)} [{_f(ic['lo'], 3)}, {_f(ic['hi'], 3)}]  "
-                     f"weeks {ic['weeks']}  positive {_f(ic.get('share_positive'), pct=True)}")
-    lines += ["", "== REPORT ONLY: status ladder, all dev bars (no dedup) ==",
-              f"{'status':20s}{'bars':>8s}{'mean13w':>9s}{'+20%13':>8s}{'runner':>8s}{'DD<-25':>8s}"]
+        lines.append(
+            f"{c:18s} IC {_f(ic['mean_ic'], 3)} [{_f(ic['lo'], 3)}, {_f(ic['hi'], 3)}]  "
+            f"weeks {ic['weeks']}  positive {_f(ic.get('share_positive'), pct=True)}"
+        )
+    lines += [
+        "",
+        "== REPORT ONLY: status ladder, all dev bars (no dedup) ==",
+        f"{'status':20s}{'bars':>8s}{'mean13w':>9s}{'+20%13':>8s}{'runner':>8s}{'DD<-25':>8s}",
+    ]
     for s, d in ro["status_ladder_dev"].items():
-        lines.append(f"{s:20s}{d['bars']:8d}{_f(d['mean_fr13'], pct=True):>9s}{_f(d['hit20_13w'], pct=True):>8s}"
-                     f"{_f(d['runner_26w'], pct=True):>8s}{_f(d['dd26_worse25'], pct=True):>8s}")
+        lines.append(
+            f"{s:20s}{d['bars']:8d}{_f(d['mean_fr13'], pct=True):>9s}{_f(d['hit20_13w'], pct=True):>8s}"
+            f"{_f(d['runner_26w'], pct=True):>8s}{_f(d['dd26_worse25'], pct=True):>8s}"
+        )
     cb = ro["cobra"]
     if cb.get("available"):
-        lines += ["", f"== REPORT ONLY: vs Coiled Cobra on shared ticker-weeks (dev, {cb['common_bars']} bars) ==",
-                  header]
+        lines += [
+            "",
+            f"== REPORT ONLY: vs Coiled Cobra on shared ticker-weeks (dev, {cb['common_bars']} bars) ==",
+            header,
+        ]
         lines += [_variant_line(v, cb[v]) for v in (COBRA, "BK_PRE_OR_CONF", "BK_DISPLAY", CONTROL)]
     else:
         lines += ["", "Coiled Cobra reference: no leader_experiment_bars_*.csv.gz found (skipped)."]
-    lines += ["", "live/open (censored) episodes: " + ", ".join(f"{k}={v}" for k, v in ro["live_open"].items())]
+    lines += [
+        "",
+        "live/open (censored) episodes: "
+        + ", ".join(f"{k}={v}" for k, v in ro["live_open"].items()),
+    ]
     return "\n".join(lines)
 
 
@@ -391,15 +477,29 @@ def _newest(pattern: str) -> str | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Pre-registered Breakout Readiness walk-forward experiment")
-    ap.add_argument("--tickers", help="Comma-separated tickers (smoke tests); default = whole raw dir")
+    ap = argparse.ArgumentParser(
+        description="Pre-registered Breakout Readiness walk-forward experiment"
+    )
+    ap.add_argument(
+        "--tickers", help="Comma-separated tickers (smoke tests); default = whole raw dir"
+    )
     ap.add_argument("--workers", type=int, default=None)
     ap.add_argument("--bootstrap", type=int, default=2000)
-    ap.add_argument("--out-dir", help="Directory for bars/result files (default: the weekly logs dir)")
-    ap.add_argument("--out", help="Write the JSON result here (default: <out-dir>/breakout_experiment_<date>.json)")
-    ap.add_argument("--from-bars", help="Skip the walk-forward: re-run the analysis from a saved bars .csv.gz")
-    ap.add_argument("--cobra-bars", help="Leader experiment bars .csv.gz for the Cobra reference "
-                                         "(default: newest in the weekly logs dir)")
+    ap.add_argument(
+        "--out-dir", help="Directory for bars/result files (default: the weekly logs dir)"
+    )
+    ap.add_argument(
+        "--out",
+        help="Write the JSON result here (default: <out-dir>/breakout_experiment_<date>.json)",
+    )
+    ap.add_argument(
+        "--from-bars", help="Skip the walk-forward: re-run the analysis from a saved bars .csv.gz"
+    )
+    ap.add_argument(
+        "--cobra-bars",
+        help="Leader experiment bars .csv.gz for the Cobra reference "
+        "(default: newest in the weekly logs dir)",
+    )
     args = ap.parse_args(argv)
 
     logs_dir = config.get_mode_config(MODE)["logs_dir"]
@@ -411,8 +511,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         raw_dir = config.get_mode_config(MODE)["raw_dir"]
         wanted = {t.strip().upper() for t in args.tickers.split(",")} if args.tickers else None
-        paths = sorted(os.path.join(raw_dir, f) for f in os.listdir(raw_dir) if f.lower().endswith(".csv")
-                       if not wanted or ticker_from_filename(os.path.join(raw_dir, f)) in wanted)
+        paths = sorted(
+            os.path.join(raw_dir, f)
+            for f in os.listdir(raw_dir)
+            if f.lower().endswith(".csv")
+            if not wanted or ticker_from_filename(os.path.join(raw_dir, f)) in wanted
+        )
         if not paths:
             ap.error(f"no raw CSVs matched in {raw_dir}")
         bars, last_date = collect(paths, args.workers)
@@ -426,8 +530,14 @@ def main(argv: list[str] | None = None) -> int:
         if c in bars.columns:
             bars[c] = bars[c].fillna(False).astype(bool)
 
-    cobra_path = args.cobra_bars or _newest(os.path.join(logs_dir, "leader_experiment_bars_*.csv.gz"))
-    cobra_bars = pd.read_csv(cobra_path, parse_dates=["date"]) if cobra_path and os.path.exists(cobra_path) else None
+    cobra_path = args.cobra_bars or _newest(
+        os.path.join(logs_dir, "leader_experiment_bars_*.csv.gz")
+    )
+    cobra_bars = (
+        pd.read_csv(cobra_path, parse_dates=["date"])
+        if cobra_path and os.path.exists(cobra_path)
+        else None
+    )
     if cobra_path and cobra_bars is not None:
         print(f"Cobra reference: {cobra_path}")
 

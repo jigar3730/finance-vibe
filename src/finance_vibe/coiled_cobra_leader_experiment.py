@@ -47,6 +47,7 @@ protocol is fixed in code *before* looking at full-universe results:
     python -m finance_vibe.coiled_cobra_leader_experiment [--tickers A,B] [--out-dir D] [--out r.json]
     python -m finance_vibe.coiled_cobra_leader_experiment --from-bars bars.csv.gz --runs runs.csv
 """
+
 from __future__ import annotations
 
 import argparse
@@ -70,7 +71,7 @@ from finance_vibe.coiled_cobra import add_macro_indicators, evaluate_coiled_cobr
 from finance_vibe.trade_planner import calculate_stock_levels
 from finance_vibe.trade_simulator import simulate_trade
 
-MODE = "weekly"          # the rubric is weekly-only; other modes are out of scope
+MODE = "weekly"  # the rubric is weekly-only; other modes are out of scope
 SEED = 20260919
 
 # Tickers the leader rules were derived from -- reported, never used to qualify.
@@ -87,7 +88,7 @@ TRAIL_SLIPPAGE = config.BACKTEST_SLIPPAGE_PCT
 # --- periods / controls -------------------------------------------------------
 LOCKBOX_WEEKS = 52
 CENSOR_WEEKS = TRAIL_MAX_HOLD
-P_CONTROL = 0.05         # per-bar probability of a C0_random flag
+P_CONTROL = 0.05  # per-bar probability of a C0_random flag
 
 # --- pre-registered qualification thresholds ----------------------------------
 MIN_EPISODES = 100
@@ -96,10 +97,10 @@ Q3_DD_MARGIN = 0.10
 LOCKBOX_T = 1.645
 
 # --- monster runs -------------------------------------------------------------
-RUN_MIN_GAIN = 1.0       # trough -> peak >= +100%
+RUN_MIN_GAIN = 1.0  # trough -> peak >= +100%
 RUN_MAX_WEEKS = 52
 RUN_MAX_PER_TICKER = 3
-RUN_LEAD_BARS = 4        # a signal counts from this many bars before the low
+RUN_LEAD_BARS = 4  # a signal counts from this many bars before the low
 
 BASELINE = "B0_baseline"
 CONTROL = "C0_random"
@@ -111,6 +112,7 @@ QUALIFYING = ("R1_relaxed_gates", *LEADERS)
 # ---------------------------------------------------------------------------
 # Variant predicates (fixed; inputs are the per-bar gate/pillar profile)
 # ---------------------------------------------------------------------------
+
 
 def variant_flags(rec: Mapping[str, Any]) -> dict[str, bool]:
     """Flag which variants fire on one bar.  ``C0_random`` is set by the caller."""
@@ -140,6 +142,7 @@ def variant_flags(rec: Mapping[str, Any]) -> dict[str, bool]:
 # ---------------------------------------------------------------------------
 # Exit model: market entry + chandelier trail
 # ---------------------------------------------------------------------------
+
 
 def simulate_trail_trade(
     df: pd.DataFrame,
@@ -178,8 +181,11 @@ def simulate_trail_trade(
             px = min(o, stop) * (1.0 - slippage)
             return {
                 "outcome": "stopped" if stop <= stop0 + 1e-12 else "trailed",
-                "exit_idx": j, "exit_price": px, "r": (px - entry) / risk,
-                "censored": False, "mfe_r": (max_high - entry) / risk,
+                "exit_idx": j,
+                "exit_price": px,
+                "r": (px - entry) / risk,
+                "censored": False,
+                "mfe_r": (max_high - entry) / risk,
             }
         max_high = max(max_high, h)
         high_close = max(high_close, c)
@@ -189,14 +195,18 @@ def simulate_trail_trade(
     ran_full = (last - start_idx + 1) >= max_hold
     return {
         "outcome": "expired" if ran_full else "open",
-        "exit_idx": last, "exit_price": px, "r": (px - entry) / risk,
-        "censored": not ran_full, "mfe_r": (max_high - entry) / risk,
+        "exit_idx": last,
+        "exit_price": px,
+        "r": (px - entry) / risk,
+        "censored": not ran_full,
+        "mfe_r": (max_high - entry) / risk,
     }
 
 
 # ---------------------------------------------------------------------------
 # Monster runs
 # ---------------------------------------------------------------------------
+
 
 def find_runs(
     highs: np.ndarray,
@@ -224,13 +234,14 @@ def find_runs(
         if best is None or best[0] < min_gain:
             break
         runs.append(best)
-        taken[max(0, best[1] - 8): min(n, best[2] + 8)] = True
+        taken[max(0, best[1] - 8) : min(n, best[2] + 8)] = True
     return sorted(runs, key=lambda r: r[1])
 
 
 # ---------------------------------------------------------------------------
 # Per-ticker walk-forward pass (process-pool worker)
 # ---------------------------------------------------------------------------
+
 
 def _fails_from_grade(grade: str) -> list[str]:
     if grade.startswith("Rejected - Gate Fail"):
@@ -239,7 +250,7 @@ def _fails_from_grade(grade: str) -> list[str]:
 
 
 def _forward(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, idx: int, weeks: int):
-    fut_hi, fut_lo = highs[idx + 1: idx + 1 + weeks], lows[idx + 1: idx + 1 + weeks]
+    fut_hi, fut_lo = highs[idx + 1 : idx + 1 + weeks], lows[idx + 1 : idx + 1 + weeks]
     if len(fut_hi) == 0:
         return np.nan, np.nan
     return fut_hi.max() / closes[idx] - 1.0, fut_lo.min() / closes[idx] - 1.0
@@ -250,16 +261,28 @@ def _planner_outcome(df: pd.DataFrame, idx: int, window: pd.DataFrame) -> dict:
     last = window.iloc[-1]
     fib = last.get("Fib_786")
     row = {
-        "Source": "coiled_cobra", "Setup Type": "SETUP_LONG", "Mode": MODE,
-        "Close": float(last["Close"]), "EMA20": float(last["EMA20"]), "EMA50": float(last["EMA50"]),
-        "ATR": float(last["ATR"]), "Fib 78.6%": float(fib) if pd.notna(fib) else None,
+        "Source": "coiled_cobra",
+        "Setup Type": "SETUP_LONG",
+        "Mode": MODE,
+        "Close": float(last["Close"]),
+        "EMA20": float(last["EMA20"]),
+        "EMA50": float(last["EMA50"]),
+        "ATR": float(last["ATR"]),
+        "Fib 78.6%": float(fib) if pd.notna(fib) else None,
         "Swing Low": local_swing_low(window),
     }
     try:
         entry, stop, t1, t2, _, _ = calculate_stock_levels(row, mode=MODE)
         outcome, _, _, r = simulate_trade(
-            df, idx + 1, is_long=True, entry=entry, stop=stop, target1=t1, target2=t2,
-            entry_valid_bars=config.BACKTEST_ENTRY_VALID_BARS, max_hold_bars=config.BACKTEST_MAX_HOLD_BARS,
+            df,
+            idx + 1,
+            is_long=True,
+            entry=entry,
+            stop=stop,
+            target1=t1,
+            target2=t2,
+            entry_valid_bars=config.BACKTEST_ENTRY_VALID_BARS,
+            max_hold_bars=config.BACKTEST_MAX_HOLD_BARS,
         )
     except Exception:
         return {"pl_outcome": "error", "pl_r": np.nan}
@@ -279,8 +302,16 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], list[dict], dict]:
 
     highs, lows, closes = (df[c].to_numpy(dtype=float) for c in ("High", "Low", "Close"))
     runs = [
-        {"sym": symbol, "low_idx": i, "peak_idx": j, "gain": g, "low": lows[i], "high": highs[j],
-         "low_date": df["Date"].iloc[i], "peak_date": df["Date"].iloc[j]}
+        {
+            "sym": symbol,
+            "low_idx": i,
+            "peak_idx": j,
+            "gain": g,
+            "low": lows[i],
+            "high": highs[j],
+            "low_date": df["Date"].iloc[i],
+            "peak_date": df["Date"].iloc[j],
+        }
         for g, i, j in find_runs(highs, lows)
     ]
 
@@ -288,11 +319,13 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], list[dict], dict]:
     bench, spy = cbt._WORKER_BENCHMARK_DF, cbt._WORKER_SPY_DF
     prior_col = "TT_EMA_SLOW"
     rows: list[dict] = []
-    for idx in range(cc.MIN_BARS_FULL_SCORE - 1, len(df) - 1):     # need a next bar to enter
-        control = bool(rng.random() < P_CONTROL)                     # draw every bar: deterministic
+    for idx in range(cc.MIN_BARS_FULL_SCORE - 1, len(df) - 1):  # need a next bar to enter
+        control = bool(rng.random() < P_CONTROL)  # draw every bar: deterministic
         try:
             window = add_macro_indicators(df.iloc[: idx + 1].copy())
-            res = evaluate_coiled_cobra(window, bench, spy_df=spy, qqq_df=bench, include_rejects=True)
+            res = evaluate_coiled_cobra(
+                window, bench, spy_df=spy, qqq_df=bench, include_rejects=True
+            )
         except Exception:
             continue
         if res is None:
@@ -302,11 +335,22 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], list[dict], dict]:
         prior = window[prior_col].iloc[-(cc.TREND_RISING_LOOKBACK + 1)]
         close, slow = float(last["Close"]), float(last[prior_col])
         rec = {
-            "sym": symbol, "idx": idx, "date": df["Date"].iloc[idx], "close": close, "atr": float(last["ATR"]),
-            "score": float(res["Score"]), "checks": int(res["Checks Met"].split("/")[0]),
-            "vol": parts["vol_contraction"], "rs": parts["relative_strength"], "struct": parts["structure"],
-            "shelf": parts["volume_shelf"], "ovhd": parts["overhead_clearance"], "rvol": parts["rvol_trigger"],
-            "rs63": res["RS 63d"], "mkt": bool(res["Market Gate"]), "bbp": res["BBWidth Pctile"],
+            "sym": symbol,
+            "idx": idx,
+            "date": df["Date"].iloc[idx],
+            "close": close,
+            "atr": float(last["ATR"]),
+            "score": float(res["Score"]),
+            "checks": int(res["Checks Met"].split("/")[0]),
+            "vol": parts["vol_contraction"],
+            "rs": parts["relative_strength"],
+            "struct": parts["structure"],
+            "shelf": parts["volume_shelf"],
+            "ovhd": parts["overhead_clearance"],
+            "rvol": parts["rvol_trigger"],
+            "rs63": res["RS 63d"],
+            "mkt": bool(res["Market Gate"]),
+            "bbp": res["BBWidth Pctile"],
             "fails": _fails_from_grade(res["Grade"]),
             "a_close_gt_slow": close > slow,
             "a_c3_slow_rising": bool(pd.notna(prior) and slow > float(prior)),
@@ -321,15 +365,24 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], list[dict], dict]:
             rec.update(_planner_outcome(df, idx, window))
             tr = simulate_trail_trade(df, idx + 1, rec["atr"])
             if tr:
-                rec.update({"tr_outcome": tr["outcome"], "tr_r": tr["r"], "tr_censored": tr["censored"],
-                            "tr_mfe_r": tr["mfe_r"], "tr_bars": tr["exit_idx"] - idx})
+                rec.update(
+                    {
+                        "tr_outcome": tr["outcome"],
+                        "tr_r": tr["r"],
+                        "tr_censored": tr["censored"],
+                        "tr_mfe_r": tr["mfe_r"],
+                        "tr_bars": tr["exit_idx"] - idx,
+                    }
+                )
         rec["fails"] = "/".join(rec["fails"])
         rows.append(rec)
     meta = {"sym": symbol, "n_bars": len(df), "last_date": df["Date"].iloc[-1]}
     return symbol, rows, runs, meta
 
 
-def collect(paths: list[str], workers: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
+def collect(
+    paths: list[str], workers: int | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
     """Run the pass over ``paths`` in a process pool; returns (bars, runs, last_bar_date)."""
     cc.apply_timeframe(MODE)
     rows: list[dict] = []
@@ -338,7 +391,8 @@ def collect(paths: list[str], workers: int | None = None) -> tuple[pd.DataFrame,
     print(f"--- Leader-Expansion experiment [{MODE}] --- tickers: {len(paths)}", flush=True)
     with ProcessPoolExecutor(
         max_workers=workers or os.cpu_count() or 1,
-        initializer=cbt._init_cobra_worker, initargs=(MODE,),
+        initializer=cbt._init_cobra_worker,
+        initargs=(MODE,),
     ) as ex:
         futs = {ex.submit(_ticker_pass, p): p for p in paths}
         for k, fut in enumerate(as_completed(futs), 1):
@@ -358,6 +412,7 @@ def collect(paths: list[str], workers: int | None = None) -> tuple[pd.DataFrame,
 # Aggregation
 # ---------------------------------------------------------------------------
 
+
 def dedup_episodes(flagged: pd.DataFrame) -> pd.DataFrame:
     """Keep the first bar of each run of consecutive weekly flags per ticker."""
     if flagged.empty:
@@ -369,7 +424,13 @@ def dedup_episodes(flagged: pd.DataFrame) -> pd.DataFrame:
 
 def _week_arrays(df: pd.DataFrame, col: str, weeks: pd.Index) -> tuple[np.ndarray, np.ndarray]:
     """Per-week (sum, count) of ``col`` aligned on ``weeks`` (cluster-bootstrap units)."""
-    g = df.dropna(subset=[col]).groupby("date")[col].agg(["sum", "count"]).reindex(weeks).fillna(0.0)
+    g = (
+        df.dropna(subset=[col])
+        .groupby("date")[col]
+        .agg(["sum", "count"])
+        .reindex(weeks)
+        .fillna(0.0)
+    )
     return g["sum"].to_numpy(), g["count"].to_numpy()
 
 
@@ -390,9 +451,13 @@ def cluster_stats(df: pd.DataFrame, col: str, n_boot: int, seed: int = 0) -> dic
     boots = _boot_mean(sums, counts, draws)
     mean = sums.sum() / counts.sum()
     se = np.sqrt(((sums - mean * counts) ** 2).sum()) / counts.sum()
-    return {"n": int(counts.sum()), "mean": float(mean),
-            "lo": float(np.nanpercentile(boots, 2.5)), "hi": float(np.nanpercentile(boots, 97.5)),
-            "t": float(mean / se) if se > 0 else np.nan}
+    return {
+        "n": int(counts.sum()),
+        "mean": float(mean),
+        "lo": float(np.nanpercentile(boots, 2.5)),
+        "hi": float(np.nanpercentile(boots, 97.5)),
+        "t": float(mean / se) if se > 0 else np.nan,
+    }
 
 
 def paired_diff(a: pd.DataFrame, b: pd.DataFrame, col: str, n_boot: int, seed: int = 0) -> dict:
@@ -405,8 +470,11 @@ def paired_diff(a: pd.DataFrame, b: pd.DataFrame, col: str, n_boot: int, seed: i
     sb, cb = _week_arrays(b, col, weeks)
     draws = np.random.default_rng(seed).integers(0, len(weeks), size=(n_boot, len(weeks)))
     boots = _boot_mean(sa, ca, draws) - _boot_mean(sb, cb, draws)
-    return {"diff": float(sa.sum() / ca.sum() - sb.sum() / cb.sum()),
-            "lo": float(np.nanpercentile(boots, 2.5)), "hi": float(np.nanpercentile(boots, 97.5))}
+    return {
+        "diff": float(sa.sum() / ca.sum() - sb.sum() / cb.sum()),
+        "lo": float(np.nanpercentile(boots, 2.5)),
+        "hi": float(np.nanpercentile(boots, 97.5)),
+    }
 
 
 def _profit_factor(r: pd.Series) -> float | None:
@@ -446,7 +514,9 @@ def forward_stats(d: pd.DataFrame) -> dict:
         "hit20_13w": float((m13["mu13"] >= 0.20).mean()) if len(m13) else np.nan,
         "med_maxup_13w": float(m13["mu13"].median()) if len(m13) else np.nan,
         "med_maxdd_13w": float(m13["dd13"].median()) if len(m13) else np.nan,
-        "runner_26w": float((m26["mu26"] >= 1.0).mean()) if len(m26) else np.nan,     # doubled within 26w
+        "runner_26w": float((m26["mu26"] >= 1.0).mean())
+        if len(m26)
+        else np.nan,  # doubled within 26w
         "dd26_worse25": float((m26["dd26"] <= -0.25).mean()) if len(m26) else np.nan,
     }
 
@@ -460,8 +530,11 @@ def monster_capture(bars: pd.DataFrame, runs: pd.DataFrame, variant: str) -> dic
     flag_by_sym = {s: g.sort_values("idx") for s, g in flagged.groupby("sym")}
     for run in runs.itertuples():
         g = by_sym.get(run.sym)
-        if g is None or not ((g["idx"] >= run.low_idx - RUN_LEAD_BARS) & (g["idx"] <= run.peak_idx)).any():
-            continue                                        # no scoreable bar in the run window
+        if (
+            g is None
+            or not ((g["idx"] >= run.low_idx - RUN_LEAD_BARS) & (g["idx"] <= run.peak_idx)).any()
+        ):
+            continue  # no scoreable bar in the run window
         scoreable += 1
         f = flag_by_sym.get(run.sym)
         if f is None:
@@ -473,10 +546,14 @@ def monster_capture(bars: pd.DataFrame, runs: pd.DataFrame, variant: str) -> dic
         caught += 1
         offsets.append(int(first["idx"] - run.low_idx))
         useful += int(run.high / first["close"] - 1.0 >= 1.0)
-    return {"scoreable_runs": scoreable, "caught": caught, "useful": useful,
-            "capture_rate": caught / scoreable if scoreable else np.nan,
-            "useful_rate": useful / scoreable if scoreable else np.nan,
-            "median_offset_wks": float(np.median(offsets)) if offsets else np.nan}
+    return {
+        "scoreable_runs": scoreable,
+        "caught": caught,
+        "useful": useful,
+        "capture_rate": caught / scoreable if scoreable else np.nan,
+        "useful_rate": useful / scoreable if scoreable else np.nan,
+        "median_offset_wks": float(np.median(offsets)) if offsets else np.nan,
+    }
 
 
 def split_periods(bars: pd.DataFrame, last_date: pd.Timestamp) -> pd.Series:
@@ -484,7 +561,11 @@ def split_periods(bars: pd.DataFrame, last_date: pd.Timestamp) -> pd.Series:
     live_start = last_date - pd.Timedelta(weeks=CENSOR_WEEKS)
     lock_start = live_start - pd.Timedelta(weeks=LOCKBOX_WEEKS)
     return pd.Series(
-        np.where(bars["date"] >= live_start, "live", np.where(bars["date"] >= lock_start, "lockbox", "dev")),
+        np.where(
+            bars["date"] >= live_start,
+            "live",
+            np.where(bars["date"] >= lock_start, "lockbox", "dev"),
+        ),
         index=bars.index,
     )
 
@@ -495,15 +576,21 @@ def qualifies(name: str, res: dict, base: dict, ctrl_diff: dict) -> dict:
     checks = {
         "Q0_episodes": res.get("episodes", 0) >= MIN_EPISODES,
         "Q1_ci_above_0": bool(tr.get("lo", np.nan) > 0),
-        "Q2_monster_capture": bool(res["capture"]["useful_rate"] >= base["capture"]["useful_rate"] + Q2_CAPTURE_MARGIN),
-        "Q3_drawdown": bool(res.get("forward", {}).get("dd26_worse25", np.inf)
-                            <= base.get("forward", {}).get("dd26_worse25", -np.inf) + Q3_DD_MARGIN),
+        "Q2_monster_capture": bool(
+            res["capture"]["useful_rate"] >= base["capture"]["useful_rate"] + Q2_CAPTURE_MARGIN
+        ),
+        "Q3_drawdown": bool(
+            res.get("forward", {}).get("dd26_worse25", np.inf)
+            <= base.get("forward", {}).get("dd26_worse25", -np.inf) + Q3_DD_MARGIN
+        ),
         "Q4_beats_random": bool(ctrl_diff.get("lo", np.nan) > 0),
     }
     return {"checks": checks, "qualified": all(checks.values())}
 
 
-def run_analysis(bars: pd.DataFrame, runs: pd.DataFrame, last_date: pd.Timestamp, n_boot: int = 2000) -> dict:
+def run_analysis(
+    bars: pd.DataFrame, runs: pd.DataFrame, last_date: pd.Timestamp, n_boot: int = 2000
+) -> dict:
     """Full pre-registered analysis over a collected bar table."""
     bars = bars.copy()
     bars["period"] = split_periods(bars, last_date)
@@ -528,12 +615,21 @@ def run_analysis(bars: pd.DataFrame, runs: pd.DataFrame, last_date: pd.Timestamp
         return out
 
     result: dict[str, Any] = {
-        "protocol": {"seed": SEED, "trail": [TRAIL_INIT_ATR, TRAIL_ATR, TRAIL_MAX_HOLD],
-                     "min_episodes": MIN_EPISODES, "q2_margin": Q2_CAPTURE_MARGIN, "q3_margin": Q3_DD_MARGIN,
-                     "lockbox_weeks": LOCKBOX_WEEKS, "censor_weeks": CENSOR_WEEKS, "n_boot": n_boot},
+        "protocol": {
+            "seed": SEED,
+            "trail": [TRAIL_INIT_ATR, TRAIL_ATR, TRAIL_MAX_HOLD],
+            "min_episodes": MIN_EPISODES,
+            "q2_margin": Q2_CAPTURE_MARGIN,
+            "q3_margin": Q3_DD_MARGIN,
+            "lockbox_weeks": LOCKBOX_WEEKS,
+            "censor_weeks": CENSOR_WEEKS,
+            "n_boot": n_boot,
+        },
         "last_date": str(last_date.date()) if pd.notna(last_date) else None,
-        "tickers": {"holdout": int(bars.loc[bars["holdout"], "sym"].nunique()),
-                    "discovery": int(bars.loc[~bars["holdout"], "sym"].nunique())},
+        "tickers": {
+            "holdout": int(bars.loc[bars["holdout"], "sym"].nunique()),
+            "discovery": int(bars.loc[~bars["holdout"], "sym"].nunique()),
+        },
         "holdout_dev": block(True, "dev"),
         "discovery_dev": block(False, "dev"),
     }
@@ -556,18 +652,31 @@ def run_analysis(bars: pd.DataFrame, runs: pd.DataFrame, last_date: pd.Timestamp
         ep = ep[ep["tr_r"].notna() & ~ep["tr_censored"].fillna(True).astype(bool)]
         st = cluster_stats(ep, "tr_r", n_boot, SEED)
         base_st = cluster_stats(
-            episodes(lock, BASELINE).pipe(lambda e: e[e["tr_r"].notna() & ~e["tr_censored"].fillna(True).astype(bool)]),
-            "tr_r", n_boot, SEED)
-        result["lockbox"] = {"spent": True, "best": best, "trail": st, "baseline_trail": base_st,
-                             "passed": bool(st["mean"] > 0 and st["t"] > LOCKBOX_T)}
-    result["holdout_live_open"] = {   # censored recent weeks: information only
-        v: int(len(episodes(bars[bars["holdout"] & (bars["period"] == "live")], v))) for v in VARIANTS}
+            episodes(lock, BASELINE).pipe(
+                lambda e: e[e["tr_r"].notna() & ~e["tr_censored"].fillna(True).astype(bool)]
+            ),
+            "tr_r",
+            n_boot,
+            SEED,
+        )
+        result["lockbox"] = {
+            "spent": True,
+            "best": best,
+            "trail": st,
+            "baseline_trail": base_st,
+            "passed": bool(st["mean"] > 0 and st["t"] > LOCKBOX_T),
+        }
+    result["holdout_live_open"] = {  # censored recent weeks: information only
+        v: int(len(episodes(bars[bars["holdout"] & (bars["period"] == "live")], v)))
+        for v in VARIANTS
+    }
     return result
 
 
 # ---------------------------------------------------------------------------
 # Reporting / CLI
 # ---------------------------------------------------------------------------
+
 
 def _f(x: Any, nd: int = 2, pct: bool = False) -> str:
     if x is None or (isinstance(x, float) and np.isnan(x)):
@@ -581,15 +690,21 @@ def format_report(res: dict) -> str:
         f"holdout tickers {res['tickers']['holdout']}  discovery {res['tickers']['discovery']}",
         "Primary outcome: mean R of the trail exit, holdout tickers, dev period. Discovery set is reference only.",
     ]
-    for label, key in (("HOLDOUT (decision set)", "holdout_dev"), ("DISCOVERY (reference only)", "discovery_dev")):
+    for label, key in (
+        ("HOLDOUT (decision set)", "holdout_dev"),
+        ("DISCOVERY (reference only)", "discovery_dev"),
+    ):
         blk = res[key]
         ab = blk["all_bars"]
-        lines += ["", f"== {label} ==",
-                  f"all scoreable bars: {ab['bars']}  hit+20%/13w {_f(ab['hit20_13w'], pct=True)}  "
-                  f"runner(2x/26w) {_f(ab['runner_26w'], pct=True)}  medMaxDD13 {_f(ab['med_maxdd_13w'], pct=True)}  "
-                  f"DD26<=-25% {_f(ab['dd26_worse25'], pct=True)}",
-                  f"{'variant':26s}{'eps':>6s}{'meanR':>7s}{'CI lo':>7s}{'CI hi':>7s}{'win':>6s}{'PF':>6s}"
-                  f"{'planR':>7s}{'fill':>6s}{'runner':>8s}{'DD<-25':>8s}{'capt':>6s}{'useful':>7s}{'medOff':>7s}"]
+        lines += [
+            "",
+            f"== {label} ==",
+            f"all scoreable bars: {ab['bars']}  hit+20%/13w {_f(ab['hit20_13w'], pct=True)}  "
+            f"runner(2x/26w) {_f(ab['runner_26w'], pct=True)}  medMaxDD13 {_f(ab['med_maxdd_13w'], pct=True)}  "
+            f"DD26<=-25% {_f(ab['dd26_worse25'], pct=True)}",
+            f"{'variant':26s}{'eps':>6s}{'meanR':>7s}{'CI lo':>7s}{'CI hi':>7s}{'win':>6s}{'PF':>6s}"
+            f"{'planR':>7s}{'fill':>6s}{'runner':>8s}{'DD<-25':>8s}{'capt':>6s}{'useful':>7s}{'medOff':>7s}",
+        ]
         for v in VARIANTS:
             r = blk[v]
             if r["episodes"] == 0:
@@ -601,21 +716,31 @@ def format_report(res: dict) -> str:
                 f"{_f(t['win_rate'], pct=True):>6s}{_f(t['profit_factor']):>6s}{_f(p['mean']):>7s}"
                 f"{_f(p['fill_rate'], pct=True):>6s}{_f(fw['runner_26w'], pct=True):>8s}"
                 f"{_f(fw['dd26_worse25'], pct=True):>8s}{_f(cp.get('capture_rate'), pct=True):>6s}"
-                f"{_f(cp.get('useful_rate'), pct=True):>7s}{_f(cp.get('median_offset_wks'), 0):>7s}")
+                f"{_f(cp.get('useful_rate'), pct=True):>7s}{_f(cp.get('median_offset_wks'), 0):>7s}"
+            )
     lines += ["", "== QUALIFICATION (holdout, dev) =="]
     for v, q in res["qualification"].items():
         marks = " ".join(f"{k.split('_')[0]}={'Y' if ok else 'n'}" for k, ok in q["checks"].items())
         d = q["vs_random"]
-        lines.append(f"{v:26s}{'QUALIFIED' if q['qualified'] else 'no':10s}{marks}   "
-                     f"vs random: {_f(d['diff'])} [{_f(d['lo'])}, {_f(d['hi'])}]")
+        lines.append(
+            f"{v:26s}{'QUALIFIED' if q['qualified'] else 'no':10s}{marks}   "
+            f"vs random: {_f(d['diff'])} [{_f(d['lo'])}, {_f(d['hi'])}]"
+        )
     lb = res["lockbox"]
     if lb["spent"]:
-        lines += ["", f"LOCKBOX spent once on {lb['best']}: mean R {_f(lb['trail']['mean'])} "
-                      f"[{_f(lb['trail']['lo'])}, {_f(lb['trail']['hi'])}] t={_f(lb['trail']['t'])}  "
-                      f"baseline {_f(lb['baseline_trail']['mean'])}  -> {'PASS' if lb['passed'] else 'FAIL'}"]
+        lines += [
+            "",
+            f"LOCKBOX spent once on {lb['best']}: mean R {_f(lb['trail']['mean'])} "
+            f"[{_f(lb['trail']['lo'])}, {_f(lb['trail']['hi'])}] t={_f(lb['trail']['t'])}  "
+            f"baseline {_f(lb['baseline_trail']['mean'])}  -> {'PASS' if lb['passed'] else 'FAIL'}",
+        ]
     else:
         lines += ["", "LOCKBOX left unspent: no variant qualified on the development period."]
-    lines += ["", "live/open (censored) episodes, holdout: " + ", ".join(f"{k}={v}" for k, v in res["holdout_live_open"].items())]
+    lines += [
+        "",
+        "live/open (censored) episodes, holdout: "
+        + ", ".join(f"{k}={v}" for k, v in res["holdout_live_open"].items()),
+    ]
     return "\n".join(lines)
 
 
@@ -630,13 +755,24 @@ def _json_default(o: Any):
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="Pre-registered Leader-Expansion vs Coiled Cobra experiment")
-    ap.add_argument("--tickers", help="Comma-separated tickers (smoke tests); default = whole raw dir")
+    ap = argparse.ArgumentParser(
+        description="Pre-registered Leader-Expansion vs Coiled Cobra experiment"
+    )
+    ap.add_argument(
+        "--tickers", help="Comma-separated tickers (smoke tests); default = whole raw dir"
+    )
     ap.add_argument("--workers", type=int, default=None)
     ap.add_argument("--bootstrap", type=int, default=2000)
-    ap.add_argument("--out-dir", help="Directory for bars/runs/result files (default: the weekly logs dir)")
-    ap.add_argument("--out", help="Write the JSON result here (default: <out-dir>/leader_experiment_<date>.json)")
-    ap.add_argument("--from-bars", help="Skip the walk-forward: re-run the analysis from a saved bars .csv.gz")
+    ap.add_argument(
+        "--out-dir", help="Directory for bars/runs/result files (default: the weekly logs dir)"
+    )
+    ap.add_argument(
+        "--out",
+        help="Write the JSON result here (default: <out-dir>/leader_experiment_<date>.json)",
+    )
+    ap.add_argument(
+        "--from-bars", help="Skip the walk-forward: re-run the analysis from a saved bars .csv.gz"
+    )
     ap.add_argument("--runs", help="Saved runs .csv (required with --from-bars)")
     args = ap.parse_args(argv)
 
@@ -651,8 +787,12 @@ def main(argv: list[str] | None = None) -> int:
     else:
         raw_dir = config.get_mode_config(MODE)["raw_dir"]
         wanted = {t.strip().upper() for t in args.tickers.split(",")} if args.tickers else None
-        paths = sorted(os.path.join(raw_dir, f) for f in os.listdir(raw_dir) if f.lower().endswith(".csv")
-                       if not wanted or ticker_from_filename(os.path.join(raw_dir, f)) in wanted)
+        paths = sorted(
+            os.path.join(raw_dir, f)
+            for f in os.listdir(raw_dir)
+            if f.lower().endswith(".csv")
+            if not wanted or ticker_from_filename(os.path.join(raw_dir, f)) in wanted
+        )
         if not paths:
             ap.error(f"no raw CSVs matched in {raw_dir}")
         bars, runs, last_date = collect(paths, args.workers)

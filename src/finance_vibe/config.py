@@ -3,6 +3,7 @@
 Use ``get_mode_config(mode)`` to resolve raw/log directories and yfinance
 download parameters for ``weekly`` or ``daily`` pipeline runs.
 """
+
 from __future__ import annotations
 
 import os
@@ -65,7 +66,7 @@ def get_mode_config(mode: str | None = None) -> dict:
 
 
 # Always-included symbols merged with manifest and screener output
-STATIC_TICKERS = ["SPY", "QQQ", "IWM", "SCHD","IBIT","SCHG"]
+STATIC_TICKERS = ["SPY", "QQQ", "IWM", "SCHD", "IBIT", "SCHG"]
 
 # Universe size for ticker_provider → data/active_tickers.csv
 ACTIVE_TICKER_CAP = 1000
@@ -109,7 +110,7 @@ BENCHMARK_TICKER = "QQQ"
 _SWING_WEEKLY = {
     "entry_atr": 0.25,
     "stop_buffer_atr": 0.25,
-    "stop_atr_cap": 1.5,       # dual-constraint vol floor: entry − 1.5×ATR
+    "stop_atr_cap": 1.5,  # dual-constraint vol floor: entry − 1.5×ATR
     "t1_atr": 1.25,
     "t2_atr": 2.25,
     "prox_pct": 0.015,
@@ -118,8 +119,8 @@ _SWING_WEEKLY = {
     "rsi_max_long": 55,
     "rsi_min_short": 50,
     "rsi_max_short": 60,
-    "structure_bars": 10,       # local consolidation lookback (sessions)
-    "vibe_min": None,           # no soft vibe gate on weekly
+    "structure_bars": 10,  # local consolidation lookback (sessions)
+    "vibe_min": None,  # no soft vibe gate on weekly
     "cooldown_bars": 4,
     "entry_valid_bars": 4,
     "max_hold_bars": 12,
@@ -135,13 +136,13 @@ _SWING_DAILY = {
     "t1_atr": 0.85,
     "t2_atr": 1.6,
     "prox_pct": 0.02,
-    "prox_atr": None,           # fixed % proximity when None
+    "prox_atr": None,  # fixed % proximity when None
     "rsi_min_long": 40,
     "rsi_max_long": 55,
     "rsi_min_short": 50,
     "rsi_max_short": 60,
-    "structure_bars": 10,       # local consolidation lookback (sessions)
-    "vibe_min": 5,              # soft macro gate inside scanner
+    "structure_bars": 10,  # local consolidation lookback (sessions)
+    "vibe_min": 5,  # soft macro gate inside scanner
     "cooldown_bars": 8,
     "entry_valid_bars": 6,
     "max_hold_bars": 20,
@@ -161,10 +162,10 @@ _SWING_DEFAULTS = {
     "confirm_slack_atr": 0.0,
     "require_ema_stack": False,
     "long_only": False,
-    "short_max_vibe": None,        # directional short soft-gate; None disables shorts under a vibe profile
-    "structure_slack_atr": None,   # None -> legacy percentage structure tolerance
+    "short_max_vibe": None,  # directional short soft-gate; None disables shorts under a vibe profile
+    "structure_slack_atr": None,  # None -> legacy percentage structure tolerance
     "min_risk_atr": None,
-    "max_risk_atr": None,          # None -> cap stop via stop_atr_cap (legacy)
+    "max_risk_atr": None,  # None -> cap stop via stop_atr_cap (legacy)
     "use_r_targets": False,
     "t1_r": 1.0,
     "t2_r": 2.0,
@@ -175,6 +176,7 @@ _SWING_DEFAULTS = {
     "rs_lookback": 63,
     "rs_ratio_ma_bars": 20,
 }
+
 
 def get_swing_params(mode: str = "weekly") -> dict:
     """Return quality-swing geometry + filter params for a swing profile.
@@ -215,6 +217,7 @@ def get_log_dir(mode: str = "weekly") -> str:
 # yet complete on that date is dropped, and outputs are stamped with the as-of
 # date instead of today's. CLI only -- deliberately no environment fallback, so
 # a stray variable can never turn a live scan into a historical one.
+
 
 def parse_as_of(argv: list[str] | None = None) -> str | None:
     """Return the ``--as-of`` date (ISO ``YYYY-MM-DD``) from ``argv``, or None.
@@ -279,9 +282,15 @@ MAX_RISK_PCT_OF_CLOSE = 0.05
 
 
 def _structural_stop_long(
-    entry: float, atr: float, ema50: float, swing_low,
-    *, stop_buffer_atr: float, stop_atr_cap: float | None = None,
-    close: float | None = None, max_risk_pct: float | None = MAX_RISK_PCT_OF_CLOSE,
+    entry: float,
+    atr: float,
+    ema50: float,
+    swing_low,
+    *,
+    stop_buffer_atr: float,
+    stop_atr_cap: float | None = None,
+    close: float | None = None,
+    max_risk_pct: float | None = MAX_RISK_PCT_OF_CLOSE,
 ) -> float:
     """Stop below local structure with dual-constraint + price risk cap.
 
@@ -304,9 +313,15 @@ def _structural_stop_long(
 
 
 def _structural_stop_short(
-    entry: float, atr: float, ema50: float, swing_high,
-    *, stop_buffer_atr: float, stop_atr_cap: float | None = None,
-    close: float | None = None, max_risk_pct: float | None = MAX_RISK_PCT_OF_CLOSE,
+    entry: float,
+    atr: float,
+    ema50: float,
+    swing_high,
+    *,
+    stop_buffer_atr: float,
+    stop_atr_cap: float | None = None,
+    close: float | None = None,
+    max_risk_pct: float | None = MAX_RISK_PCT_OF_CLOSE,
 ) -> float:
     """Stop above local structure with dual-constraint + price risk cap."""
     buf = stop_buffer_atr * atr
@@ -322,8 +337,15 @@ def _structural_stop_short(
 
 
 def compute_swing_levels(
-    *, setup_type: str, close: float, ema20: float, ema50: float, atr: float,
-    swing_low: float | None = None, swing_high: float | None = None, sp: dict,
+    *,
+    setup_type: str,
+    close: float,
+    ema20: float,
+    ema50: float,
+    atr: float,
+    swing_low: float | None = None,
+    swing_high: float | None = None,
+    sp: dict,
 ) -> dict:
     """Compute entry/stop/targets + risk for the non-cobra swing path.
 
@@ -358,14 +380,21 @@ def compute_swing_levels(
             stop = min(stop, entry - buf)
         else:
             stop = _structural_stop_long(
-                entry, atr, ema50, swing_low,
-                stop_buffer_atr=sp["stop_buffer_atr"], stop_atr_cap=cap,
-                close=close, max_risk_pct=max_risk_pct,
+                entry,
+                atr,
+                ema50,
+                swing_low,
+                stop_buffer_atr=sp["stop_buffer_atr"],
+                stop_atr_cap=cap,
+                close=close,
+                max_risk_pct=max_risk_pct,
             )
     else:
         entry = min(ema20, close + sp["entry_atr"] * atr)
         if structural_mode:
-            anchor = float(swing_high) if (swing_high is not None and pd.notna(swing_high)) else ema50
+            anchor = (
+                float(swing_high) if (swing_high is not None and pd.notna(swing_high)) else ema50
+            )
             structural = anchor + buf
             vol_ceil = entry + cap * atr
             stop = min(structural, vol_ceil)
@@ -374,9 +403,14 @@ def compute_swing_levels(
             stop = max(stop, entry + buf)
         else:
             stop = _structural_stop_short(
-                entry, atr, ema50, swing_high,
-                stop_buffer_atr=sp["stop_buffer_atr"], stop_atr_cap=cap,
-                close=close, max_risk_pct=max_risk_pct,
+                entry,
+                atr,
+                ema50,
+                swing_high,
+                stop_buffer_atr=sp["stop_buffer_atr"],
+                stop_atr_cap=cap,
+                close=close,
+                max_risk_pct=max_risk_pct,
             )
 
     risk = abs(entry - stop)
@@ -491,9 +525,9 @@ def validate_and_clean_ohlcv(df: pd.DataFrame, *, require_volume: bool = True) -
     # Standardize header casing (Open, High, Low, Close, Volume, Date).
     out.columns = [str(c).strip().capitalize() for c in out.columns]
 
-    required = list(REQUIRED_OHLCV) if require_volume else [
-        c for c in REQUIRED_OHLCV if c != "Volume"
-    ]
+    required = (
+        list(REQUIRED_OHLCV) if require_volume else [c for c in REQUIRED_OHLCV if c != "Volume"]
+    )
     missing = [c for c in required if c not in out.columns]
     if missing:
         raise ValueError(f"Missing required OHLCV columns: {missing}")

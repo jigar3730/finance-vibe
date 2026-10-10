@@ -12,6 +12,7 @@ Model artifacts and a metadata file (rubric version, feature list, mode,
 artifact hashes) are written to the mode's log directory; ``ml_ranker``
 validates that metadata before serving predictions.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -148,9 +149,7 @@ def _resolve_source_csv(explicit: str | None = None, mode: str = TRAIN_MODE) -> 
     )
 
 
-def _validate_rubric_version(
-    df: pd.DataFrame, csv_path: Path, allow_mismatch: bool = False
-) -> str:
+def _validate_rubric_version(df: pd.DataFrame, csv_path: Path, allow_mismatch: bool = False) -> str:
     """Return the CSV's rubric version; refuse unversioned/mixed/stale data.
 
     ``allow_mismatch`` permits *experiments* on other vintages, but the model
@@ -268,7 +267,7 @@ def _build_matrices(
         w = frame[WEIGHT_COL].astype(float).to_numpy()
         w = np.where(np.isfinite(w) & (w > 0), w, np.nan)
         parts[name] = {"X": X, "y": y, "w": w, "n": len(frame)}
-        
+
     med = np.nanmedian(parts["train"]["w"])
     if not np.isfinite(med) or med <= 0:
         med = 1.0
@@ -337,6 +336,7 @@ def _save_importance_plot(
     plt.close(fig)
     print(f"\nSaved feature importance plot: {out_path}")
 
+
 def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
@@ -346,7 +346,10 @@ def _git_sha() -> str | None:
     try:
         out = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
-            cwd=config.PROJECT_ROOT, capture_output=True, text=True, timeout=5,
+            cwd=config.PROJECT_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if out.returncode != 0:
             return None
@@ -521,6 +524,7 @@ def _train_and_report(parts: dict, art_dir: Path, labels: dict, context: dict) -
         context,
     )
 
+
 def main(argv: list[str] | None = None) -> int:
     """Train XGB/LGB baselines and write model artifacts to the mode's log dir."""
     parser = argparse.ArgumentParser(
@@ -558,7 +562,9 @@ def main(argv: list[str] | None = None) -> int:
         )
 
     csv_path = _resolve_source_csv(args.csv, args.mode)
-    art_dir = Path(args.artifacts_dir) if args.artifacts_dir else Path(config.get_log_dir(args.mode))
+    art_dir = (
+        Path(args.artifacts_dir) if args.artifacts_dir else Path(config.get_log_dir(args.mode))
+    )
 
     df = _load_and_prepare(csv_path)
     rubric_version = _validate_rubric_version(df, csv_path, args.allow_rubric_mismatch)
@@ -570,7 +576,9 @@ def main(argv: list[str] | None = None) -> int:
     v_str = f"{fmt(bounds['val_start'])} .. {fmt(bounds['val_end'])}"
     t_str = f"{fmt(bounds['test_start'])} .. {fmt(bounds['max_date'])}"
 
-    print(f"\n=== Temporal Split Bounds (Dynamic Rolling Windows, {bounds['embargo_weeks']}w embargo) ===")
+    print(
+        f"\n=== Temporal Split Bounds (Dynamic Rolling Windows, {bounds['embargo_weeks']}w embargo) ==="
+    )
     print(f"  Train:  Signal Date < {fmt(bounds['train_end'])} -> {len(train)} rows")
     print(f"  Val:    {v_str} -> {len(val)} rows")
     print(f"  Test:   {t_str} -> {len(test)} rows")
@@ -596,8 +604,12 @@ def main(argv: list[str] | None = None) -> int:
             "val_end": fmt(bounds["val_end"]),
             "test_start": fmt(bounds["test_start"]),
             "max_date": fmt(bounds["max_date"]),
-            "rows": {"train": len(train), "val": len(val), "test": len(test),
-                     "purged": bounds["purged_rows"]},
+            "rows": {
+                "train": len(train),
+                "val": len(val),
+                "test": len(test),
+                "purged": bounds["purged_rows"],
+            },
         },
     }
 

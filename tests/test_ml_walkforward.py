@@ -4,6 +4,7 @@ Synthetic data with a *known* ground truth validates the harness itself:
 an ML-learnable edge must be detected, a Score-driven edge must be credited to
 Score, and pure noise must not produce an edge.
 """
+
 import itertools
 import json
 
@@ -36,10 +37,10 @@ def _synthetic(signal: str, n_weeks=300, per_week=8, seed=0) -> pd.DataFrame:
     df["Pct_From_Fib786"] = rng.normal(0.08, 0.10, n)
     df["ATR_Pct"] = rng.uniform(0.02, 0.08, n)
     noise = rng.normal(0, 0.04, n)
-    if signal == "feature":      # learnable from FEATURE_COLS, Score is uninformative
+    if signal == "feature":  # learnable from FEATURE_COLS, Score is uninformative
         z = (df["Pct_From_EMA20"] - 0.02) / 0.05
         df[TARGET] = 0.02 * z + noise
-    elif signal == "score":      # label driven by Score itself
+    elif signal == "score":  # label driven by Score itself
         z = (df["Score"] - 82.5) / 7.2
         df[TARGET] = 0.02 * z + noise
     elif signal == "none":
@@ -53,13 +54,14 @@ def _synthetic(signal: str, n_weeks=300, per_week=8, seed=0) -> pd.DataFrame:
 # Folds
 # ---------------------------------------------------------------------------
 
+
 def test_folds_are_expanding_disjoint_and_embargoed():
     df = _synthetic("none")
     folds = wf.make_folds(df, test_weeks=26, embargo_weeks=2, max_folds=5)
     assert len(folds) == 5
     horizon = pd.Timedelta(weeks=trn.TARGET_HORIZON_WEEKS)
 
-    assert [f["fold"] for f in folds] == [1, 2, 3, 4, 5]           # oldest first
+    assert [f["fold"] for f in folds] == [1, 2, 3, 4, 5]  # oldest first
     for f in folds:
         train_dates = df.loc[f["train_idx"], DATE]
         test_dates = df.loc[f["test_idx"], DATE]
@@ -69,8 +71,8 @@ def test_folds_are_expanding_disjoint_and_embargoed():
         assert test_dates.min() >= f["test_start"] and test_dates.max() < f["test_end"]
 
     for a, b in itertools.pairwise(folds):
-        assert a["test_end"] == b["test_start"]                     # contiguous, no gaps/overlap
-        assert len(b["train_idx"]) > len(a["train_idx"])            # expanding window
+        assert a["test_end"] == b["test_start"]  # contiguous, no gaps/overlap
+        assert len(b["train_idx"]) > len(a["train_idx"])  # expanding window
     assert folds[-1]["test_end"] == df[DATE].max() + pd.Timedelta(days=1)
     assert df.loc[folds[-1]["test_idx"], DATE].max() == df[DATE].max()  # last date is tested
 
@@ -94,12 +96,13 @@ def test_make_folds_rejects_bad_args():
 # Metric primitives
 # ---------------------------------------------------------------------------
 
+
 def test_spearman_matches_known_values():
     a = pd.Series([1, 2, 3, 4, 5.0])
     assert wf.spearman(a, a * 10) == pytest.approx(1.0)
     assert wf.spearman(a, -a) == pytest.approx(-1.0)
-    assert np.isnan(wf.spearman(a, pd.Series([1.0] * 5)))           # constant -> undefined
-    assert np.isnan(wf.spearman(a.iloc[:2], a.iloc[:2]))            # too few
+    assert np.isnan(wf.spearman(a, pd.Series([1.0] * 5)))  # constant -> undefined
+    assert np.isnan(wf.spearman(a.iloc[:2], a.iloc[:2]))  # too few
     # ties: average ranks (matches scipy)
     scipy_stats = pytest.importorskip("scipy.stats")
     x, y = pd.Series([1, 1, 2, 3, 3, 4.0]), pd.Series([2, 1, 1, 5, 4, 6.0])
@@ -120,15 +123,17 @@ def test_tercile_spread_ties_are_not_order_biased():
     ret = pd.Series(np.arange(30.0))
     tied = pd.Series([1.0] * 30)
     spreads = [wf._tercile_spread(tied, ret, seed=s) for s in range(300)]
-    assert abs(np.mean(spreads)) < 1.5      # unbiased; an order-based tie-break gives +-19.5
+    assert abs(np.mean(spreads)) < 1.5  # unbiased; an order-based tie-break gives +-19.5
 
 
 def test_weekly_metrics_respects_min_names():
-    df = pd.DataFrame({
-        DATE: [pd.Timestamp("2024-01-01")] * 8 + [pd.Timestamp("2024-01-08")] * 3,
-        "r": list(range(8)) + [1, 2, 3],
-        TARGET: list(range(8)) + [1, 2, 3],
-    })
+    df = pd.DataFrame(
+        {
+            DATE: [pd.Timestamp("2024-01-01")] * 8 + [pd.Timestamp("2024-01-08")] * 3,
+            "r": list(range(8)) + [1, 2, 3],
+            TARGET: list(range(8)) + [1, 2, 3],
+        }
+    )
     w = wf.weekly_metrics(df, "r", min_names=6)
     assert len(w) == 1 and w.iloc[0]["ic"] == pytest.approx(1.0)
 
@@ -153,6 +158,7 @@ def test_block_bootstrap_ci_brackets_mean_and_is_seeded():
 # End-to-end harness behaviour on known ground truth
 # ---------------------------------------------------------------------------
 
+
 def _run(signal, max_folds=3, seed=0):
     df = _synthetic(signal, seed=seed)
     folds = wf.make_folds(df, max_folds=max_folds)
@@ -164,7 +170,7 @@ def test_harness_detects_a_learnable_feature_edge_and_credits_ml_not_score():
     s = res["summary"]
     assert s["rankers"]["ML"]["mean_ic"] > 0.15
     assert abs(s["rankers"]["Score"]["mean_ic"]) < 0.08
-    assert s["ml_vs_score"]["ic"]["ci95"][0] > 0                    # CI excludes 0
+    assert s["ml_vs_score"]["ic"]["ci95"][0] > 0  # CI excludes 0
     assert s["ml_vs_score"]["spread"]["mean_diff"] > 0
     assert s["rankers"]["ML"]["folds_ic_positive"] == s["n_folds"]
     assert "beats Score" in wf.verdict(s)
@@ -225,13 +231,15 @@ def test_report_formats_and_is_json_serialisable():
 
 def test_main_end_to_end_writes_json(tmp_path, capsys):
     df = _synthetic("feature")
-    df["Outcome"] = "stopped"                       # leakage col that must be dropped
+    df["Outcome"] = "stopped"  # leakage col that must be dropped
     df[config.RUBRIC_VERSION_COL] = config.RUBRIC_VERSION
     csv = tmp_path / "coiled_cobra_backtest_trades_2026-09-18.csv"
     df.to_csv(csv, index=False)
     out = tmp_path / "report.json"
 
-    assert wf.main(["--csv", str(csv), "--max-folds", "2", "--n-boot", "200", "--out", str(out)]) == 0
+    assert (
+        wf.main(["--csv", str(csv), "--max-folds", "2", "--n-boot", "200", "--out", str(out)]) == 0
+    )
     payload = json.loads(out.read_text())
     assert payload["meta"]["rubric_version"] == config.RUBRIC_VERSION
     assert payload["summary"]["n_folds"] == 2

@@ -30,14 +30,16 @@ def _ohlc(n=220, *, start=100.0, drift=0.3, noise=0.5, seed=0):
     low = close - 1.0
     open_ = close.copy()
     vol = np.full(n, 1_000_000.0)
-    return pd.DataFrame({
-        "Date": pd.date_range("2018-01-01", periods=n, freq="W"),
-        "Open": open_,
-        "High": high,
-        "Low": low,
-        "Close": close,
-        "Volume": vol,
-    })
+    return pd.DataFrame(
+        {
+            "Date": pd.date_range("2018-01-01", periods=n, freq="W"),
+            "Open": open_,
+            "High": high,
+            "Low": low,
+            "Close": close,
+            "Volume": vol,
+        }
+    )
 
 
 def _aligned_structure_frame(*, close=102.0, s2=100.0, fast=None, slow=None):
@@ -46,18 +48,21 @@ def _aligned_structure_frame(*, close=102.0, s2=100.0, fast=None, slow=None):
         slow = s2 - 1.0
     if fast is None:
         fast = slow + (s2 - slow) * 0.5
-    return pd.DataFrame({
-        "Close": [s2, s2, close],
-        "TT_EMA_S1": [s2 + 1.0, s2 + 1.0, s2 + 1.0],
-        "TT_EMA_S2": [s2, s2, s2],
-        "TT_EMA_FAST": [fast, fast, fast],
-        "TT_EMA_SLOW": [slow, slow, slow],
-    })
+    return pd.DataFrame(
+        {
+            "Close": [s2, s2, close],
+            "TT_EMA_S1": [s2 + 1.0, s2 + 1.0, s2 + 1.0],
+            "TT_EMA_S2": [s2, s2, s2],
+            "TT_EMA_FAST": [fast, fast, fast],
+            "TT_EMA_SLOW": [slow, slow, slow],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
 # Individual pillars
 # ---------------------------------------------------------------------------
+
 
 def test_macd_directional_penalty():
     assert macd_directional_penalty(2.0) == 0
@@ -88,13 +93,15 @@ def test_structure_score_requires_stack_and_tightens_extension():
     assert structure_score(coiled) == 20
 
     # Stack broken (S1 < 0.98*S2) -> hard 0, not a soft deduction.
-    broken = pd.DataFrame({
-        "Close": [100.0, 100.0, 100.0],
-        "TT_EMA_S1": [90.0, 90.0, 90.0],
-        "TT_EMA_S2": [100.0, 100.0, 100.0],
-        "TT_EMA_FAST": [97.0, 97.0, 97.0],
-        "TT_EMA_SLOW": [95.0, 95.0, 95.0],
-    })
+    broken = pd.DataFrame(
+        {
+            "Close": [100.0, 100.0, 100.0],
+            "TT_EMA_S1": [90.0, 90.0, 90.0],
+            "TT_EMA_S2": [100.0, 100.0, 100.0],
+            "TT_EMA_FAST": [97.0, 97.0, 97.0],
+            "TT_EMA_SLOW": [95.0, 95.0, 95.0],
+        }
+    )
     assert structure_score(broken) == 0
 
     # Hole mid-stack: S1/S2/SLOW alone look aligned, but TT_EMA_FAST dips
@@ -124,10 +131,10 @@ def test_overhead_clearance_new_point_scale():
 def test_overhead_clearance_atr_room_bands():
     # Flat 110 ceiling, price below the 95% open-sky line: scored by ATR room.
     df = pd.DataFrame({"High": [110.0] * 60, "Low": [90.0] * 60, "Close": [100.0] * 60})
-    assert overhead_clearance_score(df, 100.0, atr=2.0, lookback=52) == 8.0    # 5 ATR
-    assert overhead_clearance_score(df, 100.0, atr=4.0, lookback=52) == 5.0    # 2.5 ATR
-    assert overhead_clearance_score(df, 100.0, atr=8.0, lookback=52) == 2.0    # 1.25 ATR
-    assert overhead_clearance_score(df, 100.0, atr=20.0, lookback=52) == 0.0   # 0.5 ATR
+    assert overhead_clearance_score(df, 100.0, atr=2.0, lookback=52) == 8.0  # 5 ATR
+    assert overhead_clearance_score(df, 100.0, atr=4.0, lookback=52) == 5.0  # 2.5 ATR
+    assert overhead_clearance_score(df, 100.0, atr=8.0, lookback=52) == 2.0  # 1.25 ATR
+    assert overhead_clearance_score(df, 100.0, atr=20.0, lookback=52) == 0.0  # 0.5 ATR
 
 
 def test_rvol_full_points_at_2x():
@@ -153,18 +160,19 @@ def test_relative_strength_score_smoothed_bands(monkeypatch):
         monkeypatch.setattr(cc, "_rs_line_new_high", lambda *a, **k: False)
         return relative_strength_score(_ohlc(30), _ohlc(30))
 
-    assert _score(0.20, False)[0] == 20    # unconditional full score, even if not "ok"
+    assert _score(0.20, False)[0] == 20  # unconditional full score, even if not "ok"
     assert _score(0.12, True)[0] == 18
     assert _score(0.05, True)[0] == 14
-    pts_mid, _ = _score(0.05, False)       # linear 6 -> 12 band
+    pts_mid, _ = _score(0.05, False)  # linear 6 -> 12 band
     assert 6 <= pts_mid <= 12
-    pts_lag, _ = _score(-0.05, False)      # linear 0 -> 6 band (was a flat 5 in v3.1)
+    pts_lag, _ = _score(-0.05, False)  # linear 0 -> 6 band (was a flat 5 in v3.1)
     assert 0 <= pts_lag <= 6
     assert _score(-0.20, False)[0] == 0
 
 
 def test_relative_strength_score_rs_line_bonus(monkeypatch):
     from finance_vibe import coiled_cobra as cc
+
     monkeypatch.setattr(cc, "relative_strength", lambda *a, **k: (True, 0.05))
     monkeypatch.setattr(cc, "_rs_line_new_high", lambda *a, **k: True)
     pts, rel = relative_strength_score(_ohlc(30), _ohlc(30))
@@ -188,11 +196,13 @@ def test_market_gate_fails_only_on_trend_break():
 # evaluate_coiled_cobra: hard gates + tiering (integration)
 # ---------------------------------------------------------------------------
 
+
 def _force_all_pillars_strong(monkeypatch):
     """Monkeypatch every pillar to a guaranteed-strong value so evaluate_
     coiled_cobra's gate/tier/score logic is deterministic across TA noise.
     """
     from finance_vibe import coiled_cobra as cc
+
     monkeypatch.setattr(cc, "evaluate_volume_profile_shelf", lambda *a, **k: 15)
     monkeypatch.setattr(cc, "vol_contraction_score", lambda *a, **k: (25, 5.0))
     monkeypatch.setattr(cc, "structure_score", lambda *a, **k: 20)
@@ -283,12 +293,18 @@ def test_evaluate_rejects_gate_d_breadth_despite_high_score(monkeypatch):
     from finance_vibe import coiled_cobra as cc
 
     df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
-    monkeypatch.setattr(cc, "evaluate_volume_profile_shelf", lambda *a, **k: 5)   # below 8, doesn't count
+    monkeypatch.setattr(
+        cc, "evaluate_volume_profile_shelf", lambda *a, **k: 5
+    )  # below 8, doesn't count
     monkeypatch.setattr(cc, "vol_contraction_score", lambda *a, **k: (25, 5.0))  # counts
-    monkeypatch.setattr(cc, "structure_score", lambda *a, **k: 20)               # counts
+    monkeypatch.setattr(cc, "structure_score", lambda *a, **k: 20)  # counts
     monkeypatch.setattr(cc, "relative_strength_score", lambda *a, **k: (20, 0.18))  # counts
-    monkeypatch.setattr(cc, "overhead_clearance_score", lambda *a, **k: 2.0)     # below 5, doesn't count
-    monkeypatch.setattr(cc, "rvol_trigger_score", lambda *a, **k: (0, 0.5))      # below 6, doesn't count
+    monkeypatch.setattr(
+        cc, "overhead_clearance_score", lambda *a, **k: 2.0
+    )  # below 5, doesn't count
+    monkeypatch.setattr(
+        cc, "rvol_trigger_score", lambda *a, **k: (0, 0.5)
+    )  # below 6, doesn't count
     monkeypatch.setattr(cc, "check_coiled_cobra_market_gate", lambda **k: True)
 
     rejected = evaluate_coiled_cobra(df, benchmark_df=None, include_rejects=True)
@@ -307,12 +323,16 @@ def test_evaluate_passes_gate_d_at_four_of_six_checks(monkeypatch):
     from finance_vibe import coiled_cobra as cc
 
     df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
-    monkeypatch.setattr(cc, "evaluate_volume_profile_shelf", lambda *a, **k: 5)   # below 8, doesn't count
+    monkeypatch.setattr(
+        cc, "evaluate_volume_profile_shelf", lambda *a, **k: 5
+    )  # below 8, doesn't count
     monkeypatch.setattr(cc, "vol_contraction_score", lambda *a, **k: (25, 5.0))  # counts
-    monkeypatch.setattr(cc, "structure_score", lambda *a, **k: 20)               # counts
+    monkeypatch.setattr(cc, "structure_score", lambda *a, **k: 20)  # counts
     monkeypatch.setattr(cc, "relative_strength_score", lambda *a, **k: (20, 0.18))  # counts
-    monkeypatch.setattr(cc, "overhead_clearance_score", lambda *a, **k: 10.0)    # counts
-    monkeypatch.setattr(cc, "rvol_trigger_score", lambda *a, **k: (0, 0.5))      # below 6, doesn't count
+    monkeypatch.setattr(cc, "overhead_clearance_score", lambda *a, **k: 10.0)  # counts
+    monkeypatch.setattr(
+        cc, "rvol_trigger_score", lambda *a, **k: (0, 0.5)
+    )  # below 6, doesn't count
     monkeypatch.setattr(cc, "check_coiled_cobra_market_gate", lambda **k: True)
 
     passed = evaluate_coiled_cobra(df, benchmark_df=None, include_rejects=True)

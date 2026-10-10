@@ -5,6 +5,7 @@ Reads today's ``coiled_cobra_setups_<date>.csv`` and writes
 signal (informational, not a trade-execution plan). Stale archives from prior
 days are never reused.
 """
+
 from __future__ import annotations
 
 import os
@@ -136,16 +137,26 @@ def calculate_stock_levels(
         raise ValueError(f"Unknown Setup Type: {setup_type}")
 
     levels = config.compute_swing_levels(
-        setup_type=setup_type, close=close, ema20=ema20, ema50=ema50, atr=atr,
-        swing_low=swing_low, swing_high=swing_high, sp=sp,
+        setup_type=setup_type,
+        close=close,
+        ema20=ema20,
+        ema50=ema50,
+        atr=atr,
+        swing_low=swing_low,
+        swing_high=swing_high,
+        sp=sp,
     )
     if setup_type == "SETUP_SHORT":
         options_type = "PUT"
         delta_range = DELTA_SHORT
 
     return (
-        levels["entry"], levels["stop"], levels["target1"], levels["target2"],
-        options_type, delta_range,
+        levels["entry"],
+        levels["stop"],
+        levels["target1"],
+        levels["target2"],
+        options_type,
+        delta_range,
     )
 
 
@@ -243,7 +254,12 @@ def generate_trade_plan(
         # geometry even when the planner runs under a different CLI mode.
         entry, stop, t1, t2, _opt_type, _delta_range = calculate_stock_levels(row, mode=None)
         entry_r, stop_r, t1_r, t2_r, risk_per_share = _export_levels(
-            entry, stop, t1, t2, row.get("Close", entry), row["Setup Type"],
+            entry,
+            stop,
+            t1,
+            t2,
+            row.get("Close", entry),
+            row["Setup Type"],
         )
 
         plan_rows.append(

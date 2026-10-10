@@ -11,14 +11,13 @@ swing_scanner-specific walk-forward harness, since removed) so
 ``coiled_cobra_backtest.py`` can keep using ``simulate_trade`` without a
 dependency on swing-scanner code.
 """
+
 from __future__ import annotations
 
 import pandas as pd
 
 
-def passes_macro_gate(
-    setup_type: str, score: int, long_min: int, short_max: int
-) -> bool:
+def passes_macro_gate(setup_type: str, score: int, long_min: int, short_max: int) -> bool:
     """Return True when macro Vibe Score confirms the tactical setup direction."""
     if setup_type == "SETUP_LONG":
         return score >= long_min
@@ -87,11 +86,7 @@ def simulate_trade(
 
 
 def _fmt_date(value):
-    return (
-        value.strftime("%Y-%m-%d")
-        if value is not None and hasattr(value, "strftime")
-        else value
-    )
+    return value.strftime("%Y-%m-%d") if value is not None and hasattr(value, "strftime") else value
 
 
 def _stop_exit_price(
@@ -194,9 +189,7 @@ def simulate_scaled_trade(
     if fill_idx is None:
         return result
 
-    fill_price = (
-        fill_price * (1 + slippage_pct) if is_long else fill_price * (1 - slippage_pct)
-    )
+    fill_price = fill_price * (1 + slippage_pct) if is_long else fill_price * (1 - slippage_pct)
 
     def r_of(price: float) -> float:
         return (price - fill_price) / risk if is_long else (fill_price - price) / risk
@@ -207,9 +200,7 @@ def simulate_scaled_trade(
     lowest_low = fill_price
 
     # Target calculation for full exit model
-    full_target_price = (
-        entry + (target_r * risk) if is_long else entry - (target_r * risk)
-    )
+    full_target_price = entry + (target_r * risk) if is_long else entry - (target_r * risk)
 
     partialed = False
     partial_r = partial_price = partial_date = None
@@ -355,9 +346,7 @@ def simulate_scaled_trade(
             "outcome": outcome,
             "fill_index": fill_idx,
             "exit_index": exit_index,
-            "fill_date": (
-                df.iloc[fill_idx]["Date"] if "Date" in df.columns else fill_idx
-            ),
+            "fill_date": (df.iloc[fill_idx]["Date"] if "Date" in df.columns else fill_idx),
             "fill_price": fill_price,
             "gap_entry": gap_entry,
             "stop_moved_be": partialed or (current_stop != stop),

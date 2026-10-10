@@ -81,6 +81,7 @@ def run_workflow():
     as_of = None
     if args.as_of:
         from finance_vibe import config
+
         try:
             as_of = config.parse_as_of(["--as-of", args.as_of])
         except ValueError as exc:
@@ -148,7 +149,9 @@ def run_workflow():
         print(f"⏪ AS-OF replay: {as_of} (bars completed on/before this date only)")
         if data_mode == "weekly" and date.fromisoformat(as_of).weekday() != 4:
             print("   Note: as-of is not a Friday, so the week in progress is excluded.")
-        print("   Uses today's ticker list and split/dividend-adjusted prices; ML ranking is skipped.")
+        print(
+            "   Uses today's ticker list and split/dividend-adjusted prices; ML ranking is skipped."
+        )
     print()
 
     skip_ingest = {

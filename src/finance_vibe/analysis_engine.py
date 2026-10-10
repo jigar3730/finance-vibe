@@ -6,6 +6,7 @@ to ``data/logs/{mode}/vibe_report_<date>.csv``.
 
 Full rubric: docs/handbook/scoring_logic.md.
 """
+
 from __future__ import annotations
 
 import os
@@ -33,6 +34,7 @@ PRINT_TOP_N = 500
 @dataclass(frozen=True)
 class ScanRow:
     """One ticker's latest-bar vibe score and display fields for the report CSV."""
+
     ticker: str
     price: float
     sma20: float
@@ -65,6 +67,7 @@ class ScanRow:
             "Action": self.action,
         }
 
+
 # -----------------------------
 # File discovery / ticker parse
 # -----------------------------
@@ -82,7 +85,8 @@ def iter_raw_csv_paths(raw_dir: str) -> Iterable[str]:
 def ticker_from_filename(path: str) -> str:
     """Parse the ticker symbol from a raw CSV filename (text before the first ``_``)."""
     base = os.path.basename(path)
-    return base.split('_')[0].upper()
+    return base.split("_")[0].upper()
+
 
 # -----------------------------
 # CSV loader
@@ -113,6 +117,7 @@ def load_ohlc_csv(path: str) -> pd.DataFrame:
         df["Low"] = pd.to_numeric(df["Low"], errors="coerce")
 
     return df.dropna(subset=["Date", "Close"])
+
 
 # -----------------------------
 # Indicators
@@ -172,7 +177,7 @@ def _cci_fast(df: pd.DataFrame, period: int = 20) -> pd.Series:
     denom = 0.015 * w_md
     denom = np.where(np.abs(denom) > 1e-9, denom, 1e-9)
     tp_last = w[:, -1]
-    out[period - 1:] = (tp_last - w_mean) / denom
+    out[period - 1 :] = (tp_last - w_mean) / denom
     return pd.Series(out, index=tp.index)
 
 
@@ -218,7 +223,8 @@ def _select_benchmark_path(benchmark: str, data_mode: str) -> str | None:
         return 0
 
     candidates = [
-        f for f in os.listdir(raw_dir)
+        f
+        for f in os.listdir(raw_dir)
         if f.lower().endswith(".csv") and f.split("_")[0].upper() == bench
     ]
     if not candidates:
@@ -382,6 +388,7 @@ def relative_strength(
     ok = (not pd.isna(ma_now)) and rs_now > float(ma_now) and rel_ret > 0
     return ok, round(rel_ret, 4)
 
+
 # -----------------------------
 # Scoring
 # -----------------------------
@@ -498,6 +505,7 @@ def sentiment_action(score: int) -> tuple[str, str]:
         return "Bearish", "🟠 REDUCE / HEDGE"
     return "Bearish", "🔴 AVOID / SHORT BIAS"
 
+
 # -----------------------------
 # Workers
 # -----------------------------
@@ -591,8 +599,7 @@ def run_scan(
         print("No results.")
         return out
 
-    out = out.sort_values(["Score", "Ticker"], ascending=[
-                          False, True]).reset_index(drop=True)
+    out = out.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
     stamp = config.run_stamp(as_of)
     out_path = os.path.join(logs_dir, f"vibe_report_{stamp}.csv")
     out.to_csv(out_path, index=False)

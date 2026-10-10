@@ -12,6 +12,7 @@ Also holds the NYSE session calendar the daily health check uses
 
     python src/finance_vibe/daily_ingest.py
 """
+
 from __future__ import annotations
 
 import os
@@ -80,7 +81,11 @@ def drop_incomplete_daily_bars(raw_dir: str, logs_dir: str, now: datetime | None
             continue
         path = os.path.join(raw_dir, name)
         df = pd.read_csv(path)
-        if df.empty or "Date" not in df.columns or daily_bar_is_complete(df["Date"].iloc[-1], now=now):
+        if (
+            df.empty
+            or "Date" not in df.columns
+            or daily_bar_is_complete(df["Date"].iloc[-1], now=now)
+        ):
             continue
         df = df.iloc[:-1]
         trimmed += 1
@@ -130,8 +135,10 @@ def ingest_daily(now: datetime | None = None) -> None:
     cfg = config.get_mode_config(MODE)
     trimmed = drop_incomplete_daily_bars(cfg["raw_dir"], cfg["logs_dir"], now=now)
     if trimmed:
-        print(f"⏳ Dropped today's in-progress bar from {trimmed} files "
-              f"(daily bars are final after {DAY_FINAL_HOUR_ET}:00 ET).")
+        print(
+            f"⏳ Dropped today's in-progress bar from {trimmed} files "
+            f"(daily bars are final after {DAY_FINAL_HOUR_ET}:00 ET)."
+        )
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 """Ingest a trade plan CSV, apply guardrails, and rank survivors by expected value."""
+
 from __future__ import annotations
 
 import re
@@ -226,7 +227,7 @@ def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
         source = pd.Series("", index=out.index)
     price = _num_col(out, "Close" if "Close" in out.columns else "Stock Entry")
     risk = _num_col(out, "Risk Per Share")
-    tight_risk = (risk / price.replace(0, np.nan)) <= TIGHT_RISK_PCT   # NaN -> False
+    tight_risk = (risk / price.replace(0, np.nan)) <= TIGHT_RISK_PCT  # NaN -> False
     is_coil = source.isin(["coiled_cobra", "cobra"])
     propensity = np.where(is_coil | tight_risk, TIGHT_COIL_PROPENSITY, 1.0)
 
@@ -307,8 +308,12 @@ def process_trade_plan(
         )
 
         safe_risk = df["Risk Per Share"].replace(0, pd.NA)
-        df["R:R T1"] = (pd.Series(reward_t1, index=df.index, dtype="float") / safe_risk.astype(float)).round(2)
-        df["R:R T2"] = (pd.Series(reward_t2, index=df.index, dtype="float") / safe_risk.astype(float)).round(2)
+        df["R:R T1"] = (
+            pd.Series(reward_t1, index=df.index, dtype="float") / safe_risk.astype(float)
+        ).round(2)
+        df["R:R T2"] = (
+            pd.Series(reward_t2, index=df.index, dtype="float") / safe_risk.astype(float)
+        ).round(2)
     except Exception:
         print("❌ Fatal exception caught inside metrics distribution generation engine:")
         traceback.print_exc()

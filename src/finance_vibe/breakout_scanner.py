@@ -20,6 +20,7 @@ Usage::
     python src/finance_vibe/breakout_scanner.py weekly
     python src/finance_vibe/breakout_scanner.py daily
 """
+
 from __future__ import annotations
 
 import logging
@@ -225,6 +226,7 @@ _RESAMPLE_AGG = {
 # SMALL HELPERS
 # =========================
 
+
 def _safe_float(value, digits: int | None = None) -> float | None:
     """Return a finite float (optionally rounded) or None."""
     if value is None or (isinstance(value, (float, np.floating)) and np.isnan(value)):
@@ -323,6 +325,7 @@ def _asof_str(value) -> str | None:
 # DATA CLEANING
 # =========================
 
+
 def normalize_ohlcv(df: pd.DataFrame) -> pd.DataFrame:
     """Rename, validate, parse dates, sort, and drop unusable rows.
 
@@ -394,7 +397,10 @@ def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
 # FEATURE ENGINE
 # =========================
 
-def add_indicators(df: pd.DataFrame, *, pctl_window: int, include_sma200: bool = True) -> pd.DataFrame:
+
+def add_indicators(
+    df: pd.DataFrame, *, pctl_window: int, include_sma200: bool = True
+) -> pd.DataFrame:
     """Vectorized indicator stack. Every rolling window is causal (past + now).
 
     Structure levels use a 1-bar shift so the current print cannot be its
@@ -404,7 +410,11 @@ def add_indicators(df: pd.DataFrame, *, pctl_window: int, include_sma200: bool =
     close = out["Close"].astype(float)
     high = out["High"].astype(float)
     low = out["Low"].astype(float)
-    volume = out["Volume"].astype(float) if "Volume" in out.columns else pd.Series(np.nan, index=out.index)
+    volume = (
+        out["Volume"].astype(float)
+        if "Volume" in out.columns
+        else pd.Series(np.nan, index=out.index)
+    )
 
     out["SMA20"] = _sma(close, SMA_FAST)
     out["SMA50"] = _sma(close, SMA_MID)
@@ -479,12 +489,8 @@ def add_indicators(df: pd.DataFrame, *, pctl_window: int, include_sma200: bool =
     out["Support"] = low.rolling(STRUCTURE_BARS, min_periods=STRUCTURE_BARS).min().shift(1)
 
     # Confirmed 3-bar swing pivots (pivot at i-1, confirmed on bar i).
-    out["Swing High"] = (
-        (high.shift(1) > high.shift(2)) & (high.shift(1) > high)
-    )
-    out["Swing Low"] = (
-        (low.shift(1) < low.shift(2)) & (low.shift(1) < low)
-    )
+    out["Swing High"] = (high.shift(1) > high.shift(2)) & (high.shift(1) > high)
+    out["Swing Low"] = (low.shift(1) < low.shift(2)) & (low.shift(1) < low)
 
     atr = out["ATR"].replace(0, np.nan)
     out["Distance Resistance ATR"] = (out["Resistance"] - close) / atr
@@ -509,9 +515,7 @@ def add_indicators(df: pd.DataFrame, *, pctl_window: int, include_sma200: bool =
     out["Squeeze"] = squeeze
 
     out["Compression"] = (
-        (out["BB Width Pctl"] <= 30)
-        & (out["ATR Pctl"] <= 40)
-        & (out["Range20 Pctl"] <= 40)
+        (out["BB Width Pctl"] <= 30) & (out["ATR Pctl"] <= 40) & (out["Range20 Pctl"] <= 40)
     )
 
     above_res = (close > out["Resistance"]).fillna(False)
@@ -530,9 +534,7 @@ def add_indicators(df: pd.DataFrame, *, pctl_window: int, include_sma200: bool =
     out["Wick Reject"] = wick_reject
     out["Failed Breakout"] = lost_level
     out["Breakout Confirmation"] = (
-        above_res
-        & (out["RVOL20"] >= RVOL_CONFIRM)
-        & (close > out["SMA20"])
+        above_res & (out["RVOL20"] >= RVOL_CONFIRM) & (close > out["SMA20"])
     ).fillna(False)
     return out
 
@@ -704,9 +706,7 @@ class FeatureEngine:
         """Clean → resample → indicate → last-bar features."""
         clean = normalize_ohlcv(df)
         if len(clean) < MIN_PRIMARY_BARS:
-            raise ValueError(
-                f"insufficient bars: {len(clean)} < {MIN_PRIMARY_BARS}"
-            )
+            raise ValueError(f"insufficient bars: {len(clean)} < {MIN_PRIMARY_BARS}")
 
         frames = self.enrich_timeframes(self.create_timeframes(clean))
         if self.native_tf not in frames:
@@ -747,7 +747,9 @@ class FeatureEngine:
             range20_atr=_safe_float(last.get("Range20 / ATR"), 4),
             daily_trend_bull=_trend_bull(daily) if daily is not None else None,
             weekly_trend_bull=_trend_bull(weekly) if weekly is not None else None,
-            monthly_trend_bull=_trend_bull(monthly, require_sma50=False) if monthly is not None else None,
+            monthly_trend_bull=_trend_bull(monthly, require_sma50=False)
+            if monthly is not None
+            else None,
             daily_trend_bear=_trend_bear(daily) if daily is not None else None,
             weekly_trend_bear=_trend_bear(weekly),
             monthly_trend_bear=_trend_bear(monthly),
@@ -769,6 +771,7 @@ class FeatureEngine:
 # =========================
 # SCORING / CLASSIFICATION ENGINE
 # =========================
+
 
 def _pctl_points(pctl: float | None, full: int, mid: int, bands: tuple[float, float]) -> int:
     """Lower percentile = more compressed. ``bands`` is (full_cut, partial_cut)."""
@@ -829,9 +832,8 @@ def _primary_trend_label(feat: BreakoutFeatures) -> str:
 def _volatility_label(feat: BreakoutFeatures) -> str:
     if feat.compression:
         return "COMPRESSING"
-    expanding = (
-        (feat.bb_width_pctl is not None and feat.bb_width_pctl >= 70)
-        or (feat.atr_pctl is not None and feat.atr_pctl >= 70)
+    expanding = (feat.bb_width_pctl is not None and feat.bb_width_pctl >= 70) or (
+        feat.atr_pctl is not None and feat.atr_pctl >= 70
     )
     if expanding:
         return "EXPANDING"
@@ -932,9 +934,7 @@ def classify_status(feat: BreakoutFeatures, states: dict[str, str]) -> str:
     if feat.breakout_triggered and not feat.breakout_confirmation:
         return STATUS_WATCH
 
-    early_coil = compressing or (
-        feat.bb_width_pctl is not None and feat.bb_width_pctl <= 40
-    )
+    early_coil = compressing or (feat.bb_width_pctl is not None and feat.bb_width_pctl <= 40)
     still_far = dist is not None and dist > PRE_BREAKOUT_ATR_MAX
     if trend_ok and early_coil and (accelerating or still_far) and not_through:
         if still_far:
@@ -985,7 +985,11 @@ def score_readiness(feat: BreakoutFeatures, states: dict[str, str]) -> dict:
     bb_pts = _pctl_points(feat.bb_width_pctl, 8, 6, (15, 25))
     atr_pts = _pctl_points(feat.atr_pctl, 6, 4, (20, 35))
     range_pts = _pctl_points(feat.range20_pctl, 5, 3, (20, 35))
-    squeeze_pts = 6 if feat.squeeze else (3 if feat.kc_width_pctl is not None and feat.kc_width_pctl <= 30 else 0)
+    squeeze_pts = (
+        6
+        if feat.squeeze
+        else (3 if feat.kc_width_pctl is not None and feat.kc_width_pctl <= 30 else 0)
+    )
     compression_score = bb_pts + atr_pts + range_pts + squeeze_pts
 
     rsi = feat.rsi
@@ -1023,8 +1027,8 @@ def score_readiness(feat: BreakoutFeatures, states: dict[str, str]) -> dict:
         macd_pts = 0
     momentum_score = rsi_pts + rsi_slope_pts + macd_pts
 
-    dry_pts = 8 if feat.volume_dryup else (
-        4 if feat.rvol20 is not None and feat.rvol20 < 1.0 else 0
+    dry_pts = (
+        8 if feat.volume_dryup else (4 if feat.rvol20 is not None and feat.rvol20 < 1.0 else 0)
     )
     # Volume quality is regime-aware: dry-up is the pre-breakout ideal;
     # expansion is the confirmation ideal.
@@ -1144,6 +1148,7 @@ class ScoringEngine:
 # PRESENTATION
 # =========================
 
+
 def _format_table(df: pd.DataFrame) -> str:
     """Markdown table when tabulate is installed; plain text otherwise."""
     if df.empty:
@@ -1185,6 +1190,7 @@ def _sort_candidates(df: pd.DataFrame) -> pd.DataFrame:
 # =========================
 # PUBLIC API
 # =========================
+
 
 def evaluate_ticker(
     df: pd.DataFrame,
@@ -1281,7 +1287,12 @@ def run_scanner(as_of: str | None = None) -> pd.DataFrame:
     logger.info("Found %s raw data files in target silo", len(raw_files))
 
     results, rejection_counts = scan_files(
-        raw_files, active_tickers, RAW_DATA_DIR, mode, native_tf, as_of=as_of,
+        raw_files,
+        active_tickers,
+        RAW_DATA_DIR,
+        mode,
+        native_tf,
+        as_of=as_of,
     )
 
     today = config.run_stamp(as_of)
@@ -1296,7 +1307,11 @@ def run_scanner(as_of: str | None = None) -> pd.DataFrame:
     df_out.to_csv(out_path, index=False)
     logger.info("Archive created: %s (%s row(s))", out_path, len(df_out))
 
-    display = df_out[df_out.apply(lambda r: _is_display_candidate(r.to_dict()), axis=1)] if not df_out.empty else df_out
+    display = (
+        df_out[df_out.apply(lambda r: _is_display_candidate(r.to_dict()), axis=1)]
+        if not df_out.empty
+        else df_out
+    )
     if display.empty:
         logger.warning("No breakout setup candidates to display for this window.")
     else:

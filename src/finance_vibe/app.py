@@ -1,4 +1,5 @@
 """Flask dashboard for browsing weekly/daily trade-plan CSVs with live quotes."""
+
 from __future__ import annotations
 
 import glob
@@ -54,40 +55,44 @@ app.register_blueprint(docs_bp)
 # The dual-timeframe folder structure paths
 MODES = {
     "weekly": os.path.join(LOGS_BASE_DIR, "weekly"),
-    "daily": os.path.join(LOGS_BASE_DIR, "daily")
+    "daily": os.path.join(LOGS_BASE_DIR, "daily"),
 }
+
 
 def _get_available_runs() -> dict[str, list[dict]]:
     """Scan weekly/daily log folders and return dated trade-plan files."""
     runs = {"weekly": [], "daily": []}
-    
+
     for mode, folder_path in MODES.items():
         if not os.path.exists(folder_path):
             continue
-        
+
         # Look for trade plan files matching the naming pattern
         file_pattern = os.path.join(folder_path, "trade_plan_*.csv")
         all_files = glob.glob(file_pattern)
-        
+
         seen_dates = set()
         for file_path in sorted(all_files, reverse=True):
             file_name = os.path.basename(file_path)
-            parts = file_name.replace("trade_plan_clean_", "").replace("trade_plan_", "").replace(".csv", "")
+            parts = (
+                file_name.replace("trade_plan_clean_", "")
+                .replace("trade_plan_", "")
+                .replace(".csv", "")
+            )
             try:
                 # Validate string format is a valid date
                 datetime.strptime(parts[:10], "%Y-%m-%d")
                 date_str = parts[:10]
                 if date_str not in seen_dates:
                     seen_dates.add(date_str)
-                    runs[mode].append({
-                        "date": date_str,
-                        "file_name": file_name,
-                        "is_clean": "clean" in file_name
-                    })
+                    runs[mode].append(
+                        {"date": date_str, "file_name": file_name, "is_clean": "clean" in file_name}
+                    )
             except ValueError:
                 continue
-                
+
     return runs
+
 
 def _get_breakout_runs() -> dict[str, list[dict]]:
     """Scan each breakout log silo for dated ``breakout_setups_<date>.csv``.
@@ -120,6 +125,7 @@ def _get_breakout_runs() -> dict[str, list[dict]]:
 
     return runs
 
+
 def _breakout_kpis(df: pd.DataFrame) -> dict[str, object]:
     """Compute run-level KPI counts from the full (unfiltered) scan frame."""
     total = int(len(df))
@@ -130,10 +136,13 @@ def _breakout_kpis(df: pd.DataFrame) -> dict[str, object]:
     failed = int((status == "FAILED_BREAKOUT").sum()) if status is not None else 0
     return {
         "setups": total,
-        "median_readiness": None if pd.isna(median_readiness) else round(float(median_readiness), 1),
+        "median_readiness": None
+        if pd.isna(median_readiness)
+        else round(float(median_readiness), 1),
         "actionable": actionable,
         "failed": failed,
     }
+
 
 def _breakout_status_mix(df: pd.DataFrame) -> list[dict]:
     """Ordered per-status counts for the status chips (primary states first)."""
@@ -152,6 +161,7 @@ def _breakout_status_mix(df: pd.DataFrame) -> list[dict]:
     ordered += [s for s in counts.index if s not in preferred]
     return [{"status": s, "count": int(counts[s])} for s in ordered]
 
+
 def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
     """Fetch last prices via yfinance ``fast_info``; missing symbols map to ``N/A``."""
     if not symbols:
@@ -160,12 +170,12 @@ def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
         # Create a batch query string (e.g., "DKNG GOOGL HLT")
         tickers_str = " ".join(symbols)
         tickers = yf.Tickers(tickers_str)
-        
+
         prices = {}
         for sym in symbols:
             try:
                 # fast_info fetches the live feed price rapidly without scraping overhead
-                prices[sym] = round(tickers.tickers[sym].fast_info['last_price'], 2)
+                prices[sym] = round(tickers.tickers[sym].fast_info["last_price"], 2)
             except Exception:
                 prices[sym] = "N/A"  # Fallback if ticker data fetch fails
         return prices
@@ -173,8 +183,10 @@ def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
         print(f"Error fetching live prices: {e}")
         return {sym: "N/A" for sym in symbols}
 
+
 # Live price this far above the close (percent) highlights the trade-plan row.
 LIVE_SURGE_PCT = 5.0
+
 
 def _live_price_cell(live: float | str | None, close: float, surge_pct: float | None = None) -> str:
     """HTML cell for a live price: red if the close is above it, green if below, else neutral.
@@ -194,86 +206,97 @@ def _live_price_cell(live: float | str | None, close: float, surge_pct: float | 
                 css += " live-surge"
     return f'<span class="live-price-cell {css}">${live:.2f}</span>'
 
+
 @app.route("/")
 def index() -> str:
     """Render the dashboard index of available weekly and daily runs."""
     runs = _get_available_runs()
     return render_template("index.html", runs=runs)
 
+
 @app.route("/view/<mode>/<date>")
 def view_run(mode: str, date: str) -> str | tuple[str, int]:
     """Render one trade-plan CSV with live Yahoo quotes injected as HTML."""
     if mode not in MODES:
         abort(404, "Invalid historical directory mode context.")
-        
+
     requested_file = request.args.get("file")
     if not requested_file:
         abort(400, "Missing reference log file parameter.")
-        
+
     # Strictly validate path safety to prevent directory traversal
     target_path = os.path.abspath(os.path.join(MODES[mode], requested_file))
     if not target_path.startswith(MODES[mode]):
         abort(403, "Access restricted outside authorized mode workspace boundaries.")
-        
+
     if not os.path.exists(target_path):
         abort(404, f"The selected file record does not exist: {requested_file}")
-        
+
     try:
         df = pd.read_csv(target_path)
-        
+
         # Clean whitespaces out of column definitions
         df.columns = df.columns.str.strip()
-        
+
         # Target the ticker symbol column dynamically
         symbol_col = None
         for col in df.columns:
             if col.lower() in ["symbol", "ticker"]:
                 symbol_col = col
                 break
-                
+
         if symbol_col is not None:
             # 1. Gather clean, raw symbol strings to request live quotes
             raw_symbols = [str(x).strip().upper() for x in df[symbol_col].dropna().unique()]
             live_price_map = _fetch_live_prices(raw_symbols)
-            
+
             # 2. Add 'Live Price' values aligned with symbols (green above close, red below;
             #    whole row highlighted when live is more than LIVE_SURGE_PCT above close)
             closes = pd.to_numeric(df["Close"], errors="coerce") if "Close" in df.columns else None
-            df['Live Price'] = [
+            df["Live Price"] = [
                 _live_price_cell(
                     live_price_map.get(str(sym).strip().upper()),
                     closes.iloc[i] if closes is not None else float("nan"),
                     LIVE_SURGE_PCT,
-                ) if pd.notna(sym) else ""
+                )
+                if pd.notna(sym)
+                else ""
                 for i, sym in enumerate(df[symbol_col])
             ]
-            
+
             # 3. Restructure layout: Inject 'Close' then 'Live Price' right after the 'Symbol' column
             cols = list(df.columns)
             symbol_idx = cols.index(symbol_col)
-            cols.insert(symbol_idx + 1, cols.pop(cols.index('Live Price')))
+            cols.insert(symbol_idx + 1, cols.pop(cols.index("Live Price")))
             # Close sits immediately before Live Price so the two are easy to compare.
-            if 'Close' in cols:
-                cols.insert(cols.index('Live Price'), cols.pop(cols.index('Close')))
+            if "Close" in cols:
+                cols.insert(cols.index("Live Price"), cols.pop(cols.index("Close")))
             df = df[cols]
-            
+
             # 4. Convert plain strings into operational Finviz anchor links
             df[symbol_col] = df[symbol_col].apply(
-                lambda x: f'<a href="https://finviz.com/quote.ashx?t={str(x).strip().upper()}" target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
-                if pd.notna(x) else ""
+                lambda x: (
+                    f'<a href="https://finviz.com/quote.ashx?t={str(x).strip().upper()}" target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
+                    if pd.notna(x)
+                    else ""
+                )
             )
-            
+
         # escape=False ensures Pandas treats custom injected HTML elements cleanly
         table_html = df.to_html(classes="table", index=False, border=0, escape=False)
-        return render_template("view.html", mode=mode, date=date, file_name=requested_file, table_html=table_html)
+        return render_template(
+            "view.html", mode=mode, date=date, file_name=requested_file, table_html=table_html
+        )
     except Exception as e:
         return f"<h3>❌ Failed to parse data contents:</h3><pre>{e!s}</pre>", 500
+
 
 @app.route("/breakout")
 def breakout_index() -> str:
     """List available breakout scan runs (per mode, newest first)."""
     runs = _get_breakout_runs()
     return render_template("breakout_index.html", runs=runs)
+
 
 @app.route("/breakout/<mode>/<date>")
 def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
@@ -331,7 +354,8 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
             closes = pd.to_numeric(table_df["Close"], errors="coerce")
             table_df["Live Price"] = [
                 _live_price_cell(live_price_map.get(str(sym).strip().upper()), close)
-                if pd.notna(sym) else ""
+                if pd.notna(sym)
+                else ""
                 for sym, close in zip(table_df["Symbol"], closes, strict=True)
             ]
             cols = list(table_df.columns)
@@ -341,9 +365,12 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
         # Finviz quote links on the Symbol column (matches trade-plan view).
         if "Symbol" in table_df.columns:
             table_df["Symbol"] = table_df["Symbol"].apply(
-                lambda x: f'<a href="https://finviz.com/quote.ashx?t={str(x).strip().upper()}" '
-                f'target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
-                if pd.notna(x) else ""
+                lambda x: (
+                    f'<a href="https://finviz.com/quote.ashx?t={str(x).strip().upper()}" '
+                    f'target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
+                    if pd.notna(x)
+                    else ""
+                )
             )
 
         table_html = table_df.to_html(classes="table", index=False, border=0, escape=False)
@@ -360,6 +387,7 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
         )
     except Exception as e:
         return f"<h3>❌ Failed to parse data contents:</h3><pre>{e!s}</pre>", 500
+
 
 def main() -> None:
     """Serve the dashboard (``finance-vibe-app`` console script)."""

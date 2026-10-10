@@ -21,6 +21,7 @@ served artifacts.  The protocol is fixed in code *before* looking at results:
 
     python -m finance_vibe.coiled_cobra_ml_experiment --csv <trades.csv> [--out r.json]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -42,30 +43,61 @@ SECONDARY = ("Excess_Return_2w", "Forward_Return_2w")
 
 BASE_FEATURES = list(trn.FEATURE_COLS)
 EXT_FEATURES = BASE_FEATURES + [
-    "RVOL", "BBWidth_Pctile", "RS_63d", "Checks_N",
-    "Part_vol_contraction", "Part_relative_strength", "Part_structure",
-    "Part_volume_shelf", "Part_overhead_clearance", "Part_rvol_trigger",
-    "QQQ_Pct_From_EMA50", "QQQ_Ret_13w",
+    "RVOL",
+    "BBWidth_Pctile",
+    "RS_63d",
+    "Checks_N",
+    "Part_vol_contraction",
+    "Part_relative_strength",
+    "Part_structure",
+    "Part_volume_shelf",
+    "Part_overhead_clearance",
+    "Part_rvol_trigger",
+    "QQQ_Pct_From_EMA50",
+    "QQQ_Ret_13w",
 ]
 
 # name -> spec.  ``deployed`` = the shipped XGB+LGB MAE config with ATR weights.
 VARIANTS: dict[str, dict] = {
-    "V1_deployed": dict(model="deployed", features=BASE_FEATURES, target="Forward_Return_2w",
-                        demean=False, filled_only=False),
-    "V2_xgb_ext_excess": dict(model="xgb", features=EXT_FEATURES, target="Excess_Return_2w",
-                              demean=True, filled_only=False),
-    "V3_ridge_ext_excess": dict(model="ridge", features=EXT_FEATURES, target="Excess_Return_2w",
-                                demean=True, filled_only=False),
-    "V4_xgb_ext_rmult": dict(model="xgb", features=EXT_FEATURES, target=PRIMARY,
-                             demean=True, filled_only=True),
-    "C0_shuffled_control": dict(model="xgb", features=EXT_FEATURES, target="Excess_Return_2w",
-                                demean=True, filled_only=False, shuffle=True),
+    "V1_deployed": dict(
+        model="deployed",
+        features=BASE_FEATURES,
+        target="Forward_Return_2w",
+        demean=False,
+        filled_only=False,
+    ),
+    "V2_xgb_ext_excess": dict(
+        model="xgb",
+        features=EXT_FEATURES,
+        target="Excess_Return_2w",
+        demean=True,
+        filled_only=False,
+    ),
+    "V3_ridge_ext_excess": dict(
+        model="ridge",
+        features=EXT_FEATURES,
+        target="Excess_Return_2w",
+        demean=True,
+        filled_only=False,
+    ),
+    "V4_xgb_ext_rmult": dict(
+        model="xgb", features=EXT_FEATURES, target=PRIMARY, demean=True, filled_only=True
+    ),
+    "C0_shuffled_control": dict(
+        model="xgb",
+        features=EXT_FEATURES,
+        target="Excess_Return_2w",
+        demean=True,
+        filled_only=False,
+        shuffle=True,
+    ),
 }
 
 
 # ---------------------------------------------------------------------------
 # Training data preparation
 # ---------------------------------------------------------------------------
+
 
 def _demean_by_date(df: pd.DataFrame, col: str) -> pd.Series:
     """Cross-sectional demeaning: label minus that date's mean label."""
@@ -84,7 +116,7 @@ def _prepare_target(train: pd.DataFrame, spec: dict, seed: int) -> pd.DataFrame:
         t["y"] = _demean_by_date(t, spec["target"])
     else:
         t["y"] = t[spec["target"]].astype(float)
-    if len(t) and spec["model"] != "deployed":       # V1 must stay exactly as shipped
+    if len(t) and spec["model"] != "deployed":  # V1 must stay exactly as shipped
         lo, hi = t["y"].quantile([0.01, 0.99])
         t["y"] = t["y"].clip(lo, hi)
     if spec.get("shuffle"):
@@ -96,13 +128,23 @@ def _prepare_target(train: pd.DataFrame, spec: dict, seed: int) -> pd.DataFrame:
 def _xgb_reg() -> XGBRegressor:
     # One fixed, deliberately small/regularised config for the extended variants.
     return XGBRegressor(
-        max_depth=3, learning_rate=0.03, n_estimators=200, subsample=0.8,
-        colsample_bytree=0.8, min_child_weight=20, reg_lambda=5.0,
-        objective="reg:squarederror", tree_method="hist", n_jobs=-1, random_state=42,
+        max_depth=3,
+        learning_rate=0.03,
+        n_estimators=200,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        min_child_weight=20,
+        reg_lambda=5.0,
+        objective="reg:squarederror",
+        tree_method="hist",
+        n_jobs=-1,
+        random_state=42,
     )
 
 
-def fit_predict_variant(train: pd.DataFrame, test: pd.DataFrame, spec: dict, seed: int = 0) -> np.ndarray:
+def fit_predict_variant(
+    train: pd.DataFrame, test: pd.DataFrame, spec: dict, seed: int = 0
+) -> np.ndarray:
     """Predictions for ``test`` from a model fit on ``train`` only."""
     feats = spec["features"]
     t = _prepare_target(train, spec, seed)
@@ -138,14 +180,16 @@ def fit_predict_variant(train: pd.DataFrame, test: pd.DataFrame, spec: dict, see
 # Evaluation
 # ---------------------------------------------------------------------------
 
+
 def _eval_frame(test: pd.DataFrame, outcome: str) -> pd.DataFrame:
     if outcome == PRIMARY:
         return test[(test["Outcome"] != "no_fill") & test[PRIMARY].notna()]
     return test[test[outcome].notna()]
 
 
-def weekly_series(pred_frame: pd.DataFrame, rankers: list[str], outcome: str,
-                  min_names: int) -> dict[str, pd.DataFrame]:
+def weekly_series(
+    pred_frame: pd.DataFrame, rankers: list[str], outcome: str, min_names: int
+) -> dict[str, pd.DataFrame]:
     """Per-week IC/spread for each ranker on the outcome-eligible rows."""
     ev = _eval_frame(pred_frame, outcome)
     return {r: wf.weekly_metrics(ev, r, min_names, ret_col=outcome) for r in rankers}
@@ -163,7 +207,14 @@ def _paired(series: dict[str, pd.DataFrame], ranker: str, n_boot: int, seed: int
     mean, t, n = wf._mean_t(d)
     lo, hi = wf.block_bootstrap_ci(d.to_numpy(), n_boot=n_boot, seed=seed)
     mean_ic, ic_t, _n_ic = wf._mean_t(a)
-    return {"weeks": n, "mean_ic": mean_ic, "ic_t": ic_t, "mean_diff": mean, "t": t, "ci95": [lo, hi]}
+    return {
+        "weeks": n,
+        "mean_ic": mean_ic,
+        "ic_t": ic_t,
+        "mean_diff": mean,
+        "t": t,
+        "ci95": [lo, hi],
+    }
 
 
 def run_folds(df: pd.DataFrame, folds: list[dict], variants: dict, min_names: int) -> dict:
@@ -180,12 +231,20 @@ def run_folds(df: pd.DataFrame, folds: list[dict], variants: dict, min_names: in
             for r, w in weekly_series(test, rankers, outcome, min_names).items():
                 w["fold"] = f["fold"]
                 acc[outcome][r].append(w)
-        fold_log.append({"fold": f["fold"], "n_train": len(train), "n_test": len(test),
-                         "n_test_filled": int((test["Outcome"] != "no_fill").sum()),
-                         "test_start": f["test_start"].strftime("%Y-%m-%d"),
-                         "test_end": (f["test_end"] - pd.Timedelta(days=1)).strftime("%Y-%m-%d")})
-    series = {o: {r: pd.concat(v, ignore_index=True).sort_values(DATE) for r, v in d.items()}
-              for o, d in acc.items()}
+        fold_log.append(
+            {
+                "fold": f["fold"],
+                "n_train": len(train),
+                "n_test": len(test),
+                "n_test_filled": int((test["Outcome"] != "no_fill").sum()),
+                "test_start": f["test_start"].strftime("%Y-%m-%d"),
+                "test_end": (f["test_end"] - pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
+            }
+        )
+    series = {
+        o: {r: pd.concat(v, ignore_index=True).sort_values(DATE) for r, v in d.items()}
+        for o, d in acc.items()
+    }
     return {"series": series, "folds": fold_log}
 
 
@@ -202,13 +261,27 @@ def qualifies(paired: dict) -> bool:
     return bool(np.isfinite(lo) and lo > 0)
 
 
-def run_experiment(df: pd.DataFrame, *, lockbox_weeks: int = 52, embargo_weeks: int = trn.EMBARGO_WEEKS,
-                   test_weeks: int = 26, min_names: int = 8, max_folds: int = 10,
-                   n_boot: int = 2000, variants: dict | None = None) -> dict:
+def run_experiment(
+    df: pd.DataFrame,
+    *,
+    lockbox_weeks: int = 52,
+    embargo_weeks: int = trn.EMBARGO_WEEKS,
+    test_weeks: int = 26,
+    min_names: int = 8,
+    max_folds: int = 10,
+    n_boot: int = 2000,
+    variants: dict | None = None,
+) -> dict:
     variants = variants or VARIANTS
     dev, lock, lock_start = split_dev_lockbox(df, lockbox_weeks, embargo_weeks)
-    folds = wf.make_folds(dev, test_weeks=test_weeks, embargo_weeks=embargo_weeks,
-                          min_train_rows=300, min_test_rows=50, max_folds=max_folds)
+    folds = wf.make_folds(
+        dev,
+        test_weeks=test_weeks,
+        embargo_weeks=embargo_weeks,
+        min_train_rows=300,
+        min_test_rows=50,
+        max_folds=max_folds,
+    )
     if not folds:
         raise RuntimeError("Not enough development history for a walk-forward fold.")
 
@@ -220,10 +293,18 @@ def run_experiment(df: pd.DataFrame, *, lockbox_weeks: int = 52, embargo_weeks: 
     qual = [v for v in variants if not v.startswith("C0") and qualifies(table[PRIMARY][v])]
     qual.sort(key=lambda v: table[PRIMARY][v]["mean_diff"], reverse=True)
 
-    result = {"lockbox_start": lock_start.strftime("%Y-%m-%d"), "n_dev_rows": len(dev),
-              "n_lockbox_rows": len(lock), "folds": dev_res["folds"], "dev": table,
-              "control_qualifies": qualifies(table[PRIMARY].get("C0_shuffled_control", {"ci95": [np.nan, 0]})),
-              "qualifiers": qual, "lockbox": None}
+    result = {
+        "lockbox_start": lock_start.strftime("%Y-%m-%d"),
+        "n_dev_rows": len(dev),
+        "n_lockbox_rows": len(lock),
+        "folds": dev_res["folds"],
+        "dev": table,
+        "control_qualifies": qualifies(
+            table[PRIMARY].get("C0_shuffled_control", {"ci95": [np.nan, 0]})
+        ),
+        "qualifiers": qual,
+        "lockbox": None,
+    }
 
     if qual:
         best = qual[0]
@@ -233,14 +314,18 @@ def run_experiment(df: pd.DataFrame, *, lockbox_weeks: int = 52, embargo_weeks: 
         test[best] = fit_predict_variant(train, test, variants[best], seed=999)
         ser = weekly_series(test, [best, "Score"], PRIMARY, min_names)
         p = _paired(ser, best, n_boot)
-        result["lockbox"] = {"variant": best, **p,
-                             "passed": bool(p["mean_diff"] > 0 and np.isfinite(p["t"]) and p["t"] > 1.645)}
+        result["lockbox"] = {
+            "variant": best,
+            **p,
+            "passed": bool(p["mean_diff"] > 0 and np.isfinite(p["t"]) and p["t"] > 1.645),
+        }
     return result
 
 
 # ---------------------------------------------------------------------------
 # Reporting / CLI
 # ---------------------------------------------------------------------------
+
 
 def _f(x, nd=3):
     return "  n/a" if x is None or not np.isfinite(x) else f"{x:+.{nd}f}"
@@ -249,31 +334,46 @@ def _f(x, nd=3):
 def format_report(res: dict, meta: dict) -> str:
     L = ["=" * 104, "Coiled Cobra ML experiment - pre-registered, lockbox-protected", "=" * 104]
     L += [f"  {k}: {v}" for k, v in meta.items()]
-    L.append(f"  lockbox: dates >= {res['lockbox_start']} ({res['n_lockbox_rows']} rows, unspent unless a variant qualifies)")
+    L.append(
+        f"  lockbox: dates >= {res['lockbox_start']} ({res['n_lockbox_rows']} rows, unspent unless a variant qualifies)"
+    )
     L.append(f"  development: {res['n_dev_rows']} rows, {len(res['folds'])} expanding folds")
     for outcome, primary in ((PRIMARY, True), *((o, False) for o in SECONDARY)):
         tag = "PRIMARY (selection)" if primary else "secondary (not used for selection)"
-        L += ["", f"Outcome: {outcome}  -- {tag}",
-              f"{'ranker':<22}{'weeks':>6}{'mean IC':>9}{'IC t':>7}{'vs Score':>10}{'t':>7}   95% block-bootstrap CI"]
+        L += [
+            "",
+            f"Outcome: {outcome}  -- {tag}",
+            f"{'ranker':<22}{'weeks':>6}{'mean IC':>9}{'IC t':>7}{'vs Score':>10}{'t':>7}   95% block-bootstrap CI",
+        ]
         for r, p in res["dev"][outcome].items():
             if r == "Score":
-                L.append(f"{'Score (baseline)':<22}{p['weeks']:>6}{_f(p['mean_ic']):>9}{_f(p['ic_t'], 2):>7}")
+                L.append(
+                    f"{'Score (baseline)':<22}{p['weeks']:>6}{_f(p['mean_ic']):>9}{_f(p['ic_t'], 2):>7}"
+                )
                 continue
             lo, hi = p["ci95"]
-            L.append(f"{r:<22}{p['weeks']:>6}{_f(p['mean_ic']):>9}{_f(p['ic_t'], 2):>7}"
-                     f"{_f(p['mean_diff']):>10}{_f(p['t'], 2):>7}   [{_f(lo)}, {_f(hi)}]")
+            L.append(
+                f"{r:<22}{p['weeks']:>6}{_f(p['mean_ic']):>9}{_f(p['ic_t'], 2):>7}"
+                f"{_f(p['mean_diff']):>10}{_f(p['t'], 2):>7}   [{_f(lo)}, {_f(hi)}]"
+            )
     L.append("")
     if res["control_qualifies"]:
-        L.append("!! CONTROL QUALIFIED: the shuffled-label control shows an 'edge' -> harness/data problem, ignore results.")
+        L.append(
+            "!! CONTROL QUALIFIED: the shuffled-label control shows an 'edge' -> harness/data problem, ignore results."
+        )
     if res["qualifiers"]:
         lb = res["lockbox"]
         L.append(f"QUALIFIED on development folds: {res['qualifiers']}")
-        L.append(f"LOCKBOX (single evaluation) for {lb['variant']}: mean IC {_f(lb['mean_ic'])}, "
-                 f"vs Score {_f(lb['mean_diff'])} (t={_f(lb['t'], 2)}, {lb['weeks']} weeks) -> "
-                 + ("PASSED" if lb["passed"] else "FAILED"))
+        L.append(
+            f"LOCKBOX (single evaluation) for {lb['variant']}: mean IC {_f(lb['mean_ic'])}, "
+            f"vs Score {_f(lb['mean_diff'])} (t={_f(lb['t'], 2)}, {lb['weeks']} weeks) -> "
+            + ("PASSED" if lb["passed"] else "FAILED")
+        )
     else:
-        L.append("VERDICT: no variant beats raw Score with a 95% CI above 0 on the development folds; "
-                 "lockbox left unspent. Do not enable ML ranking.")
+        L.append(
+            "VERDICT: no variant beats raw Score with a 95% CI above 0 on the development folds; "
+            "lockbox left unspent. Do not enable ML ranking."
+        )
     return "\n".join(L)
 
 
@@ -300,17 +400,32 @@ def main(argv: list[str] | None = None) -> int:
     need = set(EXT_FEATURES) | {PRIMARY, "Outcome", "Excess_Return_2w", trn.TARGET_COL}
     missing = sorted(need - set(df.columns))
     if missing:
-        raise ValueError(f"CSV lacks experiment columns {missing}; regenerate with the current backtest.")
+        raise ValueError(
+            f"CSV lacks experiment columns {missing}; regenerate with the current backtest."
+        )
 
-    res = run_experiment(df, lockbox_weeks=args.lockbox_weeks, test_weeks=args.test_weeks,
-                         min_names=args.min_names, max_folds=args.max_folds, n_boot=args.n_boot)
-    meta = {"source_csv": csv_path.name, "rubric_version": rubric, "rows": len(df),
-            "symbols": int(df["Symbol"].nunique()),
-            "signal_dates": f"{df[DATE].min():%Y-%m-%d} .. {df[DATE].max():%Y-%m-%d}",
-            "min_names_per_week": args.min_names, "embargo_weeks": trn.EMBARGO_WEEKS}
+    res = run_experiment(
+        df,
+        lockbox_weeks=args.lockbox_weeks,
+        test_weeks=args.test_weeks,
+        min_names=args.min_names,
+        max_folds=args.max_folds,
+        n_boot=args.n_boot,
+    )
+    meta = {
+        "source_csv": csv_path.name,
+        "rubric_version": rubric,
+        "rows": len(df),
+        "symbols": int(df["Symbol"].nunique()),
+        "signal_dates": f"{df[DATE].min():%Y-%m-%d} .. {df[DATE].max():%Y-%m-%d}",
+        "min_names_per_week": args.min_names,
+        "embargo_weeks": trn.EMBARGO_WEEKS,
+    }
     print(format_report(res, meta))
     if args.out:
-        Path(args.out).write_text(json.dumps(_json({"meta": meta, **res}), indent=2), encoding="utf-8")
+        Path(args.out).write_text(
+            json.dumps(_json({"meta": meta, **res}), indent=2), encoding="utf-8"
+        )
         print(f"\nWrote {args.out}")
     return 0
 

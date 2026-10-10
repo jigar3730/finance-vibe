@@ -20,6 +20,7 @@ and the bootstrap resamples blocks of ``horizon`` consecutive weeks.
 
     python -m finance_vibe.coiled_cobra_ml_walkforward [--csv PATH] [--out report.json]
 """
+
 from __future__ import annotations
 
 import argparse
@@ -42,6 +43,7 @@ RANKERS = ("ML", "XGB", "LGB", "Score")
 # ---------------------------------------------------------------------------
 # Folds
 # ---------------------------------------------------------------------------
+
 
 def make_folds(
     df: pd.DataFrame,
@@ -77,11 +79,16 @@ def make_folds(
         test_idx = df.index[(df[DATE_COL] >= test_start) & (df[DATE_COL] < test_end)]
         if len(train_idx) < min_train_rows or len(test_idx) < min_test_rows:
             break
-        folds.append({
-            "fold": 0,  # renumbered below (oldest = 1)
-            "train_end": train_end, "test_start": test_start, "test_end": test_end,
-            "train_idx": train_idx, "test_idx": test_idx,
-        })
+        folds.append(
+            {
+                "fold": 0,  # renumbered below (oldest = 1)
+                "train_end": train_end,
+                "test_start": test_start,
+                "test_end": test_end,
+                "train_idx": train_idx,
+                "test_idx": test_idx,
+            }
+        )
     folds.reverse()
     for i, f in enumerate(folds, start=1):
         f["fold"] = i
@@ -91,6 +98,7 @@ def make_folds(
 # ---------------------------------------------------------------------------
 # Metrics
 # ---------------------------------------------------------------------------
+
 
 def spearman(a: pd.Series, b: pd.Series) -> float:
     """Spearman rank correlation (average ranks for ties); NaN if undefined."""
@@ -127,12 +135,14 @@ def weekly_metrics(
     for date, g in frame.groupby(DATE_COL):
         if len(g) < min_names:
             continue
-        rows.append({
-            DATE_COL: date,
-            "n": len(g),
-            "ic": spearman(g[rank_col], g[ret_col]),
-            "spread": _tercile_spread(g[rank_col], g[ret_col], int(date.value % (2**31))),
-        })
+        rows.append(
+            {
+                DATE_COL: date,
+                "n": len(g),
+                "ic": spearman(g[rank_col], g[ret_col]),
+                "spread": _tercile_spread(g[rank_col], g[ret_col], int(date.value % (2**31))),
+            }
+        )
     return pd.DataFrame(rows, columns=[DATE_COL, "n", "ic", "spread"])
 
 
@@ -172,6 +182,7 @@ def block_bootstrap_ci(
 # Fit / predict
 # ---------------------------------------------------------------------------
 
+
 def fit_predict(train: pd.DataFrame, test: pd.DataFrame) -> pd.DataFrame:
     """Train the deployed XGB + LGB on ``train``; return per-model + ML preds."""
     # _build_matrices applies the same X / y / ATR-weight preprocessing as the
@@ -187,7 +198,7 @@ def fit_predict(train: pd.DataFrame, test: pd.DataFrame) -> pd.DataFrame:
 
     out = test[[DATE_COL, TARGET_COL, "Score"]].copy()
     out["XGB"], out["LGB"] = p_xgb, p_lgb
-    out["ML"] = (p_xgb + p_lgb) / 2.0          # same mean ensemble as ml_ranker
+    out["ML"] = (p_xgb + p_lgb) / 2.0  # same mean ensemble as ml_ranker
     out["train_median_y"] = float(np.median(tr["y"]))
     return out
 
@@ -195,6 +206,7 @@ def fit_predict(train: pd.DataFrame, test: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Evaluation
 # ---------------------------------------------------------------------------
+
 
 def _safe_mean(s: pd.Series) -> float:
     s = s.dropna()
@@ -223,9 +235,12 @@ def evaluate(
             "train_end": f["train_end"].strftime("%Y-%m-%d"),
             "test_start": f["test_start"].strftime("%Y-%m-%d"),
             "test_end": (f["test_end"] - pd.Timedelta(days=1)).strftime("%Y-%m-%d"),
-            "n_train": len(train), "n_test": len(test),
+            "n_train": len(train),
+            "n_test": len(test),
             "mae_ml": float(np.mean(np.abs(pred["ML"] - pred[TARGET_COL]))),
-            "mae_median_baseline": float(np.mean(np.abs(pred["train_median_y"] - pred[TARGET_COL]))),
+            "mae_median_baseline": float(
+                np.mean(np.abs(pred["train_median_y"] - pred[TARGET_COL]))
+            ),
         }
         for r in RANKERS:
             w = weekly_metrics(pred, r, min_names)
@@ -234,16 +249,17 @@ def evaluate(
             row[f"ic_{r}"] = _safe_mean(w["ic"])
             row[f"spread_{r}"] = _safe_mean(w["spread"])
             row[f"pooled_ic_{r}"] = spearman(pred[r], pred[TARGET_COL])
-            row[f"pooled_spread_{r}"] = _tercile_spread(
-                pred[r], pred[TARGET_COL], seed=f["fold"]
-            )
+            row[f"pooled_spread_{r}"] = _tercile_spread(pred[r], pred[TARGET_COL], seed=f["fold"])
         row["weeks_used"] = int(len(weekly["ML"][-1]))
         row["weeks_total"] = int(pred[DATE_COL].nunique())
         fold_rows.append(row)
 
     series = {r: pd.concat(weekly[r], ignore_index=True).sort_values(DATE_COL) for r in RANKERS}
-    return {"folds": fold_rows, "weekly": series,
-            "summary": summarize(fold_rows, series, n_boot=n_boot)}
+    return {
+        "folds": fold_rows,
+        "weekly": series,
+        "summary": summarize(fold_rows, series, n_boot=n_boot),
+    }
 
 
 def summarize(fold_rows: list[dict], series: dict[str, pd.DataFrame], n_boot: int = 2000) -> dict:
@@ -252,8 +268,11 @@ def summarize(fold_rows: list[dict], series: dict[str, pd.DataFrame], n_boot: in
         ic_m, ic_t, n = _mean_t(series[r]["ic"])
         sp_m, sp_t, _ = _mean_t(series[r]["spread"])
         summary["rankers"][r] = {
-            "weeks": n, "mean_ic": ic_m, "ic_t_neff": ic_t,
-            "mean_spread": sp_m, "spread_t_neff": sp_t,
+            "weeks": n,
+            "mean_ic": ic_m,
+            "ic_t_neff": ic_t,
+            "mean_spread": sp_m,
+            "spread_t_neff": sp_t,
             "folds_ic_positive": int(sum(1 for f in fold_rows if f[f"ic_{r}"] > 0)),
         }
 
@@ -265,12 +284,19 @@ def summarize(fold_rows: list[dict], series: dict[str, pd.DataFrame], n_boot: in
         mean, t, n = _mean_t(d)
         lo, hi = block_bootstrap_ci(d.to_numpy(), n_boot=n_boot)
         summary["ml_vs_score"][metric] = {
-            "weeks": n, "mean_diff": mean, "t_neff": t, "ci95": [lo, hi],
-            "folds_ml_better": int(sum(
-                1 for f in fold_rows
-                if np.isfinite(f[f"{metric}_ML"]) and np.isfinite(f[f"{metric}_Score"])
-                and f[f"{metric}_ML"] > f[f"{metric}_Score"]
-            )),
+            "weeks": n,
+            "mean_diff": mean,
+            "t_neff": t,
+            "ci95": [lo, hi],
+            "folds_ml_better": int(
+                sum(
+                    1
+                    for f in fold_rows
+                    if np.isfinite(f[f"{metric}_ML"])
+                    and np.isfinite(f[f"{metric}_Score"])
+                    and f[f"{metric}_ML"] > f[f"{metric}_Score"]
+                )
+            ),
         }
     summary["mae"] = {
         "ml": float(np.mean([f["mae_ml"] for f in fold_rows])),
@@ -282,6 +308,7 @@ def summarize(fold_rows: list[dict], series: dict[str, pd.DataFrame], n_boot: in
 # ---------------------------------------------------------------------------
 # Reporting
 # ---------------------------------------------------------------------------
+
 
 def _f(x, nd=3, pct=False) -> str:
     if x is None or (isinstance(x, float) and not np.isfinite(x)):
@@ -298,9 +325,11 @@ def format_report(result: dict, meta: dict) -> str:
         L.append(f"  {k}: {v}")
     L.append("")
     L.append("Per fold (per-week cross-sectional means; ML = mean of XGB+LGB)")
-    L.append(f"{'fold':>4} {'test window':<23} {'ntrain':>6} {'ntest':>5} {'wks':>7} "
-             f"{'IC ML':>7} {'IC Scr':>7} {'Sprd ML':>8} {'Sprd Scr':>8} "
-             f"{'pIC ML':>7} {'pIC Scr':>7} {'MAE ML':>7} {'MAE med':>7}")
+    L.append(
+        f"{'fold':>4} {'test window':<23} {'ntrain':>6} {'ntest':>5} {'wks':>7} "
+        f"{'IC ML':>7} {'IC Scr':>7} {'Sprd ML':>8} {'Sprd Scr':>8} "
+        f"{'pIC ML':>7} {'pIC Scr':>7} {'MAE ML':>7} {'MAE med':>7}"
+    )
     for f in result["folds"]:
         L.append(
             f"{f['fold']:>4} {f['test_start']}..{f['test_end'][5:]:<8} {f['n_train']:>6} {f['n_test']:>5} "
@@ -313,8 +342,10 @@ def format_report(result: dict, meta: dict) -> str:
     s = result["summary"]
     L.append("")
     L.append("All OOS weeks pooled across folds (t-stats use n_eff = weeks / horizon)")
-    L.append(f"{'ranker':<7} {'weeks':>5} {'mean IC':>8} {'t':>6} {'folds IC>0':>10} "
-             f"{'mean spread':>12} {'t':>6}")
+    L.append(
+        f"{'ranker':<7} {'weeks':>5} {'mean IC':>8} {'t':>6} {'folds IC>0':>10} "
+        f"{'mean spread':>12} {'t':>6}"
+    )
     for r in RANKERS:
         x = s["rankers"][r]
         L.append(
@@ -332,8 +363,10 @@ def format_report(result: dict, meta: dict) -> str:
             f"95% block-bootstrap CI [{_f(lo, pct=pct)}, {_f(hi, pct=pct)}]  "
             f"ML better in {x['folds_ml_better']}/{s['n_folds']} folds  (n={x['weeks']} wks)"
         )
-    L.append(f"  MAE: ML {s['mae']['ml']:.4f} vs train-median baseline "
-             f"{s['mae']['train_median_baseline']:.4f}")
+    L.append(
+        f"  MAE: ML {s['mae']['ml']:.4f} vs train-median baseline "
+        f"{s['mae']['train_median_baseline']:.4f}"
+    )
     L.append("")
     L.append(verdict(s))
     return "\n".join(L)
@@ -347,12 +380,16 @@ def verdict(summary: dict) -> str:
     if not np.isfinite(lo):
         return "VERDICT: insufficient weeks for a confidence interval."
     if lo > 0:
-        return (f"VERDICT: ML rank IC beats Score with the 95% CI excluding 0 "
-                f"(mean IC {_f(ml['mean_ic'])}).")
+        return (
+            f"VERDICT: ML rank IC beats Score with the 95% CI excluding 0 "
+            f"(mean IC {_f(ml['mean_ic'])})."
+        )
     if hi < 0:
         return "VERDICT: ML rank IC is significantly WORSE than raw Score - do not use it."
-    return ("VERDICT: ML is not distinguishable from raw Score out-of-sample "
-            "(paired IC-difference CI includes 0) - no evidence it should drive Priority.")
+    return (
+        "VERDICT: ML is not distinguishable from raw Score out-of-sample "
+        "(paired IC-difference CI includes 0) - no evidence it should drive Priority."
+    )
 
 
 def _jsonable(o):
@@ -369,14 +406,20 @@ def _jsonable(o):
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--csv", default=None, help="Trades CSV (default: newest in the weekly log dir)")
+    ap.add_argument(
+        "--csv", default=None, help="Trades CSV (default: newest in the weekly log dir)"
+    )
     ap.add_argument("--test-weeks", type=int, default=26)
     ap.add_argument("--embargo-weeks", type=int, default=trn.EMBARGO_WEEKS)
     ap.add_argument("--min-train-weeks", type=int, default=104)
     ap.add_argument("--min-train-rows", type=int, default=300)
     ap.add_argument("--max-folds", type=int, default=8)
-    ap.add_argument("--min-names", type=int, default=6,
-                    help="Min setups on a Signal Date for it to count in per-week metrics")
+    ap.add_argument(
+        "--min-names",
+        type=int,
+        default=6,
+        help="Min setups on a Signal Date for it to count in per-week metrics",
+    )
     ap.add_argument("--n-boot", type=int, default=2000)
     ap.add_argument("--out", default=None, help="Write the full result (folds, summary) as JSON")
     ap.add_argument("--allow-rubric-mismatch", action="store_true")
@@ -388,8 +431,11 @@ def main(argv: list[str] | None = None) -> int:
     df["Score"] = pd.to_numeric(df["Score"], errors="coerce")
 
     folds = make_folds(
-        df, test_weeks=args.test_weeks, embargo_weeks=args.embargo_weeks,
-        min_train_weeks=args.min_train_weeks, min_train_rows=args.min_train_rows,
+        df,
+        test_weeks=args.test_weeks,
+        embargo_weeks=args.embargo_weeks,
+        min_train_weeks=args.min_train_weeks,
+        min_train_rows=args.min_train_rows,
         max_folds=args.max_folds,
     )
     if not folds:
@@ -397,10 +443,12 @@ def main(argv: list[str] | None = None) -> int:
 
     result = evaluate(df, folds, min_names=args.min_names, n_boot=args.n_boot)
     meta = {
-        "source_csv": csv_path.name, "rubric_version": rubric, "rows": len(df),
+        "source_csv": csv_path.name,
+        "rubric_version": rubric,
+        "rows": len(df),
         "signal_dates": f"{df[DATE_COL].min():%Y-%m-%d} .. {df[DATE_COL].max():%Y-%m-%d}",
         "folds": f"{len(folds)} x {args.test_weeks}w test, expanding train, "
-                 f"{args.embargo_weeks}w embargo",
+        f"{args.embargo_weeks}w embargo",
         "min_names_per_week": args.min_names,
     }
     print(format_report(result, meta))

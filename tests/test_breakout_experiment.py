@@ -1,4 +1,5 @@
 """Breakout Readiness experiment: predicates, causality, IC, protocol plumbing."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -11,19 +12,26 @@ from finance_vibe import breakout_scanner as bs
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _weekly_csv(path, n=140, seed=7, bump_after=None):
     """Synthetic weekly OHLCV; optionally distort every bar after ``bump_after``."""
     rng = np.random.default_rng(seed)
     close = 50 * np.cumprod(1 + rng.normal(0.004, 0.03, n))
     dates = pd.date_range("2016-01-04", periods=n, freq="W-MON")
-    df = pd.DataFrame({
-        "Date": dates, "Open": close * 0.99, "High": close * 1.03,
-        "Low": close * 0.97, "Close": close, "Volume": rng.integers(1e5, 1e6, n).astype(float),
-    })
+    df = pd.DataFrame(
+        {
+            "Date": dates,
+            "Open": close * 0.99,
+            "High": close * 1.03,
+            "Low": close * 0.97,
+            "Close": close,
+            "Volume": rng.integers(1e5, 1e6, n).astype(float),
+        }
+    )
     if bump_after is not None:
         cols = ["Open", "High", "Low", "Close"]
-        df.loc[bump_after + 1:, cols] *= 3.0
-        df.loc[bump_after + 1:, "Volume"] *= 10
+        df.loc[bump_after + 1 :, cols] *= 3.0
+        df.loc[bump_after + 1 :, "Volume"] *= 10
     df.to_csv(path, index=False)
     return path
 
@@ -31,6 +39,7 @@ def _weekly_csv(path, n=140, seed=7, bump_after=None):
 # ---------------------------------------------------------------------------
 # variant predicates
 # ---------------------------------------------------------------------------
+
 
 def test_status_variants():
     pre = bx.variant_flags({"Status": bs.STATUS_PRE, "Breakout Readiness": 40})
@@ -56,15 +65,29 @@ def test_failed_is_negative_only():
 def test_ready70_boundary_and_missing_score():
     assert bx.variant_flags({"Status": bs.STATUS_WATCH, "Breakout Readiness": 70})["BK_READY70"]
     assert not bx.variant_flags({"Status": bs.STATUS_WATCH, "Breakout Readiness": 69})["BK_READY70"]
-    assert not bx.variant_flags({"Status": bs.STATUS_WATCH, "Breakout Readiness": None})["BK_READY70"]
+    assert not bx.variant_flags({"Status": bs.STATUS_WATCH, "Breakout Readiness": None})[
+        "BK_READY70"
+    ]
 
 
 # ---------------------------------------------------------------------------
 # causality: a row only depends on bars up to its own date
 # ---------------------------------------------------------------------------
 
-_SIGNAL_COLS = ["status", "ready", "penalty", *bx.PILLARS, "trend", "volatility", "momentum",
-                "structure", "mtf", "dist_res_atr", "rvol20", "atr"]
+_SIGNAL_COLS = [
+    "status",
+    "ready",
+    "penalty",
+    *bx.PILLARS,
+    "trend",
+    "volatility",
+    "momentum",
+    "structure",
+    "mtf",
+    "dist_res_atr",
+    "rvol20",
+    "atr",
+]
 
 
 def test_rows_ignore_future_bars(tmp_path):
@@ -100,6 +123,7 @@ def test_random_control_is_deterministic(tmp_path):
 # stats
 # ---------------------------------------------------------------------------
 
+
 def _ic_frame(sign: float, weeks=30, names=12):
     rows = []
     for w in range(weeks):
@@ -124,11 +148,25 @@ def _bars_table(n_weeks=300, names=8, seed=1):
     rows = []
     for s in range(names):
         for w in range(n_weeks):
-            rec = {"sym": f"S{s}", "idx": w, "date": pd.Timestamp("2016-01-04") + pd.Timedelta(weeks=w),
-                   "close": 10.0, "atr": 1.0, "status": bs.STATUS_WATCH, "ready": float(rng.integers(0, 100)),
-                   "penalty": 0, **{p: float(rng.integers(0, 15)) for p in bx.PILLARS},
-                   "mu13": 0.1, "dd13": -0.05, "mu26": 0.2, "dd26": -0.1, "fr13": rng.normal(0, 0.1),
-                   "tr_r": rng.normal(0.2, 1.0), "tr_censored": False, "tr_mfe_r": 1.0}
+            rec = {
+                "sym": f"S{s}",
+                "idx": w,
+                "date": pd.Timestamp("2016-01-04") + pd.Timedelta(weeks=w),
+                "close": 10.0,
+                "atr": 1.0,
+                "status": bs.STATUS_WATCH,
+                "ready": float(rng.integers(0, 100)),
+                "penalty": 0,
+                **{p: float(rng.integers(0, 15)) for p in bx.PILLARS},
+                "mu13": 0.1,
+                "dd13": -0.05,
+                "mu26": 0.2,
+                "dd26": -0.1,
+                "fr13": rng.normal(0, 0.1),
+                "tr_r": rng.normal(0.2, 1.0),
+                "tr_censored": False,
+                "tr_mfe_r": 1.0,
+            }
             for v in bx.VARIANTS:
                 rec[f"f_{v}"] = False
             rec["f_C0_random"] = bool(rng.random() < 0.3)
@@ -146,7 +184,7 @@ def test_run_analysis_structure_and_unspent_lockbox():
     assert not res["qualification"]["BK_PRE"]["qualified"]
     assert res["report_only"]["cobra"] == {"available": False}
     assert "ready" in res["report_only"]["ic_dev"]
-    assert bx.format_report(res)          # renders without error
+    assert bx.format_report(res)  # renders without error
     # lockbox is only spent on a qualifier, and only once
     assert res["lockbox"]["spent"] == any(q["qualified"] for q in res["qualification"].values())
 

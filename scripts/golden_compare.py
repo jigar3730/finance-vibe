@@ -19,6 +19,7 @@ The as-of dates are chosen at baseline time from the fixture's QQQ bars (last
 completed Friday for weekly, last bar for daily) and stored in the manifest,
 so ``compare`` always replays the same dates.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -62,10 +63,16 @@ def cmd_snapshot(args: argparse.Namespace) -> int:
         shutil.copytree(raw, dst / "raw" / mode)
     shutil.copy2(src / "active_tickers.csv", dst / "active_tickers.csv")
     counts = {m: len(list((dst / "raw" / m).glob("*.csv"))) for m in MODES}
-    (dst / "SNAPSHOT.json").write_text(json.dumps(
-        {"created": datetime.now().isoformat(timespec="seconds"), "source": str(src), "files": counts},
-        indent=2,
-    ))
+    (dst / "SNAPSHOT.json").write_text(
+        json.dumps(
+            {
+                "created": datetime.now().isoformat(timespec="seconds"),
+                "source": str(src),
+                "files": counts,
+            },
+            indent=2,
+        )
+    )
     print(f"Fixture written to {dst}: {counts}")
     return 0
 
@@ -93,25 +100,54 @@ def _run_pipeline(repo: Path, fixture: Path, as_of: dict[str, str], out: Path) -
         shutil.copytree(fixture / "raw", ws / "data" / "raw")
         shutil.copy2(fixture / "active_tickers.csv", ws / "data" / "active_tickers.csv")
         for mode in MODES:
-            cmd = [sys.executable, str(ws / "src" / "finance_vibe" / "run_vibe.py"),
-                   "--mode", mode, "--as-of", as_of[mode]]
+            cmd = [
+                sys.executable,
+                str(ws / "src" / "finance_vibe" / "run_vibe.py"),
+                "--mode",
+                mode,
+                "--as-of",
+                as_of[mode],
+            ]
             print(f"--> {mode} as-of {as_of[mode]}", flush=True)
-            proc = subprocess.run(cmd, cwd=ws, capture_output=True, text=True,
-                                  env={"PATH": "/usr/local/bin:/usr/bin:/bin", "PYTHONPATH": str(ws / "src"),
-                                       "TZ": "America/New_York", "MPLBACKEND": "Agg"})
+            proc = subprocess.run(
+                cmd,
+                cwd=ws,
+                capture_output=True,
+                text=True,
+                env={
+                    "PATH": "/usr/local/bin:/usr/bin:/bin",
+                    "PYTHONPATH": str(ws / "src"),
+                    "TZ": "America/New_York",
+                    "MPLBACKEND": "Agg",
+                },
+            )
             (out / f"run_{mode}.log").write_text(proc.stdout + proc.stderr)
             if proc.returncode != 0:
-                raise SystemExit(f"{mode} pipeline failed (exit {proc.returncode}); see {out / f'run_{mode}.log'}")
+                raise SystemExit(
+                    f"{mode} pipeline failed (exit {proc.returncode}); see {out / f'run_{mode}.log'}"
+                )
             src_logs = ws / "data" / "logs" / mode
             shutil.copytree(src_logs, out / mode)
             # Full Coiled Cobra scorecard (rejects included) so Score drift is
             # caught for every ticker, not just the few that pass the gates.
             proc = subprocess.run(
-                [sys.executable, str(Path(__file__).resolve()), "_scorecard", mode, as_of[mode],
-                 str(out / mode / "golden_cobra_scorecard.csv")],
-                cwd=ws, capture_output=True, text=True,
-                env={"PATH": "/usr/local/bin:/usr/bin:/bin", "PYTHONPATH": str(ws / "src"),
-                     "TZ": "America/New_York"})
+                [
+                    sys.executable,
+                    str(Path(__file__).resolve()),
+                    "_scorecard",
+                    mode,
+                    as_of[mode],
+                    str(out / mode / "golden_cobra_scorecard.csv"),
+                ],
+                cwd=ws,
+                capture_output=True,
+                text=True,
+                env={
+                    "PATH": "/usr/local/bin:/usr/bin:/bin",
+                    "PYTHONPATH": str(ws / "src"),
+                    "TZ": "America/New_York",
+                },
+            )
             if proc.returncode != 0:
                 (out / f"scorecard_{mode}.log").write_text(proc.stdout + proc.stderr)
                 raise SystemExit(f"{mode} scorecard failed; see {out / f'scorecard_{mode}.log'}")
@@ -140,8 +176,13 @@ def _scorecard(mode: str, as_of: str, out_csv: str) -> int:
                 row["Grade"] = "_insufficient_history"
             else:
                 df = cc.add_macro_indicators(df)
-                res = cc.evaluate_coiled_cobra(df, bench[cc.BENCHMARK], spy_df=bench[cc.SPY_BENCHMARK],
-                                               qqq_df=bench[cc.BENCHMARK], include_rejects=True)
+                res = cc.evaluate_coiled_cobra(
+                    df,
+                    bench[cc.BENCHMARK],
+                    spy_df=bench[cc.SPY_BENCHMARK],
+                    qqq_df=bench[cc.BENCHMARK],
+                    include_rejects=True,
+                )
                 if res is None:
                     row["Grade"] = "_not_scored"
                 else:
@@ -159,8 +200,12 @@ def _git_rev(repo: Path) -> str | None:
     if os.environ.get("GOLDEN_GIT_REV"):
         return os.environ["GOLDEN_GIT_REV"]
     try:
-        return subprocess.run(["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
-                              capture_output=True, text=True, check=True).stdout.strip()
+        return subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
     except (OSError, subprocess.CalledProcessError):
         return None
 
@@ -227,7 +272,9 @@ def _diff_csv(a: Path, b: Path, atol: float) -> list[str]:
             bad = (x.astype(str) != y.astype(str)).to_numpy() & ~both_na
         if bad.any():
             i = int(np.flatnonzero(bad)[0])
-            problems.append(f"{col}: {int(bad.sum())} row(s) differ, first at row {i}: {x.iloc[i]!r} vs {y.iloc[i]!r}")
+            problems.append(
+                f"{col}: {int(bad.sum())} row(s) differ, first at row {i}: {x.iloc[i]!r} vs {y.iloc[i]!r}"
+            )
     return problems
 
 
@@ -269,14 +316,21 @@ def main(argv: list[str] | None = None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     if argv[:1] == ["_scorecard"]:  # internal: run inside the workspace's PYTHONPATH
         return _scorecard(*argv[1:4])
-    p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--golden-dir", default=str(REPO_DEFAULT / "data" / "golden"),
-                   help="Fixture + baseline location (default: <repo>/data/golden)")
+    p = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
+    p.add_argument(
+        "--golden-dir",
+        default=str(REPO_DEFAULT / "data" / "golden"),
+        help="Fixture + baseline location (default: <repo>/data/golden)",
+    )
     p.add_argument("--repo", default=str(REPO_DEFAULT), help="Source tree whose src/ is tested")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     s = sub.add_parser("snapshot", help="Freeze raw data into the fixture")
-    s.add_argument("--source-data", default=str(REPO_DEFAULT / "data"), help="Live data dir to copy from")
+    s.add_argument(
+        "--source-data", default=str(REPO_DEFAULT / "data"), help="Live data dir to copy from"
+    )
     s.add_argument("--force", action="store_true")
     s.set_defaults(func=cmd_snapshot)
 
@@ -288,7 +342,9 @@ def main(argv: list[str] | None = None) -> int:
 
     c = sub.add_parser("compare", help="Diff outputs of --repo against the baseline")
     c.add_argument("--atol", type=float, default=1e-9)
-    c.add_argument("--keep", action="store_true", help="Keep current outputs in <golden-dir>/last_compare")
+    c.add_argument(
+        "--keep", action="store_true", help="Keep current outputs in <golden-dir>/last_compare"
+    )
     c.set_defaults(func=cmd_compare)
 
     args = p.parse_args(argv)

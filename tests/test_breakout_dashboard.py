@@ -1,4 +1,5 @@
 """Breakout dashboard routes: run listing, KPI counts, and status filtering."""
+
 from __future__ import annotations
 
 import pandas as pd
@@ -115,11 +116,15 @@ def test_trade_plan_live_price_colour_and_surge_row(client, tmp_path, monkeypatc
     # AAA live 95 < 100 (red), BBB live 55.5 vs 50 = +11% (green + surge),
     # CCC live == close (neutral), DDD live N/A.
     pd.DataFrame(
-        [{"Symbol": s, "Score": 1, "Close": c} for s, c in
-         [("AAA", 100.0), ("BBB", 50.0), ("CCC", 20.0), ("DDD", 10.0)]]
+        [
+            {"Symbol": s, "Score": 1, "Close": c}
+            for s, c in [("AAA", 100.0), ("BBB", 50.0), ("CCC", 20.0), ("DDD", 10.0)]
+        ]
     ).to_csv(tmp_path / "weekly" / "trade_plan_2026-09-04.csv", index=False)
 
-    body = client.get("/view/weekly/2026-09-04?file=trade_plan_2026-09-04.csv").get_data(as_text=True)
+    body = client.get("/view/weekly/2026-09-04?file=trade_plan_2026-09-04.csv").get_data(
+        as_text=True
+    )
     header = body.split("<thead>")[1].split("</thead>")[0]
     ths = [h.split("<")[0].strip() for h in header.split("<th>")[1:]]
     assert ths.index("Live Price") == ths.index("Close") + 1

@@ -41,10 +41,10 @@ BENCHMARK = "QQQ"
 SPY_BENCHMARK = "SPY"
 
 # Open-sky / extension allowances (daily-calibrated fractions; used on both TFs)
-OPEN_SKY_PCT = 0.95          # Close >= 95% of 52-week / ATH → full space score
-RS_FULL_SCORE = 0.15         # 63d/13w RS at/above this earns a full pillar score
-RS_LEADER_EXT = 0.10         # RS above this = "leader" for extension-haircut purposes
-RVOL_BONUS = 1.2             # RVOL threshold for the quiet-coil credit check
+OPEN_SKY_PCT = 0.95  # Close >= 95% of 52-week / ATH → full space score
+RS_FULL_SCORE = 0.15  # 63d/13w RS at/above this earns a full pillar score
+RS_LEADER_EXT = 0.10  # RS above this = "leader" for extension-haircut purposes
+RVOL_BONUS = 1.2  # RVOL threshold for the quiet-coil credit check
 
 
 def local_swing_low(df: pd.DataFrame, bars: int = STRUCTURE_STOP_BARS) -> float:
@@ -68,11 +68,13 @@ _WK_TO_BAR = 5 if _is_daily_bars else 1
 # distinct from the pre-existing bar-count EMA10/20/50/100 columns, which
 # stay native-bar-length (used for Pct_From_EMA20/50 ML features, output
 # columns, etc.) and are NOT week-scaled.
-TT_EMA_S1 = 10 * _WK_TO_BAR     # structure stack: fast
-TT_EMA_S2 = 20 * _WK_TO_BAR     # structure stack: mid
-TT_EMA_FAST = 30 * _WK_TO_BAR   # Gate A fast (== Minervini 150-SMA on daily)
-TT_EMA_SLOW = 40 * _WK_TO_BAR   # Gate A slow / structure's third anchor (== Minervini 200-SMA on daily)
-TREND_RISING_LOOKBACK = 8 * _WK_TO_BAR   # bars EMA_SLOW must be rising over
+TT_EMA_S1 = 10 * _WK_TO_BAR  # structure stack: fast
+TT_EMA_S2 = 20 * _WK_TO_BAR  # structure stack: mid
+TT_EMA_FAST = 30 * _WK_TO_BAR  # Gate A fast (== Minervini 150-SMA on daily)
+TT_EMA_SLOW = (
+    40 * _WK_TO_BAR
+)  # Gate A slow / structure's third anchor (== Minervini 200-SMA on daily)
+TREND_RISING_LOOKBACK = 8 * _WK_TO_BAR  # bars EMA_SLOW must be rising over
 
 # BBWidth percentile rolling window: rubric specifies 104-156 weeks (2-3y);
 # 130w midpoint, same 5x daily scaling.
@@ -89,7 +91,7 @@ MIN_BARS_FULL_SCORE = 160 * _WK_TO_BAR
 # that drive Gate D's Checks-Met counter -- see each pillar's docstring).
 GATE_C_VOL_CONTRACTION_MIN = 12
 GATE_C_STRUCTURE_MIN = 8
-MIN_CHECKS_MET = 4     # of 6 scored pillars (Gate D)
+MIN_CHECKS_MET = 4  # of 6 scored pillars (Gate D)
 # Lowered from 5 (original v4.0) to 4 after a 264-ticker/10y walk-forward
 # backtest showed the >=5/6 cutoff had no measurable expectancy or win-rate
 # edge over >=4/6 -- it just discarded ~65% of otherwise equal-or-better
@@ -145,6 +147,7 @@ def apply_timeframe(tf: str) -> str:
     _calibrate(mode == "daily")
     return mode
 
+
 # =========================
 # PATHS
 # =========================
@@ -159,9 +162,7 @@ os.makedirs(LOG_DIR, exist_ok=True)
 # =========================
 # LOGGING
 # =========================
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
 logger = logging.getLogger(__name__)
 
 # =========================
@@ -237,9 +238,7 @@ def _volume_shelf_once(df: pd.DataFrame, current_price: float, lookback: int) ->
     bins = np.linspace(v_min, v_max, 31)
     close_array = recent_data["Close"].to_numpy().flatten()
     volume_array = recent_data["Volume"].to_numpy().flatten()
-    binned_volume, bin_edges = np.histogram(
-        close_array, bins=bins, weights=volume_array
-    )
+    binned_volume, bin_edges = np.histogram(close_array, bins=bins, weights=volume_array)
 
     price_bin = np.digitize([current_price], bin_edges)[0] - 1
     price_bin = max(0, min(price_bin, len(binned_volume) - 1))
@@ -265,9 +264,7 @@ def _volume_shelf_once(df: pd.DataFrame, current_price: float, lookback: int) ->
     return int(round(topology_score + value_score + behavior_score))
 
 
-def evaluate_volume_profile_shelf(
-    df: pd.DataFrame, current_price: float, lookback=None
-) -> int:
+def evaluate_volume_profile_shelf(df: pd.DataFrame, current_price: float, lookback=None) -> int:
     """Auction-market volume shelf score (0-15).
 
     Rewards price sitting near the Point of Control / high-volume node.
@@ -494,8 +491,11 @@ def relative_strength_score(
     if benchmark_df is None:
         return 0, None
     ok, rel = relative_strength(
-        stock_df, benchmark_df, as_of=as_of,
-        lookback=RS_LOOKBACK, ratio_ma_bars=RS_RATIO_MA,
+        stock_df,
+        benchmark_df,
+        as_of=as_of,
+        lookback=RS_LOOKBACK,
+        ratio_ma_bars=RS_RATIO_MA,
     )
     if rel is None:
         return 0, None
@@ -560,7 +560,16 @@ def evaluate_coiled_cobra(
         return None
 
     latest = df.iloc[-1]
-    required_cols = ("Close", "EMA50", "MACD", "ATR", "TT_EMA_S1", "TT_EMA_S2", "TT_EMA_FAST", "TT_EMA_SLOW")
+    required_cols = (
+        "Close",
+        "EMA50",
+        "MACD",
+        "ATR",
+        "TT_EMA_S1",
+        "TT_EMA_S2",
+        "TT_EMA_FAST",
+        "TT_EMA_SLOW",
+    )
     if any(pd.isna(latest.get(col)) for col in required_cols):
         return None
 
@@ -576,10 +585,12 @@ def evaluate_coiled_cobra(
     tt_fast, tt_slow = float(latest["TT_EMA_FAST"]), float(latest["TT_EMA_SLOW"])
     prior_slow = (
         df["TT_EMA_SLOW"].iloc[-(TREND_RISING_LOOKBACK + 1)]
-        if len(df) > TREND_RISING_LOOKBACK else None
+        if len(df) > TREND_RISING_LOOKBACK
+        else None
     )
     trend_ok = (
-        prior_slow is not None and pd.notna(prior_slow)
+        prior_slow is not None
+        and pd.notna(prior_slow)
         and current_price > tt_fast > tt_slow
         and tt_slow > float(prior_slow)
     )
@@ -653,7 +664,7 @@ def evaluate_coiled_cobra(
     passes_threshold = score >= MIN_PASS_SCORE
 
     # --- Stage 3: Actionable vs Watchlist tiering ---------------------------
-    coil_window = df.iloc[-(COIL_BARS + 1):-1] if len(df) > COIL_BARS else df.iloc[:-1]
+    coil_window = df.iloc[-(COIL_BARS + 1) : -1] if len(df) > COIL_BARS else df.iloc[:-1]
     coil_high = float(coil_window["High"].max()) if not coil_window.empty else None
     breaking_out = coil_high is not None and current_price > coil_high
     tier = None
@@ -764,8 +775,12 @@ def run_scanner(as_of: str | None = None):
     qqq_df = load_benchmark_frame(BENCHMARK, _data_mode)
     spy_df = load_benchmark_frame(SPY_BENCHMARK, _data_mode)
     if as_of:
-        qqq_df = config.cut_to_as_of(qqq_df, as_of, weekly=weekly_bars) if qqq_df is not None else None
-        spy_df = config.cut_to_as_of(spy_df, as_of, weekly=weekly_bars) if spy_df is not None else None
+        qqq_df = (
+            config.cut_to_as_of(qqq_df, as_of, weekly=weekly_bars) if qqq_df is not None else None
+        )
+        spy_df = (
+            config.cut_to_as_of(spy_df, as_of, weekly=weekly_bars) if spy_df is not None else None
+        )
     if qqq_df is None:
         logger.warning(
             f"Benchmark {BENCHMARK} unavailable in {_data_mode} raw data — RS pillar will score 0."
@@ -787,9 +802,7 @@ def run_scanner(as_of: str | None = None):
         symbol = file.split(".")[0].split("_")[0].upper()
 
         if symbol not in active_tickers:
-            rejection_counts["inactive_ticker"] = (
-                rejection_counts.get("inactive_ticker", 0) + 1
-            )
+            rejection_counts["inactive_ticker"] = rejection_counts.get("inactive_ticker", 0) + 1
             continue
 
         path = os.path.join(RAW_DATA_DIR, file)
@@ -798,9 +811,7 @@ def run_scanner(as_of: str | None = None):
         try:
             df = config.validate_and_clean_ohlcv(df, require_volume=True)
         except ValueError:
-            rejection_counts["missing_columns"] = (
-                rejection_counts.get("missing_columns", 0) + 1
-            )
+            rejection_counts["missing_columns"] = rejection_counts.get("missing_columns", 0) + 1
             continue
 
         if as_of:
@@ -814,9 +825,7 @@ def run_scanner(as_of: str | None = None):
 
         try:
             df = add_macro_indicators(df)
-            setup = evaluate_coiled_cobra(
-                df, qqq_df, spy_df=spy_df, qqq_df=qqq_df
-            )
+            setup = evaluate_coiled_cobra(df, qqq_df, spy_df=spy_df, qqq_df=qqq_df)
 
             if not setup:
                 rejection_counts["IGNORE"] = rejection_counts.get("IGNORE", 0) + 1
@@ -837,47 +846,51 @@ def run_scanner(as_of: str | None = None):
             fib786_v = float(latest["Fib_786"]) if pd.notna(latest.get("Fib_786")) else None
 
             row = config.blank_setup_row()
-            row.update({
-                "Symbol": symbol,
-                "Setup Type": "SETUP_LONG",
-                "Source": "coiled_cobra",
-                "Mode": mode,
-                "AsOf Date": asof,
-                "Close": round(close_v, 2),
-                "EMA20": round(ema20_v, 2),
-                "EMA50": round(ema50_v, 2),
-                "ATR": round(atr_v, 2),
-                "RSI": round(float(latest["RSI"]), 2) if pd.notna(latest["RSI"]) else None,
-                # Local 10-session floor for dual-constraint stops (not year Fib).
-                "Swing Low": round(local_swing_low(df), 2),
-                "Notes": setup["Grade"],
-                "Score": setup["Score"],
-                "Grade": setup["Grade"],
-                "Tier": setup.get("Tier"),
-                "Checks Met": setup["Checks Met"],
-                "Fib 61.8%": round(fib618_v, 2) if fib618_v is not None else None,
-                "Fib 78.6%": round(fib786_v, 2) if fib786_v is not None else None,
-                "Fib Score": setup["Fib Score"],
-                "MACD": round(float(latest["MACD"]), 2),
-                "MACD Signal": round(float(latest["MACD_Signal"]), 2),
-                "RS 63d": setup.get("RS 63d"),
-                # Pre-signal ML features (parity with backtest / training).
-                "Pct_From_EMA20": round((close_v - ema20_v) / ema20_v, 4) if ema20_v else None,
-                "Pct_From_EMA50": round((close_v - ema50_v) / ema50_v, 4) if ema50_v else None,
-                "Pct_From_Fib618": round((close_v - fib618_v) / fib618_v, 4) if fib618_v else None,
-                "Pct_From_Fib786": round((close_v - fib786_v) / fib786_v, 4) if fib786_v else None,
-                "ATR_Pct": round(atr_v / close_v, 4) if close_v else None,
-                "RVOL": setup.get("RVOL"),
-                "Market Gate": setup.get("Market Gate"),
-                "Regime OK": setup.get("Market Gate"),
-            })
+            row.update(
+                {
+                    "Symbol": symbol,
+                    "Setup Type": "SETUP_LONG",
+                    "Source": "coiled_cobra",
+                    "Mode": mode,
+                    "AsOf Date": asof,
+                    "Close": round(close_v, 2),
+                    "EMA20": round(ema20_v, 2),
+                    "EMA50": round(ema50_v, 2),
+                    "ATR": round(atr_v, 2),
+                    "RSI": round(float(latest["RSI"]), 2) if pd.notna(latest["RSI"]) else None,
+                    # Local 10-session floor for dual-constraint stops (not year Fib).
+                    "Swing Low": round(local_swing_low(df), 2),
+                    "Notes": setup["Grade"],
+                    "Score": setup["Score"],
+                    "Grade": setup["Grade"],
+                    "Tier": setup.get("Tier"),
+                    "Checks Met": setup["Checks Met"],
+                    "Fib 61.8%": round(fib618_v, 2) if fib618_v is not None else None,
+                    "Fib 78.6%": round(fib786_v, 2) if fib786_v is not None else None,
+                    "Fib Score": setup["Fib Score"],
+                    "MACD": round(float(latest["MACD"]), 2),
+                    "MACD Signal": round(float(latest["MACD_Signal"]), 2),
+                    "RS 63d": setup.get("RS 63d"),
+                    # Pre-signal ML features (parity with backtest / training).
+                    "Pct_From_EMA20": round((close_v - ema20_v) / ema20_v, 4) if ema20_v else None,
+                    "Pct_From_EMA50": round((close_v - ema50_v) / ema50_v, 4) if ema50_v else None,
+                    "Pct_From_Fib618": round((close_v - fib618_v) / fib618_v, 4)
+                    if fib618_v
+                    else None,
+                    "Pct_From_Fib786": round((close_v - fib786_v) / fib786_v, 4)
+                    if fib786_v
+                    else None,
+                    "ATR_Pct": round(atr_v / close_v, 4) if close_v else None,
+                    "RVOL": setup.get("RVOL"),
+                    "Market Gate": setup.get("Market Gate"),
+                    "Regime OK": setup.get("Market Gate"),
+                }
+            )
             results.append(row)
 
         except Exception as e:
             logger.error(f"Error scoring {symbol}: {e!s}")
-            rejection_counts["execution_error"] = (
-                rejection_counts.get("execution_error", 0) + 1
-            )
+            rejection_counts["execution_error"] = rejection_counts.get("execution_error", 0) + 1
 
     today = config.run_stamp(as_of)
     out_path = os.path.join(LOG_DIR, f"coiled_cobra_setups_{today}.csv")
@@ -892,6 +905,7 @@ def run_scanner(as_of: str | None = None):
         # when no model artifact is available or features are unusable.
         try:
             from finance_vibe.ml_ranker import ML_PRED_COL, attach_ml_ranks
+
             df_out = attach_ml_ranks(df_out, mode)
             if df_out[ML_PRED_COL].notna().any():
                 logger.info("ML ranks attached to scan results.")
@@ -905,9 +919,7 @@ def run_scanner(as_of: str | None = None):
         df_out = df_out.reindex(columns=config.SETUP_ROW_COLUMNS)
         print("\n" + df_out.to_markdown(index=False) + "\n")
     else:
-        logger.warning(
-            "No high-confluence Coiled Cobra coil setups detected across watchlists."
-        )
+        logger.warning("No high-confluence Coiled Cobra coil setups detected across watchlists.")
 
     df_out.to_csv(out_path, index=False)
     logger.info(f"Archive logged successfully to: {out_path} ({len(df_out)} setup(s))")

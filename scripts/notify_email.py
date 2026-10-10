@@ -11,6 +11,7 @@ SMTP_USE_TLS, EMAIL_FROM, EMAIL_TO (comma-separated).
 
 Exit codes: 0 sent, 2 not configured, 1 send failed.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -60,9 +61,13 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--subject", required=True)
     ap.add_argument("--body", default="", help="Message text placed before the file excerpt")
-    ap.add_argument("--body-file", help="Append the last --tail lines of this file (e.g. the run log)")
+    ap.add_argument(
+        "--body-file", help="Append the last --tail lines of this file (e.g. the run log)"
+    )
     ap.add_argument("--tail", type=int, default=80)
-    ap.add_argument("--env-file", default=os.environ.get("FINANCE_VIBE_NOTIFY_ENV", str(DEFAULT_ENV)))
+    ap.add_argument(
+        "--env-file", default=os.environ.get("FINANCE_VIBE_NOTIFY_ENV", str(DEFAULT_ENV))
+    )
     args = ap.parse_args(argv)
 
     cfg = load_env(Path(args.env_file))
@@ -73,8 +78,14 @@ def main(argv: list[str] | None = None) -> int:
     body = args.body
     if args.body_file:
         path = Path(args.body_file)
-        lines = path.read_text(errors="replace").splitlines() if path.is_file() else ["(log file missing)"]
-        body += f"\n\nLast {min(args.tail, len(lines))} lines of {path}:\n\n" + "\n".join(lines[-args.tail:])
+        lines = (
+            path.read_text(errors="replace").splitlines()
+            if path.is_file()
+            else ["(log file missing)"]
+        )
+        body += f"\n\nLast {min(args.tail, len(lines))} lines of {path}:\n\n" + "\n".join(
+            lines[-args.tail :]
+        )
     try:
         send(cfg, build_message(cfg, args.subject, body))
     except Exception as exc:  # report, never raise into the caller's error path

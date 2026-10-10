@@ -1,4 +1,5 @@
 """Flask blueprint that renders the local docs/ tree as HTML."""
+
 from __future__ import annotations
 
 import os
