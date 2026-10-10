@@ -60,11 +60,13 @@ testpaths = ["tests"]
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
-extend-exclude = ["notebooks"]  # exploration only, not part of the pipeline
+# notebooks: exploration only. docs: hand-written prose; leave its code blocks alone.
+extend-exclude = ["notebooks", "docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "PD", "RUF"]
 ignore = [
+    "E501",    # ruff format owns line length; long strings/docstrings stay as written
     "RUF001", "RUF002", "RUF003",  # intentional unicode (arrows, x, dashes) in text
     "RUF046",  # int(round(np.float64)) is not a redundant cast: numpy returns float
     "PD008",   # .at is the fast scalar accessor; keep it
