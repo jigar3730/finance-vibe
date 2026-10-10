@@ -1,0 +1,5 @@
+# Formatting-only commits. Use with:
+#   git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# ruff format (Phase 2)
+7727005422b5cb7b2d1f22e8d99414c93813b87d
