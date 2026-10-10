@@ -237,6 +237,32 @@ def add_macro_indicators(df: pd.DataFrame, lookback: int | None = None) -> pd.Da
     return out
 
 
+def macro_indicator_history(df: pd.DataFrame, lookback: int | None = None) -> pd.DataFrame:
+    """``add_macro_indicators`` for every prefix of ``df`` in one pass.
+
+    Row ``t`` equals ``add_macro_indicators(df.iloc[: t + 1]).iloc[t]`` bit for
+    bit for every ``t >= 50`` (past the longest SMA window; see
+    ``indicators.sma`` for the one-row edge case), so a walk-forward can slice
+    this instead of recomputing per bar (O(n) instead of O(n^2)). Scoring
+    starts far later (``MIN_BARS_FULL_SCORE``). Every indicator is a causal recurrence or a
+    trailing window, except one pandas_ta quirk: ATR adds float epsilon to the
+    whole range series once *any* bar is flat, so a later flat bar would leak
+    into earlier ATR values. Rows before the first flat bar therefore get the
+    epsilon-free ATR. ``tests/test_macro_indicator_history.py`` checks the
+    prefix property.
+    """
+    out = add_macro_indicators(df, lookback)
+    flat = (out["High"] - out["Low"]).eq(0).to_numpy()
+    if flat.any():
+        first_flat = int(np.argmax(flat))
+        no_eps = indicators.atr(
+            out["High"], out["Low"], out["Close"], length=14, flat_epsilon=False
+        )
+        if no_eps is not None and first_flat > 0:
+            out.loc[out.index[:first_flat], "ATR"] = no_eps.iloc[:first_flat].to_numpy()
+    return out
+
+
 # =========================
 # STRUCTURAL LAYER FILTER (AMT)
 # =========================

@@ -29,15 +29,23 @@ def _too_short(*series: pd.Series, length: int) -> bool:
     return any(s is None or s.size < length for s in series)
 
 
-def _non_zero_range(x: pd.Series, y: pd.Series) -> pd.Series:
+def _non_zero_range(x: pd.Series, y: pd.Series, epsilon: bool | None = None) -> pd.Series:
+    """``x - y``, plus float epsilon everywhere if any difference is 0 (``epsilon=None``)."""
     diff = x - y
-    if diff.eq(0).any():
+    if epsilon is None:
+        epsilon = bool(diff.eq(0).any())
+    if epsilon:
         diff += _EPS
     return diff
 
 
 def sma(close: pd.Series, length: int) -> pd.Series | None:
-    """Simple moving average (pandas_ta computes it as a convolution)."""
+    """Simple moving average, computed as pandas_ta does (a convolution).
+
+    When the series is exactly ``length`` long, numpy sums the single window in
+    reverse order, so that one value can differ in the last bit from the same
+    window inside a longer series. Every other window is prefix-stable.
+    """
     if _too_short(close, length=length):
         return None
     values = np.convolve(np.ones(length) / length, close.to_numpy(dtype="float64"))
@@ -80,22 +88,35 @@ def rsi(close: pd.Series, length: int = 14) -> pd.Series | None:
     return out
 
 
-def true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series | None:
+def true_range(
+    high: pd.Series, low: pd.Series, close: pd.Series, *, flat_epsilon: bool | None = None
+) -> pd.Series | None:
+    """``flat_epsilon=None`` adds epsilon to every High-Low range when any bar is
+    flat (pandas_ta). That depends on *all* bars, later ones included; pass
+    False/True to fix it (see ``coiled_cobra.macro_indicator_history``)."""
     if _too_short(high, low, close, length=1):
         return None
     prev_close = close.shift(1)
-    ranges = pd.concat([_non_zero_range(high, low), high - prev_close, prev_close - low], axis=1)
+    hl = _non_zero_range(high, low, flat_epsilon)
+    ranges = pd.concat([hl, high - prev_close, prev_close - low], axis=1)
     out = ranges.abs().max(axis=1)
     if out.isna().all():
         return None
     return out
 
 
-def atr(high: pd.Series, low: pd.Series, close: pd.Series, length: int = 14) -> pd.Series | None:
-    """Average true range: SMA-seeded RMA of the true range."""
+def atr(
+    high: pd.Series,
+    low: pd.Series,
+    close: pd.Series,
+    length: int = 14,
+    *,
+    flat_epsilon: bool | None = None,
+) -> pd.Series | None:
+    """Average true range: SMA-seeded RMA of the true range (``flat_epsilon``: see true_range)."""
     if _too_short(high, low, close, length=length + 1):
         return None
-    tr = true_range(high, low, close)
+    tr = true_range(high, low, close, flat_epsilon=flat_epsilon)
     if tr is None:
         return None
     seed = tr.iloc[0:length].mean()

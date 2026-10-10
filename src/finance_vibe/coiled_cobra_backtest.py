@@ -34,21 +34,49 @@ from finance_vibe.trade_simulator import simulate_trade
 logger = logging.getLogger(__name__)
 
 
+def _indicator_history(df: pd.DataFrame) -> pd.DataFrame | None:
+    """Indicators for every bar at once (see cc.macro_indicator_history), or None
+    when they can't be computed; callers then fall back to per-bar windows."""
+    try:
+        return cc.macro_indicator_history(df)
+    except Exception:  # per-ticker; the per-bar path reproduces the old behaviour
+        return None
+
+
+def _walk_windows(df: pd.DataFrame, start: int, stop: int):
+    """Yield ``(idx, window, precomputed)`` for bars ``start..stop-1`` (causal)."""
+    hist = _indicator_history(df)
+    for idx in range(start, stop):
+        if hist is not None:
+            yield idx, hist.iloc[: idx + 1], True
+        else:
+            yield idx, df.iloc[: idx + 1], False
+
+
 def detect_cobra_setup_at_bar(
     df: pd.DataFrame,
     symbol: str,
     benchmark_df=None,
     spy_df=None,
+    *,
+    precomputed: bool = False,
 ) -> dict | None:
-    """Evaluate the latest bar in a history window for a Coiled Cobra coil setup."""
+    """Evaluate the latest bar in a history window for a Coiled Cobra coil setup.
+
+    ``precomputed=True``: ``df`` already holds the macro indicators (a slice of
+    ``cc.macro_indicator_history``), so they are not recomputed.
+    """
     if len(df) < cc.LOOKBACK // 2 + 15:
         return None
 
-    window = df.copy()
-    try:
-        window = add_macro_indicators(window)
-    except Exception:
-        return None
+    if precomputed:
+        window = df
+    else:
+        window = df.copy()
+        try:
+            window = add_macro_indicators(window)
+        except Exception:
+            return None
 
     if len(window) < 2:
         return None
@@ -216,10 +244,9 @@ def backtest_ticker(
     bench_ctx = _benchmark_context(benchmark_df)
 
     min_bars = cc.LOOKBACK // 2 + 15
-    for idx in range(min_bars, len(df) - 1):
-        window = df.iloc[: idx + 1]
+    for idx, window, precomputed in _walk_windows(df, min_bars, len(df) - 1):
         setup_row = detect_cobra_setup_at_bar(
-            window, symbol, benchmark_df=benchmark_df, spy_df=spy_df
+            window, symbol, benchmark_df=benchmark_df, spy_df=spy_df, precomputed=precomputed
         )
         if not setup_row:
             continue
@@ -363,12 +390,13 @@ def _backfill_ticker_worker(path: str) -> tuple[str, list[dict]]:
     rows: list[dict] = []
     min_bars = cc.LOOKBACK // 2 + 15
     try:
-        for idx in range(min_bars, len(df)):
+        for _idx, window, precomputed in _walk_windows(df, min_bars, len(df)):
             setup = detect_cobra_setup_at_bar(
-                df.iloc[: idx + 1],
+                window,
                 symbol,
                 benchmark_df=_WORKER_BENCHMARK_DF,
                 spy_df=_WORKER_SPY_DF,
+                precomputed=precomputed,
             )
             if setup:
                 rows.append(setup)

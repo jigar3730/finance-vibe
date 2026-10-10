@@ -322,10 +322,14 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], list[dict], dict]:
     bench, spy = cbt._WORKER_BENCHMARK_DF, cbt._WORKER_SPY_DF
     prior_col = "TT_EMA_SLOW"
     rows: list[dict] = []
+    hist = cbt._indicator_history(df)
     for idx in range(cc.MIN_BARS_FULL_SCORE - 1, len(df) - 1):  # need a next bar to enter
         control = bool(rng.random() < P_CONTROL)  # draw every bar: deterministic
         try:
-            window = add_macro_indicators(df.iloc[: idx + 1].copy())
+            if hist is not None:
+                window = hist.iloc[: idx + 1]
+            else:
+                window = add_macro_indicators(df.iloc[: idx + 1].copy())
             res = evaluate_coiled_cobra(
                 window, bench, spy_df=spy, qqq_df=bench, include_rejects=True
             )

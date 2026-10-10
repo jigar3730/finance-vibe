@@ -1164,6 +1164,14 @@ def _is_display_candidate(row: dict) -> bool:
     return score is not None and score >= floor
 
 
+def _display_mask(df: pd.DataFrame) -> pd.Series:
+    """Vectorized ``_is_display_candidate`` over a scan frame."""
+    status = df["Status"]
+    floor = status.map(DISPLAY_SCORE_FLOOR)
+    score = pd.to_numeric(df["Breakout Readiness"], errors="coerce")
+    return status.isin(CANDIDATE_STATUSES) | (score >= floor)
+
+
 def _sort_candidates(df: pd.DataFrame) -> pd.DataFrame:
     rank = {
         STATUS_PRE: 0,
@@ -1300,11 +1308,7 @@ def run_scanner(as_of: str | None = None) -> pd.DataFrame:
     df_out.to_csv(out_path, index=False)
     logger.info("Archive created: %s (%s row(s))", out_path, len(df_out))
 
-    display = (
-        df_out[df_out.apply(lambda r: _is_display_candidate(r.to_dict()), axis=1)]
-        if not df_out.empty
-        else df_out
-    )
+    display = df_out[_display_mask(df_out)] if not df_out.empty else df_out
     if display.empty:
         logger.warning("No breakout setup candidates to display for this window.")
     else:

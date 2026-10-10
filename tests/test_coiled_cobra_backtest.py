@@ -51,7 +51,7 @@ def test_coiled_cobra_backtest_ticker_records_trade(tmp_path, monkeypatch):
         assert str(file_path) == str(path)
         return pd.read_csv(file_path)
 
-    def fake_detect_cobra_setup_at_bar(window, ticker, benchmark_df=None, spy_df=None):
+    def fake_detect_cobra_setup_at_bar(window, ticker, benchmark_df=None, spy_df=None, **_kw):
         if len(window) == 68:
             return {
                 "Symbol": symbol,
@@ -111,7 +111,7 @@ def _bench_backtest(tmp_path, monkeypatch, bench_close):
         else pd.DataFrame({"Date": dates, "Close": bench_close, "EMA50": 190.0})
     )
 
-    def fake_detect(window, ticker, benchmark_df=None, spy_df=None):
+    def fake_detect(window, ticker, benchmark_df=None, spy_df=None, **_kw):
         if len(window) != 68:
             return None
         return {
