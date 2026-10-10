@@ -17,6 +17,9 @@ from finance_vibe.analysis_engine import (
     relative_strength,
 )
 from finance_vibe.config import AsOf
+from finance_vibe.log import setup_logging
+
+logger = logging.getLogger(__name__)
 
 # =========================
 # PROFILE CONFIGURATION
@@ -24,7 +27,7 @@ from finance_vibe.config import AsOf
 if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
     mode = sys.argv[1].lower()
 else:
-    print("⚠️ Unknown mode parsed to scanner. Defaulting to 'weekly'.")
+    logger.warning("Unknown mode parsed to scanner. Defaulting to 'weekly'.")
     mode = "weekly"
 
 # Data timeframe and signal profile (identical for weekly/daily).
@@ -162,12 +165,6 @@ ACTIVE_TICKERS_PATH = os.path.join(BASE_DIR, "data", "active_tickers.csv")
 LOG_DIR = config.get_log_dir(mode)
 
 os.makedirs(LOG_DIR, exist_ok=True)
-
-# =========================
-# LOGGING
-# =========================
-logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
-logger = logging.getLogger(__name__)
 
 # =========================
 # INDICATORS
@@ -939,4 +936,5 @@ def run_scanner(as_of: str | None = None) -> None:
 # ENTRY
 # =========================
 if __name__ == "__main__":
+    setup_logging()
     run_scanner(as_of=config.parse_as_of())

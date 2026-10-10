@@ -68,6 +68,7 @@ from finance_vibe import breakout_scanner as bs
 from finance_vibe import coiled_cobra_leader_experiment as lx
 from finance_vibe import config
 from finance_vibe.analysis_engine import ticker_from_filename
+from finance_vibe.log import setup_logging
 
 MODE = "weekly"  # 10y of weekly bars; same horizon and exits as the leader experiment
 SEED = 20261001
@@ -554,4 +555,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    setup_logging()
     raise SystemExit(main())

@@ -33,6 +33,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from xgboost import XGBRegressor
 
 from finance_vibe import config
+from finance_vibe.log import setup_logging
 
 # ---------------------------------------------------------------------------
 # Column zones (strict isolation — no leakage from post-trade metrics)
@@ -620,6 +621,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    setup_logging()
     try:
         raise SystemExit(main())
     except Exception as exc:  # pragma: no cover - CLI surface

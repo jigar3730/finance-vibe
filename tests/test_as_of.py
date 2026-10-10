@@ -294,10 +294,10 @@ def test_helper_strict_lookup_refuses_to_fall_back_to_another_weeks_plan():
         tph.resolve_trade_plan_path("weekly", today="1999-01-01", strict=True)
 
 
-def test_helper_main_validates_and_reports_missing_plan(capsys):
+def test_helper_main_validates_and_reports_missing_plan(caplog):
     assert tph.main(["weekly", "--as-of", "not-a-date"]) == 2
     assert tph.main(["weekly", "--as-of", "1999-01-01"]) == 1
-    assert "not found" in capsys.readouterr().out
+    assert "not found" in caplog.text
 
 
 # ---------------------------------------------------------------------------

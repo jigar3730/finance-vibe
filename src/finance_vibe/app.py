@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import glob
+import logging
 import os
 from datetime import datetime
 
@@ -11,6 +12,9 @@ import yfinance as yf
 from flask import Flask, abort, render_template, request
 
 from finance_vibe.docs_routes import docs_bp
+from finance_vibe.log import setup_logging
+
+logger = logging.getLogger(__name__)
 
 # Ensure absolute paths resolve relative to the project root
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
@@ -180,7 +184,7 @@ def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
                 prices[sym] = "N/A"  # Fallback if ticker data fetch fails
         return prices
     except Exception as e:
-        print(f"Error fetching live prices: {e}")
+        logger.warning(f"Error fetching live prices: {e}")
         return {sym: "N/A" for sym in symbols}
 
 
@@ -391,12 +395,13 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
 
 def main() -> None:
     """Serve the dashboard (``finance-vibe-app`` console script)."""
+    setup_logging()
     # Ensure standard fallback logs dirs exist locally
     for path in list(MODES.values()) + list(BREAKOUT_MODES.values()):
         os.makedirs(path, exist_ok=True)
 
     debug = os.environ.get("FLASK_DEBUG", "0").lower() in ("1", "true", "yes")
-    print("🚀 Launching Upgraded Finance Vibe UI Dashboard Context...")
+    logger.info("🚀 Launching Upgraded Finance Vibe UI Dashboard Context...")
     app.run(host="0.0.0.0", port=5000, debug=debug)
 
 

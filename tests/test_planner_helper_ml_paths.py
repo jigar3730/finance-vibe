@@ -9,6 +9,7 @@ that planner geometry always satisfies the helper's guardrails (v4.0 rubric:
 T1 = 2R, T2 = 3R, risk <= MAX_RISK_PCT_OF_CLOSE, Gate D 4/6).
 """
 
+import logging
 import warnings
 
 import numpy as np
@@ -355,16 +356,17 @@ def test_planner_passes_active_ml_values_through_unchanged(pipeline_dir):
     assert list(plan["ML_Rank"]) == [4, 1, 3, 2]
 
 
-def test_roundtrip_null_ml_ranks_by_score_quietly(pipeline_dir, capsys):
+def test_roundtrip_null_ml_ranks_by_score_quietly(pipeline_dir, caplog):
     _plan(pipeline_dir, _scanner_frame())
-    capsys.readouterr()
+    caplog.set_level(logging.INFO)
+    caplog.clear()
 
     cm = _no_warnings()
     try:
         out = process_trade_plan("weekly", today=DATE)
     finally:
         cm.__exit__(None, None, None)
-    text = capsys.readouterr().out
+    text = caplog.text
     clean = pd.read_csv(out)
 
     assert list(clean["Symbol"]) == SYMS  # nothing spuriously dropped
@@ -376,29 +378,32 @@ def test_roundtrip_null_ml_ranks_by_score_quietly(pipeline_dir, capsys):
     assert list(clean.columns) == [c for c in CLEAN_EXPORT_COLUMNS if c in clean.columns]
 
 
-def test_roundtrip_predictions_ignored_while_switch_off(pipeline_dir, capsys):
+def test_roundtrip_predictions_ignored_while_switch_off(pipeline_dir, caplog):
     _plan(pipeline_dir, _scanner_frame(ml_pred=[0.01, 0.09, 0.02, 0.05]))
-    capsys.readouterr()
+    caplog.set_level(logging.INFO)
+    caplog.clear()
     clean = pd.read_csv(process_trade_plan("weekly", today=DATE))
-    text = capsys.readouterr().out
+    text = caplog.text
     assert list(clean["Symbol"]) == SYMS
     assert "Ignoring 4 ML prediction(s)" in text and "disabled" in text
 
 
-def test_roundtrip_active_ml_ranks_by_prediction(pipeline_dir, capsys, ml_on):
+def test_roundtrip_active_ml_ranks_by_prediction(pipeline_dir, caplog, ml_on):
     _plan(pipeline_dir, _scanner_frame(ml_pred=[0.01, 0.05, 0.02, 0.03], ml_rank=[4, 1, 3, 2]))
-    capsys.readouterr()
+    caplog.set_level(logging.INFO)
+    caplog.clear()
     clean = pd.read_csv(process_trade_plan("weekly", today=DATE))
-    text = capsys.readouterr().out
+    text = caplog.text
     assert list(clean["Symbol"]) == ["B", "D", "C", "A"]
     assert "ML predicted return" in text
 
 
-def test_roundtrip_incomplete_ml_falls_back_and_says_why(pipeline_dir, capsys, ml_on):
+def test_roundtrip_incomplete_ml_falls_back_and_says_why(pipeline_dir, caplog, ml_on):
     _plan(pipeline_dir, _scanner_frame(ml_pred=[np.nan, 0.05, 0.02, 0.03]))
-    capsys.readouterr()
+    caplog.set_level(logging.INFO)
+    caplog.clear()
     clean = pd.read_csv(process_trade_plan("weekly", today=DATE))
-    text = capsys.readouterr().out
+    text = caplog.text
     assert list(clean["Symbol"]) == SYMS
     assert "incomplete (3/4 rows)" in text
 

@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import time
@@ -8,6 +9,9 @@ import pandas as pd
 import yfinance as yf
 
 from finance_vibe import config
+from finance_vibe.log import setup_logging
+
+logger = logging.getLogger(__name__)
 
 
 def _log_ingest_error(logs_dir: str, ticker: str, message: str) -> None:
@@ -68,7 +72,9 @@ def _download_batch(
             if attempt == retries:
                 break
             sleep_s = backoff**attempt
-            print(f"⚠️ Batch download failed ({e}); retry {attempt}/{retries} in {sleep_s:.0f}s")
+            logger.warning(
+                f"Batch download failed ({e}); retry {attempt}/{retries} in {sleep_s:.0f}s"
+            )
             time.sleep(sleep_s)
     if last_err is None:
         raise ValueError(f"retries must be >= 1, got {retries}")
@@ -125,7 +131,9 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
     INTERVAL = mode_cfg["interval"]
 
     if not os.path.exists(csv_path):
-        print(f"❌ Could not find ticker list at {csv_path}. Please run ticker_provider.py first.")
+        logger.error(
+            f"Could not find ticker list at {csv_path}. Please run ticker_provider.py first."
+        )
         return
 
     # Ensure targeted sub-silo raw data directory exists
@@ -134,8 +142,8 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
     # Read tickers and drop any duplicates/NaNs
     tickers = pd.read_csv(csv_path)["Ticker"].dropna().unique().tolist()
 
-    print(f"\n--- STEP 2: Ingesting [{mode.upper()}] {PERIOD} {INTERVAL} data ---")
-    print(f"Target Directory: {raw_dir}")
+    logger.info(f"--- STEP 2: Ingesting [{mode.upper()}] {PERIOD} {INTERVAL} data ---")
+    logger.info(f"Target Directory: {raw_dir}")
 
     saved = 0
     rejected = 0
@@ -149,19 +157,20 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
         except Exception as e:
             # Batch failed after all retries: log once per ticker and move on
             # rather than letting one throttled/hung batch stall ingestion.
-            print(f"❌ Batch [{chunk_start}:{chunk_start + len(chunk)}] failed after retries: {e}")
+            logger.error(
+                f"Batch [{chunk_start}:{chunk_start + len(chunk)}] failed after retries: {e}"
+            )
             for ticker in chunk:
                 _log_ingest_error(logs_dir, ticker, f"batch_exception:{e}")
             rejected += len(chunk)
             continue
 
         for ticker in chunk:
-            print(f"Processing {ticker:6}...", end=" ", flush=True)
             try:
                 df = _ticker_frame(batch, ticker)
 
                 if df is None or df.empty:
-                    print("⚠️ No data found.")
+                    logger.warning(f"{ticker}: no data found.")
                     _log_ingest_error(logs_dir, ticker, "empty_download")
                     rejected += 1
                     continue
@@ -182,7 +191,9 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
                 clean = config.validate_and_clean_ohlcv(df, require_volume=True)
 
                 if len(clean) < config.MIN_SAVE_ROWS:
-                    print(f"⚠️ Only {len(clean)} valid rows (< {config.MIN_SAVE_ROWS}). Skipped.")
+                    logger.warning(
+                        f"{ticker}: only {len(clean)} valid rows (< {config.MIN_SAVE_ROWS}). Skipped."
+                    )
                     _log_ingest_error(
                         logs_dir, ticker, f"insufficient_rows:{len(clean)}<{config.MIN_SAVE_ROWS}"
                     )
@@ -192,25 +203,26 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
                 # --- 5. SAVE ---
                 save_path = config.get_raw_path(ticker, mode_cfg)
                 clean.to_csv(save_path, index=False)
-                print(f"✅ {os.path.basename(save_path)}")
+                logger.info(f"{ticker}: saved {os.path.basename(save_path)}")
                 saved += 1
 
             except ValueError as e:
                 # Schema/validation failure from validate_and_clean_ohlcv
-                print(f"❌ Validation: {e}")
+                logger.warning(f"{ticker}: validation: {e}")
                 _log_ingest_error(logs_dir, ticker, f"validation:{e}")
                 rejected += 1
             except Exception as e:
-                print(f"❌ Error: {e}")
+                logger.error(f"{ticker}: error: {e}")
                 _log_ingest_error(logs_dir, ticker, f"exception:{e}")
                 rejected += 1
 
-    print(f"\n📊 Ingestion summary: {saved} saved, {rejected} rejected.")
+    logger.info(f"📊 Ingestion summary: {saved} saved, {rejected} rejected.")
     if rejected:
-        print(f"   Failure log: {os.path.join(logs_dir, 'ingest_errors_<date>.csv')}")
+        logger.info(f"   Failure log: {os.path.join(logs_dir, 'ingest_errors_<date>.csv')}")
 
 
 if __name__ == "__main__":
+    setup_logging()
     # Check for CLI argument, otherwise default to weekly execution
     selected_mode = "weekly"
     if len(sys.argv) > 1:
@@ -218,6 +230,6 @@ if __name__ == "__main__":
         if arg_mode in ["weekly", "daily"]:
             selected_mode = arg_mode
         else:
-            print(f"⚠️ Unknown mode '{arg_mode}'. Defaulting to 'weekly'.")
+            logger.warning(f"Unknown mode '{arg_mode}'. Defaulting to 'weekly'.")
 
     ingest_market_data(mode=selected_mode)

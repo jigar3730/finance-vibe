@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 
 from finance_vibe import coiled_cobra_ml_training as trn
+from finance_vibe.log import setup_logging
 
 DATE_COL = trn.DATE_COL
 TARGET_COL = trn.TARGET_COL
@@ -465,6 +466,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    setup_logging()
     try:
         raise SystemExit(main())
     except Exception as exc:  # pragma: no cover - CLI surface

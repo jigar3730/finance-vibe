@@ -25,6 +25,7 @@ from finance_vibe.coiled_cobra import (
     evaluate_coiled_cobra,
     local_swing_low,
 )
+from finance_vibe.log import setup_logging
 from finance_vibe.trade_planner import calculate_stock_levels
 from finance_vibe.trade_simulator import simulate_trade
 
@@ -496,4 +497,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    setup_logging()
     raise SystemExit(main())

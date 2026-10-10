@@ -9,6 +9,7 @@ Full rubric: docs/handbook/scoring_logic.md.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from collections.abc import Iterable
@@ -20,6 +21,9 @@ import pandas as pd
 
 from finance_vibe import config
 from finance_vibe.config import AsOf
+from finance_vibe.log import setup_logging
+
+logger = logging.getLogger(__name__)
 
 # -----------------------------
 # Tunables
@@ -572,13 +576,13 @@ def run_scan(
     raw_dir = mode_cfg["raw_dir"]
     logs_dir = mode_cfg["logs_dir"]
 
-    print(f"--- STEP 3: Macro Vibe Score Scan [{mode.upper()} MODE] ---")
+    logger.info(f"--- STEP 3: Macro Vibe Score Scan [{mode.upper()} MODE] ---")
     if as_of:
-        print(f"AS-OF replay: {as_of} (bars completed on/before this date only)")
+        logger.info(f"AS-OF replay: {as_of} (bars completed on/before this date only)")
 
     paths = list(iter_raw_csv_paths(raw_dir))
     if not paths:
-        print(f"No CSV files found in {raw_dir}")
+        logger.warning(f"No CSV files found in {raw_dir}")
         return pd.DataFrame()
 
     results: list[ScanRow] = []
@@ -593,11 +597,11 @@ def run_scan(
                 continue
 
     if errors:
-        print(f"⚠️ Skipped {errors} ticker(s) due to load/scoring errors.")
+        logger.warning(f"Skipped {errors} ticker(s) due to load/scoring errors.")
 
     out = pd.DataFrame([r.to_dict() for r in results])
     if out.empty:
-        print("No results.")
+        logger.warning("No results.")
         return out
 
     out = out.sort_values(["Score", "Ticker"], ascending=[False, True]).reset_index(drop=True)
@@ -606,11 +610,12 @@ def run_scan(
     out.to_csv(out_path, index=False)
 
     print(out.head(PRINT_TOP_N).to_markdown(index=False, floatfmt=".2f"))
-    print(f"\n✅ Saved: {out_path}")
+    logger.info(f"✅ Saved: {out_path}")
     return out
 
 
 if __name__ == "__main__":
+    setup_logging()
     cli_mode = config.DEFAULT_MODE
     if len(sys.argv) > 1 and sys.argv[1].lower() in config.TIMEFRAME_PROFILES:
         cli_mode = sys.argv[1].lower()

@@ -10,6 +10,7 @@ writes its usual dated files stamped with it, e.g.
 """
 
 import argparse
+import logging
 import os
 import shutil
 import subprocess
@@ -17,12 +18,16 @@ import sys
 from datetime import date
 from pathlib import Path
 
+from finance_vibe.log import setup_logging
+
+logger = logging.getLogger(__name__)
+
 
 def clean_raw_folder(root_dir, mode):
     """Remove all files in data/raw/{mode}/ before a fresh ingestion run."""
     raw_dir = Path(root_dir) / "data" / "raw" / mode
     if not raw_dir.exists():
-        print(f"⚠️ Raw '{mode}' folder does not exist. Skipping cleanup.")
+        logger.warning(f"Raw '{mode}' folder does not exist. Skipping cleanup.")
         return
 
     for item in raw_dir.iterdir():
@@ -32,13 +37,14 @@ def clean_raw_folder(root_dir, mode):
             elif item.is_dir():
                 shutil.rmtree(item)
         except Exception as e:
-            print(f"❌ Failed to delete {item}: {e}")
+            logger.error(f"Failed to delete {item}: {e}")
 
-    print(f"🧹 Raw '{mode}' folder cleaned.\n")
+    logger.info(f"🧹 Raw '{mode}' folder cleaned.")
 
 
 def run_workflow():
     """Parse CLI args and execute each pipeline stage as a subprocess."""
+    setup_logging()
     parser = argparse.ArgumentParser(description="Finance-Vibe Pipeline Orchestrator")
     parser.add_argument(
         "--mode",
@@ -141,18 +147,17 @@ def run_workflow():
         },
     ]
 
-    print(f"🚀 Starting Finance-Vibe Pipeline [{mode.upper()} MODE]...")
-    print(f"📍 Project Root: {ROOT_DIR}")
+    logger.info(f"🚀 Starting Finance-Vibe Pipeline [{mode.upper()} MODE]...")
+    logger.info(f"📍 Project Root: {ROOT_DIR}")
     if mode != data_mode:
-        print(f"🧬 Data timeframe: {data_mode} | Swing profile: {mode}")
+        logger.info(f"🧬 Data timeframe: {data_mode} | Swing profile: {mode}")
     if as_of:
-        print(f"⏪ AS-OF replay: {as_of} (bars completed on/before this date only)")
+        logger.info(f"⏪ AS-OF replay: {as_of} (bars completed on/before this date only)")
         if data_mode == "weekly" and date.fromisoformat(as_of).weekday() != 4:
-            print("   Note: as-of is not a Friday, so the week in progress is excluded.")
-        print(
+            logger.info("   Note: as-of is not a Friday, so the week in progress is excluded.")
+        logger.info(
             "   Uses today's ticker list and split/dividend-adjusted prices; ML ranking is skipped."
         )
-    print()
 
     skip_ingest = {
         "src/finance_vibe/ticker_provider.py",
@@ -162,21 +167,20 @@ def run_workflow():
 
     # Clean the shared raw silo unless the caller wants to reuse existing OHLCV.
     if reuse_raw:
-        print(f"♻️  Reusing existing raw files in data/raw/{data_mode}/")
-        print()
+        logger.info(f"♻️  Reusing existing raw files in data/raw/{data_mode}/")
     else:
         clean_raw_folder(ROOT_DIR, data_mode)
 
     for script in scripts_config:
         if mode in script.get("skip_modes", []):
-            print(f"⏭️  Skipping {script['path']} for {mode} mode.\n")
+            logger.info(f"⏭️  Skipping {script['path']} for {mode} mode.")
             continue
         if reuse_raw and script["path"] in skip_ingest:
-            print(f"⏭️  Skipping {script['path']} (--reuse-raw).\n")
+            logger.info(f"⏭️  Skipping {script['path']} (--reuse-raw).")
             continue
 
         script_path = os.path.join(ROOT_DIR, script["path"])
-        print(f"🔹 Running: {script['path']}...")
+        logger.info(f"🔹 Running: {script['path']}...")
 
         # Data-scope stages receive the data timeframe; profile-scope stages
         # receive the swing profile.
@@ -190,13 +194,13 @@ def run_workflow():
 
         try:
             subprocess.run(cmd, check=True, env=env, cwd=ROOT_DIR)
-            print(f"✅ Finished: {script['path']}\n")
+            logger.info(f"✅ Finished: {script['path']}")
         except subprocess.CalledProcessError:
-            print(f"❌ Error in {script['path']}. Pipeline halted.")
+            logger.error(f"Error in {script['path']}. Pipeline halted.")
             sys.exit(1)
 
-    print("🏁 Workflow Complete!")
-    print(f"📁 Reports saved to: {os.path.join(ROOT_DIR, 'data', 'logs', mode)}")
+    logger.info("🏁 Workflow Complete!")
+    logger.info(f"📁 Reports saved to: {os.path.join(ROOT_DIR, 'data', 'logs', mode)}")
 
 
 if __name__ == "__main__":

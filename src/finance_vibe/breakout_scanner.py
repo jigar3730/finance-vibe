@@ -34,6 +34,9 @@ import pandas as pd
 import pandas_ta as ta
 
 from finance_vibe import config
+from finance_vibe.log import setup_logging
+
+logger = logging.getLogger(__name__)
 
 # =========================
 # PROFILE CONFIGURATION
@@ -41,7 +44,7 @@ from finance_vibe import config
 if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
     mode = sys.argv[1].lower()
 else:
-    print("⚠️ Unknown mode parsed to scanner. Defaulting to 'weekly'.")
+    logger.warning("Unknown mode parsed to scanner. Defaulting to 'weekly'.")
     mode = "weekly"
 
 _data_mode, _swing_profile = config.resolve_pipeline_mode(mode)
@@ -55,15 +58,6 @@ RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw", _data_mode)
 ACTIVE_TICKERS_PATH = os.path.join(BASE_DIR, "data", "active_tickers.csv")
 LOG_DIR = config.get_log_dir(mode)
 os.makedirs(LOG_DIR, exist_ok=True)
-
-# =========================
-# LOGGING
-# =========================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
-logger = logging.getLogger(__name__)
 
 # =========================
 # CALIBRATION
@@ -1327,4 +1321,5 @@ def run_scanner(as_of: str | None = None) -> pd.DataFrame:
 
 
 if __name__ == "__main__":
+    setup_logging()
     run_scanner(as_of=config.parse_as_of())

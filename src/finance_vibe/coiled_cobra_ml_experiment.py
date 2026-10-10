@@ -36,6 +36,7 @@ from xgboost import XGBRegressor
 
 from finance_vibe import coiled_cobra_ml_training as trn
 from finance_vibe import coiled_cobra_ml_walkforward as wf
+from finance_vibe.log import setup_logging
 
 DATE = trn.DATE_COL
 PRIMARY = "R Multiple"
@@ -431,6 +432,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    setup_logging()
     try:
         raise SystemExit(main())
     except Exception as exc:  # pragma: no cover - CLI surface

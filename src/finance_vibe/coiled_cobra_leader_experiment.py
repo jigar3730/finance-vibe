@@ -69,6 +69,7 @@ from finance_vibe import coiled_cobra_backtest as cbt
 from finance_vibe import config
 from finance_vibe.analysis_engine import load_ohlc_csv, ticker_from_filename
 from finance_vibe.coiled_cobra import add_macro_indicators, evaluate_coiled_cobra, local_swing_low
+from finance_vibe.log import setup_logging
 from finance_vibe.trade_planner import calculate_stock_levels
 from finance_vibe.trade_simulator import simulate_trade
 
@@ -818,4 +819,5 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
+    setup_logging()
     raise SystemExit(main())

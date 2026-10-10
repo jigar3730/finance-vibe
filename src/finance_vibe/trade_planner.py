@@ -8,6 +8,7 @@ days are never reused.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from collections.abc import Mapping
@@ -17,6 +18,9 @@ from typing import Any
 import pandas as pd
 
 from finance_vibe import config
+from finance_vibe.log import setup_logging
+
+logger = logging.getLogger(__name__)
 
 # =========================
 # PROFILE CONFIGURATION
@@ -24,7 +28,7 @@ from finance_vibe import config
 if len(sys.argv) > 1 and sys.argv[1].lower() in ["weekly", "daily"]:
     mode = sys.argv[1].lower()
 else:
-    print("⚠️ Unknown mode parsed to trade planner. Defaulting to 'weekly'.")
+    logger.warning("Unknown mode parsed to trade planner. Defaulting to 'weekly'.")
     mode = "weekly"
 
 # --------- CONFIG ----------
@@ -207,32 +211,32 @@ def generate_trade_plan(
 ) -> pd.DataFrame | None:
     """Build and export a trade plan CSV from today's (or provided) scanner output."""
     today = config.run_stamp(as_of)
-    print(f"--- STEP 5: Ranking Coiled Cobra Signals [{mode.upper()} MODE] ---")
-    print(f"As-of date: {today}")
+    logger.info(f"--- STEP 5: Ranking Coiled Cobra Signals [{mode.upper()} MODE] ---")
+    logger.info(f"As-of date: {today}")
 
     # Auto-detect *today's* Coiled Cobra archive. Prior-day archives are
     # ignored so a zero-hit scan cannot silently reuse last week's setups.
     if scanner_csv_path is None:
         if not SCANNER_DIR.exists():
-            print(f"⚠️ Target scanner directory empty or non-existent: {SCANNER_DIR}")
+            logger.warning(f"Target scanner directory empty or non-existent: {SCANNER_DIR}")
             return None
 
         cobra_today = SCANNER_DIR / f"{COILED_PREFIX}{today}.csv"
         cobra_csv_path = cobra_today if cobra_today.exists() else None
 
         if cobra_csv_path is None:
-            print(f"⚠️ No Coiled Cobra archive for {today}: {cobra_today.name}")
+            logger.warning(f"No Coiled Cobra archive for {today}: {cobra_today.name}")
         else:
-            print(f"Using Coiled Cobra scanner file: {cobra_csv_path}")
+            logger.info(f"Using Coiled Cobra scanner file: {cobra_csv_path}")
     else:
         cobra_csv_path = Path(scanner_csv_path)
-        print(f"Using provided scanner file: {cobra_csv_path}")
+        logger.info(f"Using provided scanner file: {cobra_csv_path}")
 
     output_csv_path = SCANNER_DIR / f"{OUTPUT_PREFIX}{today}.csv"
     os.makedirs(SCANNER_DIR, exist_ok=True)
 
     if cobra_csv_path is None:
-        print(f"⚠️ No setups for {today}. Writing empty trade plan: {output_csv_path}")
+        logger.warning(f"No setups for {today}. Writing empty trade plan: {output_csv_path}")
         empty_df = pd.DataFrame(columns=_PLAN_EXPORT_COLUMNS)
         empty_df.to_csv(output_csv_path, index=False)
         return empty_df
@@ -240,10 +244,10 @@ def generate_trade_plan(
     df = pd.read_csv(cobra_csv_path)
     if "Source" not in df.columns:
         df["Source"] = "coiled_cobra"
-    print(f"Loaded {len(df)} Coiled Cobra setups.")
+    logger.info(f"Loaded {len(df)} Coiled Cobra setups.")
 
     if df.empty:
-        print(f"⚠️ No setups for {today}. Writing empty trade plan: {output_csv_path}")
+        logger.warning(f"No setups for {today}. Writing empty trade plan: {output_csv_path}")
         empty_df = pd.DataFrame(columns=_PLAN_EXPORT_COLUMNS)
         empty_df.to_csv(output_csv_path, index=False)
         return empty_df
@@ -300,10 +304,11 @@ def generate_trade_plan(
     plan_df = pd.DataFrame(plan_rows)
 
     plan_df.to_csv(output_csv_path, index=False)
-    print(f"✅ Trade plan exported successfully to: {output_csv_path}")
+    logger.info(f"✅ Trade plan exported successfully to: {output_csv_path}")
     return plan_df
 
 
 # --------- USAGE ----------
 if __name__ == "__main__":
+    setup_logging()
     generate_trade_plan(as_of=config.parse_as_of())

@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
-import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -15,6 +15,9 @@ import pandas.errors
 
 from finance_vibe import config
 from finance_vibe.coiled_cobra import MIN_CHECKS_MET, N_SCORED_PILLARS
+from finance_vibe.log import setup_logging
+
+logger = logging.getLogger(__name__)
 
 # Ingestion guardrails (Part 3): drop broken / unprofitable rows before ranking.
 MAX_RISK_PCT_OF_CLOSE = config.MAX_RISK_PCT_OF_CLOSE
@@ -254,7 +257,7 @@ def process_trade_plan(
     """
     today_str = today or datetime.now().strftime("%Y-%m-%d")
     trade_plan_dir, scanner_csv = resolve_trade_plan_path(mode, today=today_str, strict=strict)
-    print(f"🎯 Target trade plan file located: {scanner_csv}")
+    logger.info(f"🎯 Target trade plan file located: {scanner_csv}")
 
     # Couple the cleaned-file date to the plan we actually resolved (may be a
     # fallback older than "today").
@@ -263,9 +266,9 @@ def process_trade_plan(
     clean_csv = trade_plan_dir / f"trade_plan_clean_{resolved_date}.csv"
 
     def _finish_empty() -> Path:
-        print("⚠️ Trade plan file is empty. Skipping processing cleanly.")
+        logger.warning("Trade plan file is empty. Skipping processing cleanly.")
         pd.DataFrame(columns=CLEAN_EXPORT_COLUMNS).to_csv(clean_csv, index=False)
-        print(f"✅ Cleaned trade plan saved: {clean_csv}")
+        logger.info(f"✅ Cleaned trade plan saved: {clean_csv}")
         return clean_csv
 
     if scanner_csv.exists() and scanner_csv.stat().st_size == 0:
@@ -276,14 +279,14 @@ def process_trade_plan(
     except pandas.errors.EmptyDataError:
         return _finish_empty()
     except Exception as e:
-        print(f"❌ Error loading file: {e}")
+        logger.error(f"Error loading file: {e}")
         raise SystemExit(1) from e
 
     if df.empty:
         return _finish_empty()
 
     df.columns = df.columns.str.strip()
-    print("✅ Loaded CSV columns:", df.columns.tolist())
+    logger.info(f"✅ Loaded CSV columns: {df.columns.tolist()}")
 
     # Ensure numeric columns are clean
     numeric_cols = ["Stock Entry", "Stock Stop", "Target 1", "Target 2", "Close", "Score"]
@@ -292,7 +295,7 @@ def process_trade_plan(
             df[col] = df[col].astype(str).str.replace(r"[$,]", "", regex=True)
         df[col] = pd.to_numeric(df[col], errors="coerce")
 
-    print("🧮 Calculating Risk-to-Reward distributions...")
+    logger.info("🧮 Calculating Risk-to-Reward distributions...")
     try:
         # Direction-aware: reward is measured toward the trade's target side and
         # risk is always the absolute entry-to-stop distance.
@@ -317,16 +320,15 @@ def process_trade_plan(
             pd.Series(reward_t2, index=df.index, dtype="float") / safe_risk.astype(float)
         ).round(2)
     except Exception:
-        print("❌ Fatal exception caught inside metrics distribution generation engine:")
-        traceback.print_exc()
+        logger.exception("Fatal exception caught inside metrics distribution generation engine:")
         raise SystemExit(1) from None
 
-    print(
+    logger.info(
         f"🛡️ Applying ingestion guardrails (risk ≤5%, "
         f"checklist ≥{MIN_CHECKS_MET}/{N_SCORED_PILLARS}, R:R T1 ≥ 2)..."
     )
     df, filter_stats = _apply_ingestion_filters(df)
-    print(
+    logger.info(
         f"   kept {filter_stats['kept']}/{filter_stats['input']} "
         f"(dropped risk={filter_stats['risk_pct']}, "
         f"checklist={filter_stats['checklist']}, rr_t1={filter_stats['rr_t1']})"
@@ -335,9 +337,11 @@ def process_trade_plan(
     if not df.empty:
         df = rank_by_expected_value(df)
         if ml_priority_active(df):
-            print("📊 Ranked survivors by ML predicted return × R:R T2 with coil propensity.")
+            logger.info("📊 Ranked survivors by ML predicted return × R:R T2 with coil propensity.")
         else:
-            print("📊 Ranked survivors by Expected Value (R:R T2 × Score) with coil propensity.")
+            logger.info(
+                "📊 Ranked survivors by Expected Value (R:R T2 × Score) with coil propensity."
+            )
             n_pred = int(_num_col(df, "ML_Pred_Return").notna().sum())
             if n_pred:  # silent when the ML column is simply empty (current state)
                 reason = (
@@ -345,7 +349,7 @@ def process_trade_plan(
                     if not config.ML_RANKING_ENABLED
                     else f"predictions are incomplete ({n_pred}/{len(df)} rows)"
                 )
-                print(f"   ℹ️ Ignoring {n_pred} ML prediction(s): {reason}.")
+                logger.info(f"   ℹ️ Ignoring {n_pred} ML prediction(s): {reason}.")
 
     # Select essential columns for the cleaned file (only those that exist).
     # Both LEAPS/Options label variants are listed so mode-specific columns
@@ -363,9 +367,9 @@ def process_trade_plan(
     clean_csv = trade_plan_dir / f"trade_plan_clean_{resolved_date}.csv"
     try:
         df_clean.to_csv(clean_csv, index=False)
-        print(f"\n✅ Cleaned trade plan saved: {clean_csv}")
+        logger.info(f"✅ Cleaned trade plan saved: {clean_csv}")
     except Exception as save_err:
-        print(f"❌ Error saving cleaned file: {save_err}")
+        logger.error(f"Error saving cleaned file: {save_err}")
         raise SystemExit(1) from save_err
 
     return clean_csv
@@ -379,15 +383,16 @@ def main(argv: list[str] | None = None) -> int:
     try:
         as_of = config.parse_as_of(argv)
     except ValueError as exc:
-        print(f"❌ {exc}")
+        logger.error("%s", exc)
         return 2
     try:
         process_trade_plan(mode, today=as_of, strict=as_of is not None)
     except FileNotFoundError as exc:
-        print(f"❌ {exc}")
+        logger.error("%s", exc)
         return 1
     return 0
 
 
 if __name__ == "__main__":
+    setup_logging()
     raise SystemExit(main())

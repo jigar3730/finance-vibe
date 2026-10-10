@@ -15,6 +15,7 @@ Also holds the NYSE session calendar the daily health check uses
 
 from __future__ import annotations
 
+import logging
 import os
 from datetime import date, datetime
 
@@ -34,6 +35,9 @@ from pandas.tseries.holiday import (
 from pandas.tseries.offsets import CustomBusinessDay
 
 from finance_vibe import config, data_ingestor
+from finance_vibe.log import setup_logging
+
+logger = logging.getLogger(__name__)
 
 MODE = "daily"
 MARKET_TZ = data_ingestor.MARKET_TZ
@@ -134,11 +138,12 @@ def ingest_daily(now: datetime | None = None) -> None:
     cfg = config.get_mode_config(MODE)
     trimmed = drop_incomplete_daily_bars(cfg["raw_dir"], cfg["logs_dir"], now=now)
     if trimmed:
-        print(
+        logger.info(
             f"⏳ Dropped today's in-progress bar from {trimmed} files "
             f"(daily bars are final after {DAY_FINAL_HOUR_ET}:00 ET)."
         )
 
 
 if __name__ == "__main__":
+    setup_logging()
     ingest_daily()
