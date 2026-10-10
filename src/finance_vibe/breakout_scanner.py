@@ -428,6 +428,8 @@ def add_indicators(
     out["MACD_Signal"] = _series_or_nan(macd_signal, out.index)
     out["MACD_Hist"] = _series_or_nan(macd_hist, out.index)
 
+    # Sample std (ddof=1), as pandas-ta computed it. Deliberately kept: widths are
+    # only compared with their own percentile history, so ddof just rescales.
     bb = indicators.bbands(close, length=BB_LEN, num_std=BB_STD)
     bb_lower = _ta_col(bb, "BBL_")
     bb_mid = _ta_col(bb, "BBM_")
@@ -493,7 +495,6 @@ def add_indicators(
 
     out["RSI Slope"] = out["RSI"].diff(SLOPE_RSI_BARS)
     out["MACD Hist Slope"] = out["MACD_Hist"].diff(SLOPE_MACD_BARS)
-    out["MACD Hist Accel"] = out["MACD Hist Slope"] - out["MACD Hist Slope"].shift(SLOPE_MACD_BARS)
 
     out["BB Width Pctl"] = _rolling_percentile(out["BB_Width"], pctl_window)
     out["KC Width Pctl"] = _rolling_percentile(out["KC_Width"], pctl_window)
@@ -596,7 +597,6 @@ class BreakoutFeatures:
     rvol20: float | None
     rsi_slope: float | None
     macd_hist_slope: float | None
-    macd_hist_accel: float | None
     distance_resistance_atr: float | None
     extension_atr: float | None
     range20_atr: float | None
@@ -735,7 +735,6 @@ class FeatureEngine:
             rvol20=_safe_float(last.get("RVOL20"), 4),
             rsi_slope=_safe_float(last.get("RSI Slope"), 4),
             macd_hist_slope=_safe_float(last.get("MACD Hist Slope"), 6),
-            macd_hist_accel=_safe_float(last.get("MACD Hist Accel"), 6),
             distance_resistance_atr=_safe_float(last.get("Distance Resistance ATR"), 4),
             extension_atr=_safe_float(last.get("Extension ATR"), 4),
             range20_atr=_safe_float(last.get("Range20 / ATR"), 4),
@@ -843,17 +842,13 @@ def _volume_label(feat: BreakoutFeatures) -> str:
 
 
 def _momentum_label(feat: BreakoutFeatures) -> str:
-    rsi_up = feat.rsi_slope is not None and feat.rsi_slope > 0
-    hist_up = feat.macd_hist_slope is not None and feat.macd_hist_slope > 0
-    accel = feat.macd_hist_accel is not None and feat.macd_hist_accel >= 0
-    if rsi_up and hist_up and accel:
-        return "ACCELERATING"
-    if (feat.rsi_slope is not None and feat.rsi_slope < 0) and (
-        feat.macd_hist_slope is not None and feat.macd_hist_slope < 0
-    ):
-        return "FADING"
-    if rsi_up or hist_up:
-        return "ACCELERATING" if (rsi_up and hist_up) else "NEUTRAL"
+    """ACCELERATING: RSI and MACD-histogram slopes both up; FADING: both down."""
+    rsi, hist = feat.rsi_slope, feat.macd_hist_slope
+    if rsi is not None and hist is not None:
+        if rsi > 0 and hist > 0:
+            return "ACCELERATING"
+        if rsi < 0 and hist < 0:
+            return "FADING"
     return "NEUTRAL"
 
 
@@ -1079,8 +1074,8 @@ def score_readiness(feat: BreakoutFeatures, states: dict[str, str]) -> dict:
     raw = trend_score + compression_score + momentum_score + volume_score + structure_score
 
     penalty = 0
-    if feat.failed_breakout:
-        penalty += 20 if feat.breakout_triggered is False else 10
+    if feat.failed_breakout:  # never triggered on the same bar (see add_indicators)
+        penalty += 20
     elif feat.wick_reject:
         penalty += 8
     if states["MTF"] == "DIVERGENT" or states["MTF"] in MTF_NO_UPTREND:

@@ -110,3 +110,33 @@ def test_mtf_penalty_unchanged_for_names_formerly_labelled_divergent(label):
 def test_no_mtf_penalty_otherwise(label):
     states = {"MTF": label, "Trend": "NEUTRAL"}
     assert bs.score_readiness(_BASE, states)["Penalty"] == 0
+
+
+def _feat(**overrides):
+    base = {f: None for f in bs.BreakoutFeatures.__dataclass_fields__ if f != "has_daily"}
+    base.update(symbol="X", mode="weekly", asof=None)
+    base.update(overrides)
+    return bs.BreakoutFeatures(**base)
+
+
+@pytest.mark.parametrize(
+    ("rsi_slope", "hist_slope", "label"),
+    [
+        (1.0, 0.1, "ACCELERATING"),
+        (-1.0, -0.1, "FADING"),
+        (1.0, -0.1, "NEUTRAL"),
+        (-1.0, 0.1, "NEUTRAL"),
+        (0.0, 0.1, "NEUTRAL"),
+        (None, 0.1, "NEUTRAL"),
+        (1.0, None, "NEUTRAL"),
+    ],
+)
+def test_momentum_label(rsi_slope, hist_slope, label):
+    assert bs._momentum_label(_feat(rsi_slope=rsi_slope, macd_hist_slope=hist_slope)) == label
+
+
+def test_failed_breakout_penalty_is_20():
+    feat = _feat(failed_breakout=True, breakout_triggered=False)
+    states = bs.classify_states(feat)
+    base = bs.score_readiness(_feat(failed_breakout=False, breakout_triggered=False), states)
+    assert bs.score_readiness(feat, states)["Penalty"] - base["Penalty"] == 20

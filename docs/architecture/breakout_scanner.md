@@ -126,7 +126,7 @@ The primary timeframe is daily when the data is daily, otherwise weekly.
 | `Trend` | `BULLISH` if the primary bull flag is set, else `BEARISH` if the primary bear flag is set, else `NEUTRAL` |
 | `Volatility` | `COMPRESSING` if `Compression`; else `EXPANDING` if BB Width Pctl ≥ 70 or ATR Pctl ≥ 70; else `NORMAL` |
 | `Volume State` | `DRYING_UP` if `Volume Dryup` or RVOL20 < 0.85; else `EXPANDING` if RVOL20 ≥ 1.20; else `NORMAL` |
-| `Momentum` | `ACCELERATING` if RSI Slope > 0 **and** MACD Hist Slope > 0; `FADING` if both < 0; else `NEUTRAL` (see Known quirks) |
+| `Momentum` | `ACCELERATING` if RSI Slope > 0 **and** MACD Hist Slope > 0; `FADING` if both < 0; else `NEUTRAL` |
 | `Structure` | `BELOW_SUPPORT` if Close < Support (checked first); `UNKNOWN` if no distance; `ABOVE_RESISTANCE` if distance < 0; `AT_RESISTANCE` if distance ≤ 0.25 ATR; else `UNDER_RESISTANCE` |
 | `Breakout Distance` | text label, e.g. `0.8 ATR` |
 | `MTF` | Uses the bull/bear flags of daily (daily data only), weekly and monthly. `INSUFFICIENT` if fewer than two bull flags are known; `ALIGNED` if every known flag is bull; `DIVERGENT` if some are bull and any is bear; `PARTIAL` if some are bull and none bear; `BEARISH` if none bull and any bear; `NEUTRAL` if none bull or bear. Before 2026-10-08, `BEARISH` and `NEUTRAL` were labelled `DIVERGENT`; the penalty is unchanged. |
@@ -236,24 +236,20 @@ Percentile bands award full points, then partial points, then `max(1, partial //
 | States | `Trend`, `Volatility`, `Volume State`, `Momentum`, `Structure`, `Breakout Distance`, `MTF`, `Status` |
 | Scores | `Breakout Readiness`, the five pillar scores, `Penalty`, and 14 factor scores (3 trend, 4 compression, 3 momentum, 2 volume, 2 structure) |
 
-## Known quirks (documented, not changed)
+## Design choices
 
-Changing any of these would change readiness or status. Each needs a
-pre-registered test first (see Validation status).
-
-- **Unreachable penalty branch.** `score_readiness` has a "10 instead of 20
-  if currently re-triggered" branch for failed breakouts. It can never run,
-  because `Failed Breakout` requires the bar *not* to be triggered. The penalty
-  is always 20.
-- **`MACD Hist Accel` has no effect.** It is computed and passed to
-  `_momentum_label`, but RSI slope > 0 and MACD hist slope > 0 give
-  `ACCELERATING` whatever its value.
-- **Bollinger width uses sample std (ddof=1)**, inherited from pandas-ta;
-  textbook Bollinger uses population std. This is consistent within the
-  scanner (percentiles compare like with like).
-- `bbands` used to be called with a `std=` argument that pandas-ta silently
-  ignored. That was harmless because 2.0 is also the default; the call has
-  been explicit (`num_std`) since 2026-10.
+- **Bollinger width uses sample std (ddof=1)**, as pandas-ta did; textbook
+  Bollinger uses population std. Kept on purpose (decided 2026-10-10):
+  widths are only compared with their own percentile history, so ddof just
+  rescales them (about 2.6% at 20 bars). Switching would move Squeeze and
+  Compression labels with no evidence that it helps.
+- Cleaned up 2026-10-10, with no output change (golden identical at atol=0):
+  - the failed-breakout penalty had an unreachable "10 if re-triggered"
+    branch (a failed breakout is never triggered on the same bar);
+  - `MACD Hist Accel` was computed but never changed the Momentum label.
+  - `bbands` used to be called with a `std=` argument that pandas-ta silently
+    ignored (harmless, because 2.0 is its default); the call has passed
+    `num_std` explicitly since 2026-10.
 
 ## Usage
 
