@@ -9,18 +9,69 @@ writes its usual dated files stamped with it, e.g.
 ``python src/finance_vibe/run_vibe.py --as-of 2025-11-07``.
 """
 
+from __future__ import annotations
+
 import argparse
+import importlib
 import logging
 import os
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class Stage:
+    """One pipeline stage: ``src/finance_vibe/<module>.py``, entry point ``main(argv)``."""
+
+    module: str
+    modes: tuple[str, ...] = ("weekly", "daily")
+    pass_mode: bool = True  # pass the mode as the first CLI argument
+    as_of: bool = False  # pass --as-of on a replay
+    ingest: bool = False  # refreshes data/raw; skipped with --reuse-raw / --as-of
+
+    @property
+    def path(self) -> str:
+        return f"src/finance_vibe/{self.module}.py"
+
+    def argv(self, mode: str, as_of: str | None) -> list[str]:
+        args = [mode] if self.pass_mode else []
+        if as_of and self.as_of:
+            args += ["--as-of", as_of]
+        return args
+
+
+# Run in this order. Data timeframe and signal profile are the same mode.
+STAGES: tuple[Stage, ...] = (
+    Stage("ticker_provider", pass_mode=False, ingest=True),
+    Stage("data_ingestor", modes=("weekly",), ingest=True),
+    # Daily has its own ingest wrapper (drops today's in-progress bar).
+    Stage("daily_ingest", modes=("daily",), pass_mode=False, ingest=True),
+    Stage("analysis_engine", as_of=True),
+    Stage("coiled_cobra", as_of=True),  # primary signal engine
+    Stage("breakout_scanner", as_of=True),
+    Stage("trade_planner", as_of=True),
+    Stage("trade_plan_helper", as_of=True),
+)
+
+
+def _run_in_process(stage: Stage, argv: list[str]) -> bool:
+    """Import the stage and call its ``main(argv)``; True on exit code 0."""
+    try:
+        module = importlib.import_module(f"finance_vibe.{stage.module}")
+        return int(module.main(argv) or 0) == 0
+    except SystemExit as exc:
+        return exc.code in (None, 0)
+    except Exception:  # stage boundary: report and halt like a failed subprocess
+        logger.exception(f"{stage.path} raised")
+        return False
 
 
 def clean_raw_folder(root_dir, mode):
@@ -42,8 +93,8 @@ def clean_raw_folder(root_dir, mode):
     logger.info(f"🧹 Raw '{mode}' folder cleaned.")
 
 
-def run_workflow():
-    """Parse CLI args and execute each pipeline stage as a subprocess."""
+def run_workflow(argv: list[str] | None = None) -> None:
+    """Parse CLI args and run each pipeline stage (subprocess by default)."""
     setup_logging()
     parser = argparse.ArgumentParser(description="Finance-Vibe Pipeline Orchestrator")
     parser.add_argument(
@@ -69,10 +120,16 @@ def run_workflow():
             "Uses today's ticker list and today's split/dividend-adjusted prices."
         ),
     )
-    args = parser.parse_args()
+    parser.add_argument(
+        "--in-process",
+        action="store_true",
+        help=(
+            "Run stages as function calls in this interpreter instead of subprocesses "
+            "(debugging / faster local runs). Cron keeps the default subprocess mode."
+        ),
+    )
+    args = parser.parse_args(argv)
     mode = args.mode.lower()
-
-    data_mode = mode
 
     # 2. CLIMB TO ROOT
     SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -94,110 +151,46 @@ def run_workflow():
             parser.error(str(exc))
     reuse_raw = args.reuse_raw or as_of is not None
 
-    # 4. SCRIPT CONFIGURATION
-    # "scope" selects the argument each stage receives:
-    #   data    -> data timeframe (weekly/daily); shares raw data silo
-    #   profile -> signal profile (weekly/daily); drives geometry + logs
-    # Coiled Cobra is the primary signal engine and runs for every profile.
-    scripts_config = [
-        {
-            "path": "src/finance_vibe/ticker_provider.py",
-            "pass_mode": False,
-            "scope": "data",
-        },
-        {
-            # Daily has its own ingest wrapper (drops today's in-progress bar).
-            "path": (
-                "src/finance_vibe/daily_ingest.py"
-                if data_mode == "daily"
-                else "src/finance_vibe/data_ingestor.py"
-            ),
-            "pass_mode": data_mode != "daily",
-            "scope": "data",
-        },
-        {
-            "path": "src/finance_vibe/analysis_engine.py",
-            "as_of": True,
-            "pass_mode": True,
-            "scope": "data",
-        },
-        {
-            "path": "src/finance_vibe/coiled_cobra.py",
-            "as_of": True,
-            "pass_mode": True,
-            "scope": "profile",
-        },
-        {
-            "path": "src/finance_vibe/breakout_scanner.py",
-            "as_of": True,
-            "pass_mode": True,
-            "scope": "profile",
-        },
-        {
-            "path": "src/finance_vibe/trade_planner.py",
-            "as_of": True,
-            "pass_mode": True,
-            "scope": "profile",
-        },
-        {
-            "path": "src/finance_vibe/trade_plan_helper.py",
-            "as_of": True,
-            "pass_mode": True,
-            "scope": "profile",
-        },
-    ]
-
     logger.info(f"🚀 Starting Finance-Vibe Pipeline [{mode.upper()} MODE]...")
     logger.info(f"📍 Project Root: {ROOT_DIR}")
-    if mode != data_mode:
-        logger.info(f"🧬 Data timeframe: {data_mode} | Swing profile: {mode}")
     if as_of:
         logger.info(f"⏪ AS-OF replay: {as_of} (bars completed on/before this date only)")
-        if data_mode == "weekly" and date.fromisoformat(as_of).weekday() != 4:
+        if mode == "weekly" and date.fromisoformat(as_of).weekday() != 4:
             logger.info("   Note: as-of is not a Friday, so the week in progress is excluded.")
         logger.info(
             "   Uses today's ticker list and split/dividend-adjusted prices; ML ranking is skipped."
         )
-
-    skip_ingest = {
-        "src/finance_vibe/ticker_provider.py",
-        "src/finance_vibe/data_ingestor.py",
-        "src/finance_vibe/daily_ingest.py",
-    }
+    if args.in_process:
+        logger.info("🧪 In-process mode: stages run as function calls in this interpreter.")
 
     # Clean the shared raw silo unless the caller wants to reuse existing OHLCV.
     if reuse_raw:
-        logger.info(f"♻️  Reusing existing raw files in data/raw/{data_mode}/")
+        logger.info(f"♻️  Reusing existing raw files in data/raw/{mode}/")
     else:
-        clean_raw_folder(ROOT_DIR, data_mode)
+        clean_raw_folder(ROOT_DIR, mode)
 
-    for script in scripts_config:
-        if mode in script.get("skip_modes", []):
-            logger.info(f"⏭️  Skipping {script['path']} for {mode} mode.")
+    for stage in STAGES:
+        if mode not in stage.modes:
             continue
-        if reuse_raw and script["path"] in skip_ingest:
-            logger.info(f"⏭️  Skipping {script['path']} (--reuse-raw).")
+        if reuse_raw and stage.ingest:
+            logger.info(f"⏭️  Skipping {stage.path} (--reuse-raw).")
             continue
 
-        script_path = os.path.join(ROOT_DIR, script["path"])
-        logger.info(f"🔹 Running: {script['path']}...")
-
-        # Data-scope stages receive the data timeframe; profile-scope stages
-        # receive the swing profile.
-        arg_mode = data_mode if script.get("scope") == "data" else mode
-
-        cmd = [sys.executable, script_path]
-        if script["pass_mode"]:
-            cmd.append(arg_mode)
-        if as_of and script.get("as_of"):
-            cmd += ["--as-of", as_of]
-
-        try:
-            subprocess.run(cmd, check=True, env=env, cwd=ROOT_DIR)
-            logger.info(f"✅ Finished: {script['path']}")
-        except subprocess.CalledProcessError:
-            logger.error(f"Error in {script['path']}. Pipeline halted.")
+        logger.info(f"🔹 Running: {stage.path}...")
+        stage_argv = stage.argv(mode, as_of)
+        if args.in_process:
+            ok = _run_in_process(stage, stage_argv)
+        else:
+            cmd = [sys.executable, os.path.join(ROOT_DIR, stage.path), *stage_argv]
+            try:
+                subprocess.run(cmd, check=True, env=env, cwd=ROOT_DIR)
+                ok = True
+            except subprocess.CalledProcessError:
+                ok = False
+        if not ok:
+            logger.error(f"Error in {stage.path}. Pipeline halted.")
             sys.exit(1)
+        logger.info(f"✅ Finished: {stage.path}")
 
     logger.info("🏁 Workflow Complete!")
     logger.info(f"📁 Reports saved to: {os.path.join(ROOT_DIR, 'data', 'logs', mode)}")

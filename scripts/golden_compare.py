@@ -92,7 +92,9 @@ def _default_as_of(fixture: Path) -> dict[str, str]:
     return {"weekly": wk_friday.isoformat(), "daily": _last_qqq_date(fixture, "daily").isoformat()}
 
 
-def _run_pipeline(repo: Path, fixture: Path, as_of: dict[str, str], out: Path) -> None:
+def _run_pipeline(
+    repo: Path, fixture: Path, as_of: dict[str, str], out: Path, extra: list[str] | None = None
+) -> None:
     """Run each mode in a fresh workspace (repo src + fixture data) and copy logs to ``out``."""
     with tempfile.TemporaryDirectory(prefix="golden_") as tmp:
         ws = Path(tmp)
@@ -107,6 +109,7 @@ def _run_pipeline(repo: Path, fixture: Path, as_of: dict[str, str], out: Path) -
                 mode,
                 "--as-of",
                 as_of[mode],
+                *(extra or []),
             ]
             print(f"--> {mode} as-of {as_of[mode]}", flush=True)
             proc = subprocess.run(
@@ -287,7 +290,8 @@ def cmd_compare(args: argparse.Namespace) -> int:
     manifest = json.loads(manifest_path.read_text())
     with tempfile.TemporaryDirectory(prefix="golden_cmp_") as tmp:
         cur = Path(tmp)
-        _run_pipeline(Path(args.repo), _fixture_dir(golden), manifest["as_of"], cur)
+        extra = ["--in-process"] if args.in_process else []
+        _run_pipeline(Path(args.repo), _fixture_dir(golden), manifest["as_of"], cur, extra)
         want = set(manifest["files"])
         got = {str(p.relative_to(cur)) for p in cur.rglob("*.csv")}
         failures: list[str] = []
@@ -343,6 +347,9 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument("--atol", type=float, default=1e-9)
     c.add_argument(
         "--keep", action="store_true", help="Keep current outputs in <golden-dir>/last_compare"
+    )
+    c.add_argument(
+        "--in-process", action="store_true", help="Run the pipeline with run_vibe --in-process"
     )
     c.set_defaults(func=cmd_compare)
 

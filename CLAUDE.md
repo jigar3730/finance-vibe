@@ -34,6 +34,7 @@ python src/finance_vibe/run_vibe.py                        # weekly (default)
 python src/finance_vibe/run_vibe.py --mode daily
 python src/finance_vibe/run_vibe.py --reuse-raw            # skip wipe + ticker refresh + ingest
 python src/finance_vibe/run_vibe.py --as-of 2025-11-07     # replay from raw on disk (implies --reuse-raw)
+python src/finance_vibe/run_vibe.py --reuse-raw --in-process  # stages as function calls (debugging)
 
 python src/finance_vibe/app.py                             # UI at http://127.0.0.1:5000
 ```
@@ -43,7 +44,8 @@ Every stage script also runs standalone with a mode argument, e.g.
 
 ## Pipeline (`run_vibe.py`, the source of truth)
 
-Stages run as subprocesses, in order: wipe `data/raw/{mode}/` (unless
+Stages are declared in `run_vibe.STAGES` and run as subprocesses (or
+`--in-process` via each stage's `main(argv)`), in order: wipe `data/raw/{mode}/` (unless
 `--reuse-raw`/`--as-of`) → `ticker_provider` → `data_ingestor` (weekly) or
 `daily_ingest` (daily; drops today's bar before 17:00 ET) →
 `analysis_engine` (macro Vibe Score) → `coiled_cobra` → `breakout_scanner` →

@@ -11,7 +11,7 @@ import pytest
 from finance_vibe import analysis_engine as ae
 from finance_vibe import breakout_scanner as bs
 from finance_vibe import coiled_cobra as cc
-from finance_vibe import config
+from finance_vibe import config, run_vibe
 from finance_vibe import trade_planner as tp
 
 
@@ -81,3 +81,54 @@ def test_set_mode_paths(restore_modes):
 @pytest.mark.parametrize("module", [cc, bs, tp, ae])
 def test_main_rejects_bad_as_of(module, restore_modes):
     assert module.main(["weekly", "--as-of", "not-a-date"]) == 2
+
+
+def _fake_stages(monkeypatch, fail: str | None = None, boom: str | None = None):
+    calls: list[tuple[str, list[str]]] = []
+
+    def fake_import(name: str):
+        stage = name.rsplit(".", 1)[-1]
+
+        def main(argv):
+            calls.append((stage, argv))
+            if stage == boom:
+                raise RuntimeError("boom")
+            return 1 if stage == fail else 0
+
+        return type("M", (), {"main": staticmethod(main)})
+
+    monkeypatch.setattr(run_vibe.importlib, "import_module", fake_import)
+    monkeypatch.setattr(
+        run_vibe.subprocess, "run", lambda *a, **k: pytest.fail("in-process must not fork")
+    )
+    monkeypatch.setattr(run_vibe, "clean_raw_folder", lambda *a, **k: None)
+    return calls
+
+
+def test_in_process_calls_each_stage_main(monkeypatch):
+    calls = _fake_stages(monkeypatch)
+    run_vibe.run_workflow(["--mode", "daily", "--as-of", "2026-10-06", "--in-process"])
+    replay_stages = (
+        "analysis_engine",
+        "coiled_cobra",
+        "breakout_scanner",
+        "trade_planner",
+        "trade_plan_helper",
+    )
+    assert calls == [(s, ["daily", "--as-of", "2026-10-06"]) for s in replay_stages]
+
+
+def test_in_process_stage_lists_match_subprocess(monkeypatch):
+    calls = _fake_stages(monkeypatch)
+    run_vibe.run_workflow(["--mode", "daily", "--in-process"])
+    assert [c[0] for c in calls][:2] == ["ticker_provider", "daily_ingest"]
+    assert calls[1][1] == []  # daily_ingest takes no mode argument
+
+
+@pytest.mark.parametrize("kind", ["fail", "boom"])
+def test_in_process_failure_halts_pipeline(monkeypatch, kind):
+    calls = _fake_stages(monkeypatch, **{kind: "coiled_cobra"})
+    with pytest.raises(SystemExit) as exc:
+        run_vibe.run_workflow(["--reuse-raw", "--in-process"])
+    assert exc.value.code == 1
+    assert calls[-1][0] == "coiled_cobra"  # nothing after the failed stage ran
