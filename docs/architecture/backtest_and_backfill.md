@@ -147,6 +147,13 @@ If neither `--backfill` nor `--backtest` is passed, **backtest** is the default.
 
 Outcomes: `no_fill`, `stopped`, `target1`, `target2`, `expired` with a single `R Multiple` (not blended).
 
+**Causality and speed.** Each bar is scored as if it were the last one
+(`df[:t+1]`). Indicators come from `coiled_cobra.macro_indicator_history`,
+computed once per ticker. Its row t is bit-identical to recomputing on `df[:t+1]`,
+including the pandas_ta ATR epsilon quirk, which would otherwise leak a later
+flat bar backwards. Backtest and backfill both use it; it is about 3x faster
+than per-bar recomputation, with byte-identical outputs.
+
 #### Trade CSV columns (ML-relevant)
 
 | Zone | Columns |

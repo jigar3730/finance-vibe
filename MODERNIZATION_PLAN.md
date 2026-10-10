@@ -1,6 +1,6 @@
 # Finance Vibe: Modernization Plan
 
-Status: **in progress.** Phase 0 is done (2026-10-08), Phases 1 and 2 are done (2026-10-10), Phase 3 is done (2026-10-10; Parquet measured and declined); Phase 4 is a proposal.
+Status: **in progress.** Phase 0 is done (2026-10-08), Phases 1 and 2 are done (2026-10-10), Phase 3 is done (2026-10-10; Parquet measured and declined); Phase 4 done in focused scope (2026-10-10).
 Each phase is a separate, reviewable change.
 
 ## 1. Summary and reality check
@@ -250,6 +250,13 @@ Effort is given in relative sizes: S under a day, M a few days, L about a week.
 - new `tests/test_io.py` covering the contract rejection, the as-of cut and CSV/Parquet parity.
 
 ### Phase 4: Architecture and performance (L, medium risk)
+> **Done 2026-10-10, focused scope** (chosen over the full plan):
+> - 4.4 first. `finance_vibe/indicators.py` reimplements the 8 pandas_ta functions, quirks included. On all 549 raw files it is bit-identical to pandas_ta except SMA(Volume) (<= 5e-16 relative), and golden is IDENTICAL at atol=0. **pandas-ta, numba and llvmlite were dropped** (image 1.71 GB -> 1.51 GB) with no rubric bump. `tests/test_indicators_parity.py` checks against a frozen pandas-ta fixture. Found along the way: `ta.bbands(std=...)` was silently ignored (harmless, because it equals the default).
+> - 4.1-lite. No `sys.argv` at import; every stage has `main(argv) -> int`. `coiled_cobra.Timeframe.for_mode()` is the single source of calibration, and `apply_timeframe()` now also sets paths and `_is_daily_bars` (previously left stale). **Deferred:** threading `Timeframe` through every scoring function.
+> - 4.2. `run_vibe.STAGES` (frozen `Stage`) plus `--in-process`. Subprocess command lines are unchanged. Golden is IDENTICAL in both modes; in-process saves only interpreter startup (103 s vs 100 s).
+> - 4.5. Profiled before changing anything. `coiled_cobra.macro_indicator_history` replaces the O(n^2) per-bar recompute in backtest, backfill and the leader experiment, and removes an ATR epsilon lookahead. Outputs are byte-identical; weekly 208 s -> 76 s, daily 493 s -> 146 s (24 fixture tickers). The breakout display filter is vectorized. `trade_planner`'s `iterrows` stays (a handful of rows). **Next candidate:** cache the RS line for `relative_strength_score`.
+> - **Not done:** 4.3, splitting `breakout_scanner.py` (pure churn); 4.6 async stays "no".
+
 1. **No import-time CLI parsing.**
    - Give each stage `def main(argv: list[str] | None = None) -> int`.
    - Replace `coiled_cobra`'s mutable module globals (`LOOKBACK`, `COIL_BARS`, `TT_EMA_*`, and others) with a frozen `Timeframe` dataclass built by `Timeframe.for_mode("weekly"|"daily")` and passed explicitly.
