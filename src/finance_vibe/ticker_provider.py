@@ -32,7 +32,7 @@ def refresh_active_tickers():
             col_name = "Symbol" if "Symbol" in manifest_df.columns else manifest_df.columns[0]
             static_tickers = manifest_df[col_name].dropna().unique().tolist()
             logger.info(f"📦 Loaded {len(static_tickers)} static tickers from manifest.")
-        except Exception as e:
+        except (OSError, ValueError, IndexError) as e:
             logger.warning(f"Could not read manifest: {e}")
     else:
         logger.warning(f"Manifest not found at {MANIFEST_PATH}")
@@ -85,8 +85,8 @@ def refresh_active_tickers():
             f"(cap={cap}) to {config.TICKER_LIST_PATH}"
         )
 
-    except Exception as e:
-        logger.error(f"Error during ticker discovery: {e}")
+    except Exception:  # yahooquery/network: anything can fail; fall back to the baseline
+        logger.exception("Error during ticker discovery")
         # Still persist the priority baseline so the pipeline is not blocked.
         if static_tickers:
             fallback = static_tickers[:cap]

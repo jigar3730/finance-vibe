@@ -211,8 +211,8 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
                 logger.warning(f"{ticker}: validation: {e}")
                 _log_ingest_error(logs_dir, ticker, f"validation:{e}")
                 rejected += 1
-            except Exception as e:
-                logger.error(f"{ticker}: error: {e}")
+            except Exception as e:  # per-ticker: log and keep ingesting the batch
+                logger.exception(f"{ticker}: error: {e}")
                 _log_ingest_error(logs_dir, ticker, f"exception:{e}")
                 rejected += 1
 

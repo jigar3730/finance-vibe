@@ -345,3 +345,11 @@ def test_orchestrator_rejects_a_bad_as_of_before_running_anything(monkeypatch, b
     with pytest.raises(SystemExit) as exc:
         run_vibe.run_workflow()
     assert exc.value.code == 2 and cmds == []
+
+
+def test_unreadable_benchmark_is_unavailable_not_fatal(tmp_path, monkeypatch, caplog):
+    bad = tmp_path / "QQQ_5y_1wk.csv"
+    bad.write_text("Open,High\n1,2\n")  # no Date/Close: violates the contract
+    monkeypatch.setattr(ae, "_select_benchmark_path", lambda benchmark, data_mode: str(bad))
+    assert ae.load_benchmark_frame("QQQ", "weekly") is None
+    assert "Benchmark QQQ unreadable" in caplog.text

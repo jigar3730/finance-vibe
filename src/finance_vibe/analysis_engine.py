@@ -249,7 +249,10 @@ def load_benchmark_frame(benchmark: str, data_mode: str) -> pd.DataFrame | None:
         return None
     try:
         df = load_ohlc_csv(path)
-    except Exception:
+    except (OSError, ValueError, KeyError) as exc:
+        logger.warning(
+            f"Benchmark {benchmark} unreadable at {path} ({exc}); treating as unavailable."
+        )
         return None
     df = df.copy()
     df["Date"] = pd.to_datetime(df["Date"])
@@ -592,7 +595,8 @@ def run_scan(
         for fut in as_completed(futures):
             try:
                 results.append(fut.result())
-            except Exception:
+            except Exception:  # per-ticker: one bad file must not stop the scan
+                logger.exception(f"Error scoring {futures[fut]}")
                 errors += 1
                 continue
 

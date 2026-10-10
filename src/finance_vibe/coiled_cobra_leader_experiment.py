@@ -296,7 +296,7 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], list[dict], dict]:
     symbol = ticker_from_filename(path)
     try:
         df = load_ohlc_csv(path).reset_index(drop=True)
-    except Exception as exc:
+    except (OSError, ValueError, KeyError) as exc:
         print(f"{symbol}: error - {exc}", file=sys.stderr)
         return symbol, [], [], {}
     if not {"Open", "High", "Low", "Close"} <= set(df.columns):

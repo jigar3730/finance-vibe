@@ -36,7 +36,7 @@ def clean_raw_folder(root_dir, mode):
                 item.unlink()
             elif item.is_dir():
                 shutil.rmtree(item)
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Failed to delete {item}: {e}")
 
     logger.info(f"🧹 Raw '{mode}' folder cleaned.")

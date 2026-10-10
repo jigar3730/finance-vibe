@@ -278,7 +278,7 @@ def process_trade_plan(
         df = pd.read_csv(scanner_csv)
     except pandas.errors.EmptyDataError:
         return _finish_empty()
-    except Exception as e:
+    except (OSError, ValueError) as e:
         logger.error(f"Error loading file: {e}")
         raise SystemExit(1) from e
 
@@ -368,7 +368,7 @@ def process_trade_plan(
     try:
         df_clean.to_csv(clean_csv, index=False)
         logger.info(f"✅ Cleaned trade plan saved: {clean_csv}")
-    except Exception as save_err:
+    except OSError as save_err:
         logger.error(f"Error saving cleaned file: {save_err}")
         raise SystemExit(1) from save_err
 

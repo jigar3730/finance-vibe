@@ -356,7 +356,7 @@ def _git_sha() -> str | None:
         if out.returncode != 0:
             return None
         return out.stdout.strip() or None
-    except Exception:
+    except (OSError, subprocess.SubprocessError):  # no git / not a repo / timeout
         return None
 
 

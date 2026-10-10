@@ -95,7 +95,7 @@ def _load_validated_metadata(paths: dict[str, Path | None], mode: str) -> dict |
         return None
     try:
         meta = json.loads(paths["metadata"].read_text(encoding="utf-8"))
-    except Exception as exc:
+    except (OSError, ValueError) as exc:  # JSONDecodeError is a ValueError
         logger.warning("Unreadable ML metadata %s (%s); skipping ML.", paths["metadata"], exc)
         return None
     problem = _metadata_problem(meta, mode)

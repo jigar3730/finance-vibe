@@ -291,7 +291,8 @@ def view_run(mode: str, date: str) -> str | tuple[str, int]:
         return render_template(
             "view.html", mode=mode, date=date, file_name=requested_file, table_html=table_html
         )
-    except Exception as e:
+    except Exception as e:  # route boundary: show the error page, keep the traceback in the log
+        logger.exception("Failed to render %s", request.path)
         return f"<h3>❌ Failed to parse data contents:</h3><pre>{e!s}</pre>", 500
 
 
@@ -389,7 +390,8 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
             row_count=int(len(table_df)),
             table_html=table_html,
         )
-    except Exception as e:
+    except Exception as e:  # route boundary: show the error page, keep the traceback in the log
+        logger.exception("Failed to render %s", request.path)
         return f"<h3>❌ Failed to parse data contents:</h3><pre>{e!s}</pre>", 500
 
 

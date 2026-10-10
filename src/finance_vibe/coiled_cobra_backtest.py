@@ -8,6 +8,7 @@ trade-planner stock level calculator.
 from __future__ import annotations
 
 import argparse
+import logging
 import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -28,6 +29,8 @@ from finance_vibe.coiled_cobra import (
 from finance_vibe.log import setup_logging
 from finance_vibe.trade_planner import calculate_stock_levels
 from finance_vibe.trade_simulator import simulate_trade
+
+logger = logging.getLogger(__name__)
 
 
 def detect_cobra_setup_at_bar(
@@ -136,8 +139,8 @@ def generate_backfill(mode: str = "weekly", tickers: str | None = None) -> pd.Da
             symbol = ticker_from_filename(path)
             try:
                 symbol, rows = fut.result()
-            except Exception as exc:
-                print(f"{symbol}: error — {exc}", file=sys.stderr)
+            except Exception:  # worker crashed outright (e.g. killed process)
+                logger.exception(f"{symbol}: error")
                 rows = []
             results_by_path[path] = rows
             if rows:
@@ -352,7 +355,7 @@ def _backfill_ticker_worker(path: str) -> tuple[str, list[dict]]:
     symbol = ticker_from_filename(path)
     try:
         df = load_ohlc_csv(path)
-    except Exception as exc:
+    except (OSError, ValueError, KeyError) as exc:
         print(f"{symbol}: error — {exc}", file=sys.stderr)
         return symbol, []
 
@@ -368,8 +371,8 @@ def _backfill_ticker_worker(path: str) -> tuple[str, list[dict]]:
             )
             if setup:
                 rows.append(setup)
-    except Exception as exc:
-        print(f"{symbol}: error — {exc}", file=sys.stderr)
+    except Exception:  # per-ticker: keep the run going, keep the traceback
+        logger.exception(f"{symbol}: error")
         return symbol, []
 
     return symbol, rows
@@ -392,8 +395,8 @@ def _backtest_ticker_worker(
             spy_df=_WORKER_SPY_DF,
         )
         return symbol, trades, counts
-    except Exception as exc:
-        print(f"{symbol}: error — {exc}", file=sys.stderr)
+    except Exception:  # per-ticker: keep the run going, keep the traceback
+        logger.exception(f"{symbol}: error")
         return symbol, [], empty_counts
 
 
@@ -442,8 +445,8 @@ def run_backtest(
             symbol = ticker_from_filename(path)
             try:
                 symbol, trades, counts = fut.result()
-            except Exception as exc:
-                print(f"{symbol}: error — {exc}", file=sys.stderr)
+            except Exception:  # worker crashed outright (e.g. killed process)
+                logger.exception(f"{symbol}: error")
                 trades, counts = [], {}
             results_by_path[path] = (trades, counts)
             if trades:

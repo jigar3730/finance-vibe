@@ -722,7 +722,8 @@ def evaluate_as_of(
         return None
     try:
         work = add_macro_indicators(work)
-    except Exception:
+    except Exception:  # per-ticker/date in backtests; too hot to log above DEBUG
+        logger.debug("add_macro_indicators failed as of %s", as_of, exc_info=True)
         return None
     bench = None
     if benchmark_df is not None:
@@ -891,8 +892,8 @@ def run_scanner(as_of: str | None = None) -> None:
             )
             results.append(row)
 
-        except Exception as e:
-            logger.error(f"Error scoring {symbol}: {e!s}")
+        except Exception:  # per-ticker: one bad file must not stop the scan
+            logger.exception(f"Error scoring {symbol}")
             rejection_counts["execution_error"] = rejection_counts.get("execution_error", 0) + 1
 
     today = config.run_stamp(as_of)
@@ -915,8 +916,8 @@ def run_scanner(as_of: str | None = None) -> None:
             else:
                 logger.info("ML ranking inactive (disabled or no valid model); ranking by Score.")
                 df_out = df_out.sort_values(by="Score", ascending=False)
-        except Exception as e:
-            logger.warning(f"ML ranking skipped ({e}); ranking by Score.")
+        except Exception as e:  # optional ranker; any model/artifact failure falls back to Score
+            logger.warning(f"ML ranking skipped ({e}); ranking by Score.", exc_info=True)
             df_out = df_out.sort_values(by="Score", ascending=False)
 
         df_out = df_out.reindex(columns=config.SETUP_ROW_COLUMNS)

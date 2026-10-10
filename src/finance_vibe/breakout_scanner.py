@@ -1225,7 +1225,7 @@ def scan_files(
         path = os.path.join(raw_dir, file)
         try:
             raw = pd.read_csv(path)
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             logger.warning("Failed to read %s: %s", path, exc)
             rejection_counts["read_error"] = rejection_counts.get("read_error", 0) + 1
             continue
@@ -1244,8 +1244,8 @@ def scan_files(
             else:
                 key = "invalid_ohlcv"
             rejection_counts[key] = rejection_counts.get(key, 0) + 1
-        except Exception as exc:
-            logger.error("Error scoring %s: %s", symbol, exc)
+        except Exception:  # per-ticker: one bad file must not stop the scan
+            logger.exception("Error scoring %s", symbol)
             rejection_counts["execution_error"] = rejection_counts.get("execution_error", 0) + 1
 
     return results, rejection_counts
