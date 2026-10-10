@@ -79,6 +79,8 @@ architecture docs are stale (e.g. `project_resurrection_prompt.md` and
 - **Data contracts.** Raw CSVs are named `<TICKER>_<period>_<interval>.csv`
   and must satisfy `REQUIRED_OHLCV`; setup rows must match
   `SETUP_ROW_COLUMNS`. Reject malformed input loudly rather than mis-scoring.
+  Read raw files only through `raw_data.load_raw` (contract, date cleanup,
+  float64 prices and the as-of cut in one place), never a bare `read_csv`.
 - **Signals, not advice.** Keep planner output informational (entry/stop/2R/3R
   targets); don't add options metadata or position sizing without being asked.
 

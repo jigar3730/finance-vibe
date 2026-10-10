@@ -140,7 +140,7 @@ Requires ≥ 60 bars in the input DataFrame (before indicators).
 ## Operational notes
 
 - Only symbols in `data/active_tickers.csv` that also have a raw CSV are scanned
-- Raw CSVs validated via `config.validate_and_clean_ohlcv`
+- Raw CSVs read via `raw_data.load_raw` (validated against `REQUIRED_OHLCV`, as-of cut applied)
 - Rejection counts logged (inactive, missing_columns, insufficient data, IGNORE)
 - Uses **EMA** (tactical); macro engine uses **SMA** — intentional
 - Does not read `vibe_report_*.csv`; optional macro gate lives in the scanner (`vibe_min`) and in `pipeline_backtest.py`

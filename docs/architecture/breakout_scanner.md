@@ -34,7 +34,10 @@ weights are tuned.
 data/raw/{data_mode}/*.csv  (filtered to active_tickers.csv)
         │
         ▼
-normalize_ohlcv()          clean / validate, optional cut_to_as_of()
+raw_data.load_raw()        contract check, clean dates, optional as-of cut
+        │
+        ▼
+normalize_ohlcv()          header aliases, UTC dates, dedupe (idempotent on load_raw output)
         │
         ▼
 FeatureEngine.create_timeframes()

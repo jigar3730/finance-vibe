@@ -1,6 +1,6 @@
 # Finance Vibe: Modernization Plan
 
-Status: **in progress.** Phase 0 is done (2026-10-08), Phases 1 and 2 are done (2026-10-10); later phases are proposals.
+Status: **in progress.** Phase 0 is done (2026-10-08), Phases 1 and 2 are done (2026-10-10), Phase 3 is done (2026-10-10; Parquet measured and declined); Phase 4 is a proposal.
 Each phase is a separate, reviewable change.
 
 ## 1. Summary and reality check
@@ -218,6 +218,11 @@ Effort is given in relative sizes: S under a day, M a few days, L about a week.
 **Verify:** ruff and mypy are clean on the configured scope, pytest is green, and the golden compare is identical.
 
 ### Phase 3: Data layer (M-L, medium risk)
+> **Done 2026-10-10.**
+> - 3.1: `finance_vibe/raw_data.py`, not `io.py`, because stages run by path put `src/finance_vibe/` first on `sys.path`, where an `io.py` could shadow the stdlib. It provides `load_raw(path, *, as_of=None, weekly=None)` and `raw_files(raw_dir)`; taking a path instead of `(ticker, mode)` keeps tests that monkeypatch raw dirs working. All raw readers are migrated: coiled_cobra, `analysis_engine.load_ohlc_csv` (benchmarks, vibe scan, backtest, leader experiment), breakout_scanner and breakout_experiment. Two latent issues fixed: coiled_cobra's unguarded `read_csv` (one bad file aborted the stage) and its `os.listdir` scan order. `daily_ingest` still uses `read_csv` because it rewrites files in place. Golden IDENTICAL after each migration.
+> - 3.2 Parquet, **declined after measurement**: `load_raw` over the whole universe takes 2.3 s weekly (271 files) and 2.7 s daily (278 files), about 9 ms per file, against a 1-2 minute run. Parquet would save about 5 s per run in exchange for a pyarrow dependency (a golden event), double writes and health-check changes. Revisit if the universe grows about 10x or intraday bars arrive.
+> - 3.3: `load_raw` enforces float64 prices; previously integer-valued columns stayed int64. Arrow-backed strings were skipped because they need pyarrow.
+
 **Goal:** one correct way to read raw data. Faster storage is optional.
 1. **`finance_vibe/io.py`:**
    - `load_raw(ticker, mode, *, as_of=None) -> pd.DataFrame` combines `config.get_raw_path`, `config.validate_and_clean_ohlcv` and `config.cut_to_as_of`;

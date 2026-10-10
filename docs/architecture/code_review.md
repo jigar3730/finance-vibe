@@ -76,8 +76,8 @@ Even though it is **not wired into `run_vibe.py`**, it is the canonical macro ma
 
 **Per-ticker flow:**
 
-1. `iter_raw_csv_paths()` → discover CSVs in `data/raw/{mode}/`
-2. `load_ohlc_csv()` → normalize Date/Close/High/Low
+1. `iter_raw_csv_paths()` → discover CSVs in `data/raw/{mode}/` (wraps `raw_data.raw_files`)
+2. `load_ohlc_csv()` → `raw_data.load_raw` (OHLCV contract, dates, float64 prices)
 3. `build_features()` → compute indicators on full history
 4. `score_last_row()` → `_compute_score()` on **latest bar only**
 5. `sentiment_action()` → map score to labels
