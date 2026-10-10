@@ -102,8 +102,14 @@ architecture docs are stale (e.g. `project_resurrection_prompt.md` and
   data-contract boundaries. Broad catches only in per-ticker scan loops, and
   log them with the traceback.
 - Don't add heavy dependencies (polars, duckdb, async frameworks) without a
-  measured need. See `MODERNIZATION_PLAN.md` for the phased roadmap. Add
-  `uv`/ruff/mypy commands to this file only once those phases land.
+  measured need. See `MODERNIZATION_PLAN.md` for the phased roadmap.
+- ruff (lint + format, config in `pyproject.toml`) and mypy must stay clean.
+  mypy is strict for `config`, `analysis_engine`, `coiled_cobra`,
+  `trade_planner`; widen that list one module at a time. Prefer a targeted
+  `# type: ignore[code]` over `cast()`/runtime coercion for pandas-stubs noise.
+- Logging: `logger = logging.getLogger(__name__)` in modules;
+  `finance_vibe.log.setup_logging()` once per `__main__`. Never configure
+  logging at import time.
 
 ## Testing without host pytest
 
@@ -113,7 +119,15 @@ The host may not have pytest. These scripts copy the working tree into the
 ```bash
 scripts/test_in_container.sh                    # pytest (any pytest args pass through)
 scripts/golden_in_container.sh compare          # golden-output check, ~1.5 min
+scripts/lint_in_container.sh                    # ruff check + ruff format --check + mypy
+scripts/lint_in_container.sh ruff check --fix   # or any command in the lint venv
 ```
+
+The lint tools live in the uv `lint` group, which the production image does not
+install; `lint_in_container.sh` runs them in the uv image with a venv cached in
+`~/.cache/finance-vibe-lint`. `.pre-commit-config.yaml` has ruff + whitespace
+hooks (no mypy). `git config blame.ignoreRevsFile .git-blame-ignore-revs`
+hides the format commit from blame.
 
 `golden_in_container.sh` replays the weekly and daily pipelines with `--as-of` on
 a frozen raw-data fixture (`/mnt/fast/finance-vibe-data/golden/`). It diffs every

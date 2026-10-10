@@ -64,6 +64,11 @@ so the run stays at 6 PM through EDT and EST. It runs
 runs cannot overlap, and writes one log per run to `~/.local/state/finance-vibe/`.
 Use `scripts/run_weekly_pipeline.sh --now` for a manual run.
 
+Stage status lines are `logging` records (`time | LEVEL | message`, on stderr), and the
+console tables are printed (stdout); the run log captures both. Set
+`FINANCE_VIBE_LOG_LEVEL=DEBUG` (or `WARNING`) on the `docker exec` to change verbosity.
+Per-ticker scoring/ingest failures are logged with their traceback.
+
 **Failure alerts (email).** The runner emails an alert, with the end of the run log, when:
 
 - `run_vibe.py` exits non-zero (including the container being down);

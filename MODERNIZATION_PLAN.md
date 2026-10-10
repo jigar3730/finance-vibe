@@ -1,6 +1,6 @@
 # Finance Vibe: Modernization Plan
 
-Status: **in progress.** Phase 0 is done (2026-10-08), Phase 1 is done (2026-10-10); later phases are proposals.
+Status: **in progress.** Phase 0 is done (2026-10-08), Phases 1 and 2 are done (2026-10-10); later phases are proposals.
 Each phase is a separate, reviewable change.
 
 ## 1. Summary and reality check
@@ -187,6 +187,15 @@ Effort is given in relative sizes: S under a day, M a few days, L about a week.
 **Exit:** a fresh clone gets `uv sync && uv run pytest` working without `PYTHONPATH`.
 
 ### Phase 2: Code quality tooling (M, low risk to behaviour)
+> **Done 2026-10-10.** Implemented as:
+> - ruff 0.17.0 and mypy 2.4 + pandas-stubs in a non-default uv `lint` group (not `dev`), so the production image is unchanged; `scripts/lint_in_container.sh` runs them in the uv image. Line length 100; E501 left to the formatter. Ignored by config: RUF001-003, RUF005, RUF046 (`int(round(np.float64))` is not redundant), PD008, SIM103/108/300. `notebooks/` and `docs/` excluded (ruff 0.17 also formats Markdown code blocks). No `per-file-ignores` were needed; one `noqa: B023`, one `noqa: RUF012`.
+> - Commits: config, `ruff check` fixes, then a formatting-only commit listed in `.git-blame-ignore-revs`.
+> - mypy: mypy's `strict` is global-only, so the four core modules get its flag set through an override. The rest of the package passes default mypy (`check_untyped_defs`). pandas-stubs scalar noise gets targeted `type: ignore[code]`s, never runtime casts. New `config.AsOf` alias.
+> - `finance_vibe/log.py`. Pipeline stages, `run_vibe` and `app` log instead of printing; tables stay printed. Research CLIs (backtest, experiments, ML training/walk-forward) keep their printed reports and only gain `setup_logging()`; their remaining `print`s are a later, optional cleanup.
+> - Exceptions: 11 sites narrowed, and per-ticker, network and route catch-alls now log tracebacks. 30 broad catches remain, all in these categories: per-ticker loops, network, ML model load/predict, CLI surfaces, per-bar backtest hot loops. A later pass could enable ruff `BLE001` with a `noqa` on each one.
+>
+> Checks: golden compare IDENTICAL after every commit; 315 tests pass (2 added).
+
 1. **ruff**, configured in `pyproject.toml`:
    - `target-version = "py312"`;
    - rules `E, F, I, UP, B, SIM, PD, RUF`, plus `PTH` later.
