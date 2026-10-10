@@ -120,8 +120,8 @@ def _run_pipeline(repo: Path, fixture: Path, as_of: dict[str, str], out: Path) -
 def _scorecard(mode: str, as_of: str, out_csv: str) -> int:
     """Score every raw ticker with include_rejects=True (mirrors run_scanner's loading)."""
     sys.argv = [sys.argv[0], mode]  # coiled_cobra reads its mode from argv at import
-    from finance_vibe import config
     from finance_vibe import coiled_cobra as cc
+    from finance_vibe import config
 
     cc.apply_timeframe(mode)
     weekly = mode == "weekly"
@@ -170,7 +170,7 @@ def _versions() -> dict[str, str]:
     for name in ("pandas", "numpy", "pandas_ta", "yfinance"):
         try:
             out[name] = __import__(name).__version__
-        except Exception:  # noqa: BLE001 - informational only
+        except Exception:
             out[name] = "?"
     return out
 

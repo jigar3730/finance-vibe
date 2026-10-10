@@ -10,10 +10,9 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Iterable
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Iterable, Optional
 
 import numpy as np
 import pandas as pd
@@ -197,7 +196,7 @@ def build_features(df: pd.DataFrame) -> pd.DataFrame:
 # -----------------------------
 
 
-def _select_benchmark_path(benchmark: str, data_mode: str) -> Optional[str]:
+def _select_benchmark_path(benchmark: str, data_mode: str) -> str | None:
     """Find the longest-history raw CSV for *benchmark* in the mode's raw dir."""
     cfg = config.get_mode_config(data_mode)
     raw_dir = cfg["raw_dir"]
@@ -228,7 +227,7 @@ def _select_benchmark_path(benchmark: str, data_mode: str) -> Optional[str]:
     return os.path.join(raw_dir, best)
 
 
-def load_benchmark_frame(benchmark: str, data_mode: str) -> Optional[pd.DataFrame]:
+def load_benchmark_frame(benchmark: str, data_mode: str) -> pd.DataFrame | None:
     """Load and enrich a benchmark OHLC frame for regime/RS checks.
 
     Returns a Date-sorted frame with causal EMA21/EMA50/EMA100, SMA50, and an
@@ -348,7 +347,7 @@ def relative_strength(
     as_of: object | None = None,
     lookback: int = 63,
     ratio_ma_bars: int = 20,
-) -> tuple[bool, Optional[float]]:
+) -> tuple[bool, float | None]:
     """Assess relative strength of *stock_df* vs *benchmark_df* (no lookahead).
 
     Passing requires the stock/benchmark price ratio above its moving average
@@ -512,7 +511,7 @@ def sentiment_action(score: int) -> tuple[str, str]:
 _SCORE_INPUTS = ["Close", "SMA20", "SMA50", "RSI", "RSI_S", "CCI", "CCI_S", "MACD_H", "MACD_S"]
 
 
-def scan_one_file(path: str, as_of: Optional[str] = None, weekly: bool = True) -> ScanRow:
+def scan_one_file(path: str, as_of: str | None = None, weekly: bool = True) -> ScanRow:
     """Score one raw CSV and return a ``ScanRow`` (raises if history is too short).
 
     ``as_of`` (YYYY-MM-DD) drops bars not yet complete on that date.
@@ -552,8 +551,8 @@ def scan_one_file(path: str, as_of: Optional[str] = None, weekly: bool = True) -
 
 def run_scan(
     mode: str = "weekly",
-    max_workers: Optional[int] = None,
-    as_of: Optional[str] = None,
+    max_workers: int | None = None,
+    as_of: str | None = None,
 ) -> pd.DataFrame:
     """Scan all raw CSVs for a mode and write the ranked vibe report.
 

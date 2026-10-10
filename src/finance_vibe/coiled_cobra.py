@@ -1,8 +1,6 @@
+import logging
 import os
 import sys
-import logging
-from datetime import datetime
-from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -297,7 +295,7 @@ def macd_directional_penalty(macd: float) -> int:
     return 0 if macd > 0 else MACD_DIRECTIONAL_PENALTY
 
 
-def vol_contraction_score(df: pd.DataFrame) -> tuple[int, Optional[float]]:
+def vol_contraction_score(df: pd.DataFrame) -> tuple[int, float | None]:
     """BBWidth-percentile volatility contraction (0-25).
 
     Replaces v3.1's MACD-spread "squeeze" proxy and ATR-ratio coil_width with
@@ -332,7 +330,7 @@ def vol_contraction_score(df: pd.DataFrame) -> tuple[int, Optional[float]]:
     return base, pct_f
 
 
-def _trend_extension_penalty(pct_from_slow: float, rs_rel: Optional[float]) -> int:
+def _trend_extension_penalty(pct_from_slow: float, rs_rel: float | None) -> int:
     """Soft haircut for extension above TT_EMA_SLOW (tightened vs v3.1's
     EMA50-based bands). Floors the whole structure pillar at 0 past 40%
     extension -- the rubric treats that as stage-2 markup, not a fresh coil.
@@ -350,7 +348,7 @@ def _trend_extension_penalty(pct_from_slow: float, rs_rel: Optional[float]) -> i
     return 999  # forces structure_score's max(0, ...) floor
 
 
-def structure_score(df: pd.DataFrame, rs_rel: Optional[float] = None) -> int:
+def structure_score(df: pd.DataFrame, rs_rel: float | None = None) -> int:
     """MA alignment and long-term-EMA extension proximity (0-20).
 
     Requires a strict ascending EMA hierarchy across all four trend-template
@@ -388,7 +386,7 @@ def structure_score(df: pd.DataFrame, rs_rel: Optional[float] = None) -> int:
     return max(0, score)
 
 
-def rvol_trigger_score(df: pd.DataFrame) -> tuple[int, Optional[float]]:
+def rvol_trigger_score(df: pd.DataFrame) -> tuple[int, float | None]:
     """Breakout relative-volume bonus (0-10). Additive — never a drop.
 
     RVOL ≥ 1.2 is the bonus trigger. Sub-1.0 RVOL scores 0 here; the
@@ -456,7 +454,7 @@ def overhead_clearance_score(
 
 def _rs_line_new_high(
     stock_df: pd.DataFrame,
-    benchmark_df: Optional[pd.DataFrame],
+    benchmark_df: pd.DataFrame | None,
     as_of=None,
     lookback: int = 13,
 ) -> bool:
@@ -484,9 +482,9 @@ def _rs_line_new_high(
 
 def relative_strength_score(
     stock_df: pd.DataFrame,
-    benchmark_df: Optional[pd.DataFrame],
+    benchmark_df: pd.DataFrame | None,
     as_of=None,
-) -> tuple[int, Optional[float]]:
+) -> tuple[int, float | None]:
     """Relative strength vs QQQ (0-20), smoothed bands + RS-line-new-high bonus.
 
     Replaces v3.1's flat "-15% to 0%" plateau with a linear ramp so a stock
@@ -531,13 +529,13 @@ def relative_strength_score(
 
 def evaluate_coiled_cobra(
     df: pd.DataFrame,
-    benchmark_df: Optional[pd.DataFrame] = None,
+    benchmark_df: pd.DataFrame | None = None,
     *,
-    spy_df: Optional[pd.DataFrame] = None,
-    qqq_df: Optional[pd.DataFrame] = None,
+    spy_df: pd.DataFrame | None = None,
+    qqq_df: pd.DataFrame | None = None,
     apply_market_gate: bool = True,
     include_rejects: bool = False,
-) -> Optional[dict]:
+) -> dict | None:
     """100-point coil scorecard v4.0: catch compressed leaders before they expand.
 
     Pillars (v4.0): Volatility contraction 25 (BBWidth percentile) ·
@@ -694,11 +692,11 @@ def evaluate_coiled_cobra(
 def evaluate_as_of(
     df: pd.DataFrame,
     as_of,
-    benchmark_df: Optional[pd.DataFrame] = None,
+    benchmark_df: pd.DataFrame | None = None,
     *,
-    spy_df: Optional[pd.DataFrame] = None,
+    spy_df: pd.DataFrame | None = None,
     include_rejects: bool = True,
-) -> Optional[dict]:
+) -> dict | None:
     """Score the last bar on or before *as_of* (causal). Used by benchmarks."""
     if df.empty or "Date" not in df.columns:
         return None
@@ -876,7 +874,7 @@ def run_scanner(as_of: str | None = None):
             results.append(row)
 
         except Exception as e:
-            logger.error(f"Error scoring {symbol}: {str(e)}")
+            logger.error(f"Error scoring {symbol}: {e!s}")
             rejection_counts["execution_error"] = (
                 rejection_counts.get("execution_error", 0) + 1
             )
@@ -893,7 +891,7 @@ def run_scanner(as_of: str | None = None):
         # Attach offline-model ranks (soft signal). Falls back to Score sort
         # when no model artifact is available or features are unusable.
         try:
-            from finance_vibe.ml_ranker import attach_ml_ranks, ML_PRED_COL
+            from finance_vibe.ml_ranker import ML_PRED_COL, attach_ml_ranks
             df_out = attach_ml_ranks(df_out, mode)
             if df_out[ML_PRED_COL].notna().any():
                 logger.info("ML ranks attached to scan results.")

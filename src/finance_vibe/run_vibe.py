@@ -10,12 +10,12 @@ writes its usual dated files stamped with it, e.g.
 """
 
 import argparse
-from datetime import date
-from pathlib import Path
+import os
 import shutil
 import subprocess
 import sys
-import os
+from datetime import date
+from pathlib import Path
 
 
 def clean_raw_folder(root_dir, mode):

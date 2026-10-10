@@ -8,7 +8,6 @@ import pytest
 
 from finance_vibe import breakout_scanner as bs
 
-
 # ---------------------------------------------------------------------------
 # Failed Breakout: judged against the level that was actually broken
 # ---------------------------------------------------------------------------

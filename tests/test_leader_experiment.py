@@ -7,7 +7,6 @@ import pytest
 
 from finance_vibe import coiled_cobra_leader_experiment as lx
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
@@ -132,7 +131,7 @@ def test_trail_rejects_degenerate_inputs():
 def test_dedup_keeps_first_bar_of_each_consecutive_run_per_ticker():
     f = pd.DataFrame({"sym": ["A", "A", "A", "A", "B", "B"], "idx": [10, 11, 12, 20, 11, 12]})
     kept = lx.dedup_episodes(f)
-    assert list(zip(kept["sym"], kept["idx"])) == [("A", 10), ("A", 20), ("B", 11)]
+    assert list(zip(kept["sym"], kept["idx"], strict=True)) == [("A", 10), ("A", 20), ("B", 11)]
 
 
 def test_find_runs_finds_the_double():

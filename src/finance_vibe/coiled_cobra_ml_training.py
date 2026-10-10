@@ -20,7 +20,7 @@ import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -564,7 +564,9 @@ def main(argv: list[str] | None = None) -> int:
     rubric_version = _validate_rubric_version(df, csv_path, args.allow_rubric_mismatch)
     train, val, test, bounds = _temporal_split(df)
 
-    fmt = lambda ts: ts.strftime("%Y-%m-%d")
+    def fmt(ts: pd.Timestamp) -> str:
+        return ts.strftime("%Y-%m-%d")
+
     v_str = f"{fmt(bounds['val_start'])} .. {fmt(bounds['val_end'])}"
     t_str = f"{fmt(bounds['test_start'])} .. {fmt(bounds['max_date'])}"
 
@@ -584,7 +586,7 @@ def main(argv: list[str] | None = None) -> int:
     context = {
         "rubric_version": rubric_version,
         "mode": args.mode,
-        "trained_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "trained_at": datetime.now(UTC).isoformat(timespec="seconds"),
         "git_sha": _git_sha(),
         "source_csv": csv_path.name,
         "split": {
@@ -609,4 +611,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except Exception as exc:  # pragma: no cover - CLI surface
         print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

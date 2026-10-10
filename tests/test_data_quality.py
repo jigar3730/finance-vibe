@@ -4,11 +4,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from finance_vibe import config
-from finance_vibe import trade_planner
-from finance_vibe.trade_planner import calculate_stock_levels, generate_trade_plan
+from finance_vibe import config, trade_planner
 from finance_vibe.trade_plan_helper import process_trade_plan
-
+from finance_vibe.trade_planner import calculate_stock_levels, generate_trade_plan
 
 # ---------------------------------------------------------------------------
 # config.validate_and_clean_ohlcv
@@ -113,7 +111,7 @@ def test_cobra_valid_fib_uses_structural_entry():
     row = _base_row(Source="coiled_cobra")
     row["Fib 78.6%"] = 95.0
     row["Swing Low"] = 97.0
-    entry, stop, t1, t2, opt_type, delta = calculate_stock_levels(row)
+    entry, stop, t1, t2, opt_type, _delta = calculate_stock_levels(row)
     # entry = max(fib786, close - 0.25*atr) = max(95, 99.5)
     assert entry == pytest.approx(99.5)
     assert stop < entry
@@ -143,7 +141,7 @@ def test_cobra_price_risk_cap_binds_when_atr_wide():
     row = _base_row(Source="coiled_cobra", Close=100.0, ATR=10.0)
     row["Fib 78.6%"] = 50.0
     row["Swing Low"] = 80.0
-    entry, stop, t1, t2, *_ = calculate_stock_levels(row)
+    entry, stop, t1, _t2, *_ = calculate_stock_levels(row)
     # 1.5×ATR = 15% of close; cap forces risk ≤ 5% of close.
     assert (entry - stop) <= config.MAX_RISK_PCT_OF_CLOSE * 100.0 + 1e-9
     assert stop == pytest.approx(entry - config.MAX_RISK_PCT_OF_CLOSE * 100.0)
@@ -244,7 +242,7 @@ def test_short_stop_above_entry():
     row = _base_row(Setup_Type="SETUP_SHORT")
     row["Setup Type"] = "SETUP_SHORT"
     row["Swing High"] = 112.0
-    entry, stop, t1, t2, opt_type, delta = calculate_stock_levels(row)
+    entry, stop, _t1, _t2, opt_type, _delta = calculate_stock_levels(row)
     assert stop > entry
     assert opt_type == "PUT"
 
@@ -306,7 +304,7 @@ def test_row_mode_authoritative_when_mode_none(opt_in_profile):
     row = _base_row(EMA50=99.0, ATR=1.0, Close=100.0, EMA20=100.0)
     row["Swing Low"] = 99.0
     row["Mode"] = "opt_in"
-    entry, stop, t1, t2, *_ = calculate_stock_levels(row, mode=None)
+    entry, stop, t1, _t2, *_ = calculate_stock_levels(row, mode=None)
     risk = entry - stop
     hb = opt_in_profile
     # R-based targets prove the row's profile was applied.
@@ -356,7 +354,7 @@ def test_relative_strength_positive_and_negative():
     assert ok is True and rel > 0
     # Weak stock: lags benchmark.
     weak = pd.DataFrame({"Date": dates, "Close": np.linspace(100, 101, n)})
-    ok2, rel2 = relative_strength(weak, bench, as_of=dates.iloc[-1], lookback=63, ratio_ma_bars=20)
+    ok2, _rel2 = relative_strength(weak, bench, as_of=dates.iloc[-1], lookback=63, ratio_ma_bars=20)
     assert ok2 is False
 
 

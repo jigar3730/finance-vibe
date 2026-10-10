@@ -7,7 +7,6 @@ import pandas as pd
 from finance_vibe import breakout_experiment as bx
 from finance_vibe import breakout_scanner as bs
 
-
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------

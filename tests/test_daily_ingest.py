@@ -7,9 +7,8 @@ from datetime import date, datetime
 import pandas as pd
 import pytest
 
-from finance_vibe import config
+from finance_vibe import config, run_vibe
 from finance_vibe import daily_ingest as di
-from finance_vibe import run_vibe
 
 ET = di.MARKET_TZ
 DAY = pd.Timestamp("2026-09-16")          # a Wednesday session

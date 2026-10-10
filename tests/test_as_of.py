@@ -11,10 +11,8 @@ import pytest
 from finance_vibe import analysis_engine as ae
 from finance_vibe import breakout_scanner as bs
 from finance_vibe import coiled_cobra as cc
-from finance_vibe import config
-from finance_vibe import run_vibe
+from finance_vibe import config, run_vibe
 from finance_vibe import trade_plan_helper as tph
-
 
 # ---------------------------------------------------------------------------
 # parse_as_of / run_stamp

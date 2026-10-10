@@ -1,5 +1,3 @@
-import os
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -20,7 +18,7 @@ def test_trade_planner_accepts_cobra_source():
         "Swing Low": 94.0,
     }
 
-    entry, stop, target1, target2, option_type, delta_range = trade_planner.calculate_stock_levels(row)
+    entry, stop, target1, target2, option_type, _delta_range = trade_planner.calculate_stock_levels(row)
 
     assert option_type == "CALL"
     assert stop < entry

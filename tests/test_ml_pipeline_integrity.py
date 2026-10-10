@@ -8,18 +8,16 @@
 All hermetic: tiny models are trained on random data in ``tmp_path``.
 """
 import json
-import os
 import logging
+import os
 
 import numpy as np
 import pandas as pd
 import pytest
 
-from finance_vibe import config
-from finance_vibe import ml_ranker
 from finance_vibe import coiled_cobra_ml_training as trn
+from finance_vibe import config, ml_ranker
 from finance_vibe.coiled_cobra_ml_training import FEATURE_COLS
-
 
 # ---------------------------------------------------------------------------
 # helpers
@@ -218,7 +216,7 @@ def test_rubric_version_is_read_as_text_not_float(tmp_path):
     csv = _trades_csv(tmp_path / "t.csv", n_weeks=10, rubric_version="4.10")
     df = trn._load_and_prepare(csv)
     assert set(df[config.RUBRIC_VERSION_COL]) == {"4.10"}
-    with pytest.raises(ValueError, match="4.10"):
+    with pytest.raises(ValueError, match=r"4\.10"):
         trn._validate_rubric_version(df, csv)
 
 

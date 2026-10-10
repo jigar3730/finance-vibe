@@ -11,12 +11,11 @@ import os
 import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
-from typing import Optional
 
 import pandas as pd
 
-from finance_vibe import config
 from finance_vibe import coiled_cobra as cc
+from finance_vibe import config
 from finance_vibe.analysis_engine import load_benchmark_frame, load_ohlc_csv, ticker_from_filename
 from finance_vibe.coiled_cobra import (
     BENCHMARK,
@@ -25,8 +24,8 @@ from finance_vibe.coiled_cobra import (
     evaluate_coiled_cobra,
     local_swing_low,
 )
-from finance_vibe.trade_simulator import simulate_trade
 from finance_vibe.trade_planner import calculate_stock_levels
+from finance_vibe.trade_simulator import simulate_trade
 
 
 def detect_cobra_setup_at_bar(
@@ -34,7 +33,7 @@ def detect_cobra_setup_at_bar(
     symbol: str,
     benchmark_df=None,
     spy_df=None,
-) -> Optional[dict]:
+) -> dict | None:
     """Evaluate the latest bar in a history window for a Coiled Cobra coil setup."""
     if len(df) < cc.LOOKBACK // 2 + 15:
         return None
@@ -97,7 +96,7 @@ def detect_cobra_setup_at_bar(
     }
 
 
-def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd.DataFrame:
+def generate_backfill(mode: str = "weekly", tickers: str | None = None) -> pd.DataFrame:
     """Scan historical raw CSVs to produce a Coiled Cobra signal archive."""
     # Calibrate coiled_cobra's mode-derived globals from the explicit `mode`
     # param rather than relying on sys.argv[1] matching this script's own
@@ -161,7 +160,7 @@ def generate_backfill(mode: str = "weekly", tickers: Optional[str] = None) -> pd
     return out_df
 
 
-def _checks_n(checks_met) -> Optional[int]:
+def _checks_n(checks_met) -> int | None:
     """'5/6' -> 5 (None when missing/malformed)."""
     try:
         return int(str(checks_met).split("/")[0])
@@ -169,7 +168,7 @@ def _checks_n(checks_met) -> Optional[int]:
         return None
 
 
-def _benchmark_context(benchmark_df) -> Optional[pd.DataFrame]:
+def _benchmark_context(benchmark_df) -> pd.DataFrame | None:
     """Date-indexed benchmark Close plus causal regime columns, or None.
 
     ``Pct_From_EMA50`` and ``Ret_13w`` use only data up to each row's date, so
@@ -247,14 +246,15 @@ def backtest_ticker(
         setup_close = float(setup_row["Close"])
         n_bars = len(df)
 
+        # Called only within this iteration, so the loop variables are bound correctly.
         def _forward_return(horizon: int) -> float | None:
-            future_idx = idx + horizon
-            if future_idx >= n_bars:
+            future_idx = idx + horizon  # noqa: B023
+            if future_idx >= n_bars:  # noqa: B023
                 return None
             future_close = float(df.iloc[future_idx]["Close"])
-            return round((future_close - setup_close) / setup_close, 4)
+            return round((future_close - setup_close) / setup_close, 4)  # noqa: B023
 
-        def _bench(col: str, date) -> Optional[float]:
+        def _bench(col: str, date) -> float | None:
             if bench_ctx is None or date is None:
                 return None
             ts = pd.Timestamp(date)
@@ -399,7 +399,7 @@ def _backtest_ticker_worker(
 
 def run_backtest(
     mode: str = "weekly",
-    tickers: Optional[str] = None,
+    tickers: str | None = None,
     entry_valid: int = config.BACKTEST_ENTRY_VALID_BARS,
     max_hold: int = config.BACKTEST_MAX_HOLD_BARS,
 ) -> pd.DataFrame:

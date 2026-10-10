@@ -13,8 +13,6 @@ dependency on swing-scanner code.
 """
 from __future__ import annotations
 
-from typing import Optional
-
 import pandas as pd
 
 
@@ -39,7 +37,7 @@ def simulate_trade(
     target2: float,
     entry_valid_bars: int,
     max_hold_bars: int,
-) -> tuple[str, Optional[pd.Timestamp], Optional[float], Optional[float]]:
+) -> tuple[str, pd.Timestamp | None, float | None, float | None]:
     """Forward-simulate entry fill, stop, and targets on High/Low bars after *start_idx*."""
     risk = abs(entry - stop)
     if risk <= 0:
@@ -97,7 +95,7 @@ def _fmt_date(value):
 
 
 def _stop_exit_price(
-    is_long: bool, stop: float, open_px: Optional[float], slippage_pct: float
+    is_long: bool, stop: float, open_px: float | None, slippage_pct: float
 ) -> float:
     """Market-stop exit price, worsened by gaps through the stop and slippage."""
     px = stop
@@ -109,14 +107,13 @@ def _stop_exit_price(
     return px * (1 - slippage_pct) if is_long else px * (1 + slippage_pct)
 
 
-def _target_exit_price(is_long: bool, target: float, open_px: Optional[float]) -> float:
+def _target_exit_price(is_long: bool, target: float, open_px: float | None) -> float:
     """Limit-target exit price (no slippage); gaps beyond the target fill better."""
     px = target
-    if open_px is not None:
-        if is_long and open_px > target:
-            px = open_px
-        elif not is_long and open_px < target:
-            px = open_px
+    if open_px is not None and (
+        (is_long and open_px > target) or (not is_long and open_px < target)
+    ):
+        px = open_px
     return px
 
 
@@ -134,9 +131,7 @@ def simulate_scaled_trade(
     slippage_pct: float = 0.0,
     partial_fraction: float = 0.0,  # 0.0 = No partials (Full exit at target_r)
     target_r: float = 2.0,  # Full exit target at 2.0R
-    trailing_atr_mult: Optional[
-        float
-    ] = 2.0,  # 2.0 ATR trailing stop below current bar high
+    trailing_atr_mult: float | None = 2.0,  # 2.0 ATR trailing stop below current bar high
 ) -> dict:
     """Simulates trade execution with options for full exit (no partials) and high-water mark ATR trailing stops.
 

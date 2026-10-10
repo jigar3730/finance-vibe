@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 from datetime import date, datetime
+from typing import ClassVar
 
 import pandas as pd
 from pandas.tseries.holiday import (
@@ -97,7 +98,7 @@ def drop_incomplete_daily_bars(raw_dir: str, logs_dir: str, now: datetime | None
 class NYSEHolidayCalendar(AbstractHolidayCalendar):
     """Full-day NYSE closures (early closes are still sessions)."""
 
-    rules = [
+    rules: ClassVar[list[Holiday]] = [
         # NYSE does not move a Saturday New Year's Day to the Friday before.
         Holiday("NewYearsDay", month=1, day=1, observance=sunday_to_monday),
         USMartinLutherKingJr,

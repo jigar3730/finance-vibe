@@ -5,8 +5,8 @@ import pytest
 
 from finance_vibe.trade_simulator import (
     passes_macro_gate,
-    simulate_trade,
     simulate_scaled_trade,
+    simulate_trade,
 )
 
 

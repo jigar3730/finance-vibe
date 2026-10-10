@@ -9,6 +9,8 @@ import pandas as pd
 import yfinance as yf
 from flask import Flask, abort, render_template, request
 
+from finance_vibe.docs_routes import docs_bp
+
 # Ensure absolute paths resolve relative to the project root
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
 LOGS_BASE_DIR = os.path.join(BASE_DIR, "data", "logs")
@@ -46,8 +48,6 @@ app = Flask(
     template_folder=os.path.join(BASE_DIR, "templates"),
     static_folder=os.path.join(os.path.dirname(__file__), "static"),
 )
-
-from finance_vibe.docs_routes import docs_bp
 
 app.register_blueprint(docs_bp)
 
@@ -267,7 +267,7 @@ def view_run(mode: str, date: str) -> str | tuple[str, int]:
         table_html = df.to_html(classes="table", index=False, border=0, escape=False)
         return render_template("view.html", mode=mode, date=date, file_name=requested_file, table_html=table_html)
     except Exception as e:
-        return f"<h3>❌ Failed to parse data contents:</h3><pre>{str(e)}</pre>", 500
+        return f"<h3>❌ Failed to parse data contents:</h3><pre>{e!s}</pre>", 500
 
 @app.route("/breakout")
 def breakout_index() -> str:
@@ -332,7 +332,7 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
             table_df["Live Price"] = [
                 _live_price_cell(live_price_map.get(str(sym).strip().upper()), close)
                 if pd.notna(sym) else ""
-                for sym, close in zip(table_df["Symbol"], closes)
+                for sym, close in zip(table_df["Symbol"], closes, strict=True)
             ]
             cols = list(table_df.columns)
             cols.insert(cols.index("Close") + 1, cols.pop(cols.index("Live Price")))
@@ -359,7 +359,7 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
             table_html=table_html,
         )
     except Exception as e:
-        return f"<h3>❌ Failed to parse data contents:</h3><pre>{str(e)}</pre>", 500
+        return f"<h3>❌ Failed to parse data contents:</h3><pre>{e!s}</pre>", 500
 
 def main() -> None:
     """Serve the dashboard (``finance-vibe-app`` console script)."""

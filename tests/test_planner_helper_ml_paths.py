@@ -14,7 +14,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from finance_vibe import config, trade_plan_helper as h, trade_planner as tp
+from finance_vibe import config
+from finance_vibe import trade_plan_helper as h
+from finance_vibe import trade_planner as tp
 from finance_vibe.coiled_cobra import MIN_CHECKS_MET, N_SCORED_PILLARS
 from finance_vibe.trade_plan_helper import (
     CLEAN_EXPORT_COLUMNS,
@@ -243,7 +245,7 @@ def test_planner_geometry_always_satisfies_helper_guardrails():
     """
     for row in _cobra_rows():
         e, s, t1, t2, *_ = tp.calculate_stock_levels(row, mode=None)
-        er, sr, t1r, t2r, risk = tp._export_levels(e, s, t1, t2, row["Close"], row["Setup Type"])
+        er, _sr, t1r, t2r, risk = tp._export_levels(e, s, t1, t2, row["Close"], row["Setup Type"])
         assert risk > 0
         assert round((t1r - er) / risk, 2) >= h.MIN_RR_T1
         assert round((t1r - er) / risk, 2) == 2.0 and round((t2r - er) / risk, 2) == 3.0
@@ -259,7 +261,7 @@ DATE = "2099-06-01"
 
 def _scanner_frame(ml_pred=None, ml_rank=None) -> pd.DataFrame:
     rows = []
-    for i, (sym, score) in enumerate(zip(SYMS, SCORES)):
+    for i, (sym, score) in enumerate(zip(SYMS, SCORES, strict=True)):
         rows.append({
             "Symbol": sym, "Setup Type": "SETUP_LONG", "Source": "coiled_cobra", "Mode": "weekly",
             "AsOf Date": "2099-05-29", "Close": 100.0, "EMA20": 99.0, "EMA50": 96.0, "ATR": 2.0,

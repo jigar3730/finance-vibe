@@ -6,8 +6,8 @@ import os
 import pytest
 from werkzeug.exceptions import Forbidden, NotFound
 
-from finance_vibe.app import app
 from finance_vibe import docs_routes
+from finance_vibe.app import app
 
 
 @pytest.fixture

@@ -54,16 +54,17 @@ import json
 import os
 import sys
 import zlib
+from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Mapping, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from finance_vibe import config
 from finance_vibe import breakout_scanner as bs
 from finance_vibe import coiled_cobra_leader_experiment as lx
+from finance_vibe import config
 from finance_vibe.analysis_engine import ticker_from_filename
 
 MODE = "weekly"          # 10y of weekly bars; same horizon and exits as the leader experiment
@@ -160,7 +161,7 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], dict]:
     return symbol, rows, {"sym": symbol, "last_date": df["Date"].iloc[-1]}
 
 
-def collect(paths: list[str], workers: Optional[int] = None) -> tuple[pd.DataFrame, pd.Timestamp]:
+def collect(paths: list[str], workers: int | None = None) -> tuple[pd.DataFrame, pd.Timestamp]:
     """Run the pass over ``paths`` in a process pool; returns (bars, last_bar_date)."""
     rows: list[dict] = []
     last_dates: list[pd.Timestamp] = []
@@ -249,7 +250,7 @@ def qualifies(res: dict, ctrl: dict, ctrl_diff: dict) -> dict:
     return {"checks": checks, "qualified": all(checks.values())}
 
 
-def cobra_reference(bars: pd.DataFrame, cobra_bars: Optional[pd.DataFrame], n_boot: int) -> dict:
+def cobra_reference(bars: pd.DataFrame, cobra_bars: pd.DataFrame | None, n_boot: int) -> dict:
     """Coiled Cobra baseline on the ticker-weeks both experiments scored (dev period)."""
     if cobra_bars is None or cobra_bars.empty:
         return {"available": False}
@@ -272,7 +273,7 @@ def cobra_reference(bars: pd.DataFrame, cobra_bars: Optional[pd.DataFrame], n_bo
 
 
 def run_analysis(bars: pd.DataFrame, last_date: pd.Timestamp, n_boot: int = 2000,
-                 cobra_bars: Optional[pd.DataFrame] = None) -> dict:
+                 cobra_bars: pd.DataFrame | None = None) -> dict:
     """Full pre-registered analysis over a collected bar table."""
     bars = bars.copy()
     bars["period"] = lx.split_periods(bars, last_date)
@@ -384,7 +385,7 @@ def format_report(res: dict) -> str:
     return "\n".join(lines)
 
 
-def _newest(pattern: str) -> Optional[str]:
+def _newest(pattern: str) -> str | None:
     hits = sorted(glob.glob(pattern))
     return hits[-1] if hits else None
 

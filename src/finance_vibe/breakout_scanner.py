@@ -25,9 +25,8 @@ from __future__ import annotations
 import logging
 import os
 import sys
+from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime
-from typing import Iterable
 
 import numpy as np
 import pandas as pd

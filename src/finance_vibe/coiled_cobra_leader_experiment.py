@@ -54,16 +54,17 @@ import json
 import os
 import sys
 import zlib
+from collections.abc import Mapping
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
-from typing import Any, Mapping, Optional
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from finance_vibe import config
 from finance_vibe import coiled_cobra as cc
 from finance_vibe import coiled_cobra_backtest as cbt
+from finance_vibe import config
 from finance_vibe.analysis_engine import load_ohlc_csv, ticker_from_filename
 from finance_vibe.coiled_cobra import add_macro_indicators, evaluate_coiled_cobra, local_swing_low
 from finance_vibe.trade_planner import calculate_stock_levels
@@ -149,7 +150,7 @@ def simulate_trail_trade(
     init_atr: float = TRAIL_INIT_ATR,
     trail_atr: float = TRAIL_ATR,
     max_hold: int = TRAIL_MAX_HOLD,
-) -> Optional[dict]:
+) -> dict | None:
     """Enter at bar ``start_idx``'s open; exit on a stop/trail touch or time.
 
     The stop is only ever ratcheted *after* a bar's low has been tested against
@@ -210,7 +211,7 @@ def find_runs(
     taken = np.zeros(n, dtype=bool)
     runs: list[tuple[float, int, int]] = []
     for _ in range(max_runs):
-        best: Optional[tuple[float, int, int]] = None
+        best: tuple[float, int, int] | None = None
         for i in range(n):
             if taken[i] or lows[i] <= 0:
                 continue
@@ -328,7 +329,7 @@ def _ticker_pass(path: str) -> tuple[str, list[dict], list[dict], dict]:
     return symbol, rows, runs, meta
 
 
-def collect(paths: list[str], workers: Optional[int] = None) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
+def collect(paths: list[str], workers: int | None = None) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
     """Run the pass over ``paths`` in a process pool; returns (bars, runs, last_bar_date)."""
     cc.apply_timeframe(MODE)
     rows: list[dict] = []
@@ -341,7 +342,7 @@ def collect(paths: list[str], workers: Optional[int] = None) -> tuple[pd.DataFra
     ) as ex:
         futs = {ex.submit(_ticker_pass, p): p for p in paths}
         for k, fut in enumerate(as_completed(futs), 1):
-            sym, r, ru, meta = fut.result()
+            _sym, r, ru, meta = fut.result()
             rows.extend(r)
             runs.extend(ru)
             if meta:
@@ -408,7 +409,7 @@ def paired_diff(a: pd.DataFrame, b: pd.DataFrame, col: str, n_boot: int, seed: i
             "lo": float(np.nanpercentile(boots, 2.5)), "hi": float(np.nanpercentile(boots, 97.5))}
 
 
-def _profit_factor(r: pd.Series) -> Optional[float]:
+def _profit_factor(r: pd.Series) -> float | None:
     gains, losses = r[r > 0].sum(), -r[r < 0].sum()
     return float(gains / losses) if losses > 0 else None
 

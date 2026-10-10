@@ -125,7 +125,10 @@ def fit_predict_variant(train: pd.DataFrame, test: pd.DataFrame, spec: dict, see
     if spec["model"] == "ridge":
         med = X_tr.median().fillna(0.0)
         mu, sd = X_tr.fillna(med).mean(), X_tr.fillna(med).std().replace(0, 1.0).fillna(1.0)
-        z = lambda X: ((X.fillna(med) - mu) / sd).to_numpy()
+
+        def z(X: pd.DataFrame) -> np.ndarray:
+            return ((X.fillna(med) - mu) / sd).to_numpy()
+
         return Ridge(alpha=10.0).fit(z(X_tr), t["y"].to_numpy()).predict(z(X_te))
 
     raise ValueError(spec["model"])
@@ -159,7 +162,7 @@ def _paired(series: dict[str, pd.DataFrame], ranker: str, n_boot: int, seed: int
     d = (a - b).dropna().sort_index()
     mean, t, n = wf._mean_t(d)
     lo, hi = wf.block_bootstrap_ci(d.to_numpy(), n_boot=n_boot, seed=seed)
-    mean_ic, ic_t, n_ic = wf._mean_t(a)
+    mean_ic, ic_t, _n_ic = wf._mean_t(a)
     return {"weeks": n, "mean_ic": mean_ic, "ic_t": ic_t, "mean_diff": mean, "t": t, "ci95": [lo, hi]}
 
 
@@ -317,4 +320,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except Exception as exc:  # pragma: no cover - CLI surface
         print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

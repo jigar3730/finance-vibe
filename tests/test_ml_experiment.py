@@ -15,10 +15,10 @@ pytest.importorskip("xgboost")
 pytest.importorskip("lightgbm")
 pytest.importorskip("matplotlib")
 
-from finance_vibe import config
 from finance_vibe import coiled_cobra_ml_experiment as ex
 from finance_vibe import coiled_cobra_ml_training as trn
 from finance_vibe import coiled_cobra_ml_walkforward as wf
+from finance_vibe import config
 
 DATE = trn.DATE_COL
 
@@ -83,7 +83,7 @@ def test_shuffle_control_keeps_per_week_labels_but_breaks_association():
     spec = ex.VARIANTS["C0_shuffled_control"]
     real = ex._prepare_target(df, {**spec, "shuffle": False}, seed=1)
     shuf = ex._prepare_target(df, spec, seed=1)
-    for d, g in real.groupby(DATE):                                          # same multiset per week
+    for _d, g in real.groupby(DATE):                                          # same multiset per week
         assert np.allclose(np.sort(g["y"]), np.sort(shuf.loc[g.index, "y"]))
     assert abs(np.corrcoef(shuf["y"], shuf["Part_structure"])[0, 1]) < 0.08
     assert np.corrcoef(real["y"], real["Part_structure"])[0, 1] > 0.3

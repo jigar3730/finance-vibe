@@ -60,6 +60,7 @@ testpaths = ["tests"]
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
+extend-exclude = ["notebooks"]  # exploration only, not part of the pipeline
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "PD", "RUF"]
@@ -67,7 +68,9 @@ ignore = [
     "RUF001", "RUF002", "RUF003",  # intentional unicode (arrows, x, dashes) in text
     "RUF046",  # int(round(np.float64)) is not a redundant cast: numpy returns float
     "PD008",   # .at is the fast scalar accessor; keep it
-    "PD901",   # `df` is a fine local name
+    "SIM103", "SIM108",  # explicit early returns / if-else read better in the gates
+    "RUF005",  # list concatenation is fine
+    "SIM300",  # `x == pytest.approx(...)` / `A <= cols` read better as written
 ]
 
 [tool.ruff.lint.isort]

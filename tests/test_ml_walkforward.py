@@ -4,6 +4,7 @@ Synthetic data with a *known* ground truth validates the harness itself:
 an ML-learnable edge must be detected, a Score-driven edge must be credited to
 Score, and pure noise must not produce an edge.
 """
+import itertools
 import json
 
 import numpy as np
@@ -14,9 +15,9 @@ pytest.importorskip("xgboost")
 pytest.importorskip("lightgbm")
 pytest.importorskip("matplotlib")
 
-from finance_vibe import config
 from finance_vibe import coiled_cobra_ml_training as trn
 from finance_vibe import coiled_cobra_ml_walkforward as wf
+from finance_vibe import config
 
 DATE, TARGET = trn.DATE_COL, trn.TARGET_COL
 
@@ -67,7 +68,7 @@ def test_folds_are_expanding_disjoint_and_embargoed():
         assert train_dates.max() + horizon < test_dates.min()
         assert test_dates.min() >= f["test_start"] and test_dates.max() < f["test_end"]
 
-    for a, b in zip(folds, folds[1:]):
+    for a, b in itertools.pairwise(folds):
         assert a["test_end"] == b["test_start"]                     # contiguous, no gaps/overlap
         assert len(b["train_idx"]) > len(a["train_idx"])            # expanding window
     assert folds[-1]["test_end"] == df[DATE].max() + pd.Timedelta(days=1)
@@ -134,7 +135,7 @@ def test_weekly_metrics_respects_min_names():
 
 def test_mean_t_uses_effective_sample_size():
     x = pd.Series(np.r_[np.ones(50) * 0.1, np.ones(50) * -0.1] + np.tile([0.0, 0.05], 50) + 0.02)
-    m, t, n = wf._mean_t(x, horizon=2)
+    _m, t, n = wf._mean_t(x, horizon=2)
     naive = x.mean() / (x.std(ddof=1) / np.sqrt(len(x)))
     assert n == 100 and t == pytest.approx(naive / np.sqrt(2))
 
@@ -194,7 +195,7 @@ def test_harness_uses_no_future_information():
     df = _synthetic("feature")
     rng = np.random.default_rng(3)
     dates = df[DATE].unique()
-    shuffled = dict(zip(dates, rng.permutation(dates)))
+    shuffled = dict(zip(dates, rng.permutation(dates), strict=True))
     donor = df.set_index(DATE)["Pct_From_EMA20"]
     misaligned = df.copy()
     misaligned["Pct_From_EMA20"] = [
@@ -206,7 +207,7 @@ def test_harness_uses_no_future_information():
 
 
 def test_evaluate_shapes_and_folds_report_purged_train_sizes():
-    df, res = _run("none", max_folds=3)
+    _df, res = _run("none", max_folds=3)
     assert [f["fold"] for f in res["folds"]] == [1, 2, 3]
     for f in res["folds"]:
         assert f["n_train"] > 0 and f["n_test"] > 0
@@ -215,7 +216,7 @@ def test_evaluate_shapes_and_folds_report_purged_train_sizes():
 
 
 def test_report_formats_and_is_json_serialisable():
-    df, res = _run("feature", max_folds=2)
+    _df, res = _run("feature", max_folds=2)
     text = wf.format_report(res, {"source_csv": "x.csv"})
     assert "walk-forward" in text and "VERDICT" in text and "Paired ML minus Score" in text
     payload = {"folds": res["folds"], "summary": res["summary"]}

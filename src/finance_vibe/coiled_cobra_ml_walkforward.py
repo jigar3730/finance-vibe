@@ -31,7 +31,6 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from finance_vibe import config
 from finance_vibe import coiled_cobra_ml_training as trn
 
 DATE_COL = trn.DATE_COL
@@ -418,4 +417,4 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except Exception as exc:  # pragma: no cover - CLI surface
         print(f"ERROR: {exc}", file=sys.stderr)
-        raise SystemExit(1)
+        raise SystemExit(1) from None

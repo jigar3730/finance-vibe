@@ -9,15 +9,14 @@ import pandas as pd
 import pytest
 
 from finance_vibe import config, ml_ranker
+from finance_vibe.coiled_cobra_ml_training import FEATURE_COLS
 from finance_vibe.ml_ranker import (
     ML_PRED_COL,
     ML_RANK_COL,
     attach_ml_ranks,
     build_feature_frame,
 )
-from finance_vibe.coiled_cobra_ml_training import FEATURE_COLS
 from finance_vibe.trade_plan_helper import rank_by_expected_value
-
 
 # ---------------------------------------------------------------------------
 # build_feature_frame
