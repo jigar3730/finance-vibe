@@ -15,8 +15,8 @@ from finance_vibe.scanners import breakout as bs
 from finance_vibe.scanners import coiled_cobra as cc
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
-COBRA = (DOCS / "handbook" / "coiled_cobra_rubric.md").read_text(encoding="utf-8")
-BREAKOUT = (DOCS / "architecture" / "breakout_scanner.md").read_text(encoding="utf-8")
+COBRA = (DOCS / "coiled_cobra.md").read_text(encoding="utf-8")
+BREAKOUT = (DOCS / "breakout.md").read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(

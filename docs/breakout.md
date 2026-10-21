@@ -1,19 +1,17 @@
 # Breakout Readiness Scanner
 
-**Module:** `src/finance_vibe/breakout_scanner.py`
-**Pipeline step:** 5 of `run_vibe.py` (after `coiled_cobra.py`, before `trade_planner.py`)
+**Module:** `src/finance_vibe/scanners/breakout.py`
+**Pipeline step:** last stage of `finance_vibe.pipeline` (after Coiled Cobra)
 **Output:** `data/logs/{mode}/breakout_setups_<YYYY-MM-DD>.csv`
-**UI:** `/breakout` and `/breakout/<mode>/<date>` in `app.py` (weekly, daily)
+**UI:** `/breakout/<mode>/<date>` in `web/app.py` (weekly, daily)
 
 A research scanner that labels each ticker's **state** (trend, volatility,
 volume, momentum, structure, multi-timeframe alignment) and classifies it as a
 pre-breakout, confirmed, failed, developing, or watch setup. It aims to find
 names *before* they break out, not only after.
 
-It runs beside Coiled Cobra and does **not** feed the trade planner. Coiled
-Cobra stays the primary signal engine. Breakout output is for inspection
-and backtesting, to find out which features have predictive value before any
-weights are tuned.
+It runs beside Coiled Cobra and is independent of it: neither scanner reads
+the other's output. Breakout output is descriptive, for inspection.
 
 > **Source of truth:** the module. This doc was audited line by line against
 > the code on 2026-10-10. Every threshold below is a module constant or a
@@ -42,7 +40,7 @@ weights are tuned.
 data/raw/{data_mode}/*.csv  (filtered to active_tickers.csv)
         │
         ▼
-raw_data.load_raw()        contract check, clean dates, optional as-of cut
+raw.load_raw()             contract check, clean dates, optional as-of cut
         │
         ▼
 normalize_ohlcv()          header aliases, UTC dates, dedupe, negative volume → 0
@@ -263,13 +261,12 @@ Percentile bands award full points, then partial points, then `max(1, partial //
 ## Usage
 
 ```bash
-python src/finance_vibe/breakout_scanner.py weekly
-python src/finance_vibe/breakout_scanner.py daily
-python src/finance_vibe/breakout_scanner.py weekly --as-of 2025-11-07
+python -m finance_vibe.scanners.breakout weekly
+python -m finance_vibe.scanners.breakout daily
+python -m finance_vibe.scanners.breakout weekly --as-of 2025-11-07
 ```
 
-Tests: `tests/test_breakout_scanner.py`, `tests/test_breakout_dashboard.py`,
-`tests/test_as_of.py`.
+Tests: `tests/test_breakout.py`, `tests/test_dashboard.py`, `tests/test_as_of.py`.
 
 ## Validation status
 

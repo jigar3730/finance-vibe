@@ -5,17 +5,21 @@ detail lives in `docs/`.
 
 ## What this is
 
-Finance Vibe is a Python pipeline for **coil → expansion stock signals**: build a
-ticker universe, ingest OHLCV from Yahoo, score Coiled Cobra setups, and attach
-informational entry / stop / target context. It produces *signals*, not trade
-or options positions.
+Finance Vibe runs **two stock scanners**, Coiled Cobra (coil → expansion
+scorecard) and breakout readiness (descriptive states), over a Yahoo OHLCV
+universe in weekly and daily modes, and serves their dated CSVs in a Flask
+dashboard. It produces *signals* for review, not trades.
 
 ## Layout
 
-- `src/finance_vibe/` — all application code (package `finance_vibe`)
-- `templates/`, `src/finance_vibe/static/` — Flask UI
-- `tests/` — pytest suite (imports `from finance_vibe import ...`)
-- `docs/handbook/` — scoring rubrics and calculations; `docs/architecture/` — pipeline, ops, backtests, scanners
+- `src/finance_vibe/` — `config`, `log`, `indicators`, `market` (QQQ benchmark,
+  RS, Cobra market gate), `pipeline` (orchestrator)
+- `src/finance_vibe/data/` — `tickers`, `ingest` (Yahoo download, both modes),
+  `daily_ingest`, `raw` (the raw CSV loader)
+- `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout`
+- `src/finance_vibe/web/` — Flask app, `templates/`, `static/`
+- `tests/` — pytest suite
+- `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
 - `data/` — gitignored. `data/raw/{weekly|daily}/`, `data/logs/{weekly|daily}/`, `data/active_tickers.csv`
 - `scripts/` — cron runners, output health checks, test/lint/golden helpers
 
@@ -30,57 +34,51 @@ uv lock                                    # after editing pyproject.toml deps; 
 python -m pytest -q                        # full suite, ~30s (or: uv run pytest -q)
 python -m pytest tests/test_coiled_cobra.py -q
 
-python src/finance_vibe/run_vibe.py                        # weekly (default)
-python src/finance_vibe/run_vibe.py --mode daily
-python src/finance_vibe/run_vibe.py --reuse-raw            # skip wipe + ticker refresh + ingest
-python src/finance_vibe/run_vibe.py --as-of 2025-11-07     # replay from raw on disk (implies --reuse-raw)
-python src/finance_vibe/run_vibe.py --reuse-raw --in-process  # stages as function calls (debugging)
+python -m finance_vibe.pipeline                         # weekly (default)
+python -m finance_vibe.pipeline --mode daily
+python -m finance_vibe.pipeline --reuse-raw             # skip wipe + ticker refresh + ingest
+python -m finance_vibe.pipeline --as-of 2025-11-07      # replay from raw on disk (implies --reuse-raw)
+python -m finance_vibe.pipeline --reuse-raw --in-process  # stages as function calls (debugging)
 
-python src/finance_vibe/app.py                             # UI at http://127.0.0.1:5000
+python -m finance_vibe.web.app                          # UI at http://127.0.0.1:5000
 ```
 
-Every stage script also runs standalone with a mode argument, e.g.
-`python src/finance_vibe/coiled_cobra.py weekly`.
+Every stage also runs standalone, e.g. `python -m finance_vibe.scanners.coiled_cobra weekly`.
 
-## Pipeline (`run_vibe.py`, the source of truth)
+## Pipeline (`pipeline.py`, the source of truth)
 
-Stages are declared in `run_vibe.STAGES` and run as subprocesses (or
-`--in-process` via each stage's `main(argv)`), in order: wipe `data/raw/{mode}/` (unless
-`--reuse-raw`/`--as-of`) → `ticker_provider` → `data_ingestor` (weekly) or
-`daily_ingest` (daily; drops today's bar before 17:00 ET) →
-`analysis_engine` (macro Vibe Score) → `coiled_cobra` → `breakout_scanner` →
-`trade_planner` → `trade_plan_helper`. All outputs land in
-`data/logs/{mode}/` with a `_<date>` suffix.
+Stages are declared in `pipeline.STAGES` (dotted module names) and run as
+`python -m <module>` subprocesses (or `--in-process` via each stage's
+`main(argv)`), in order: wipe `data/raw/{mode}/` (unless `--reuse-raw`/`--as-of`)
+→ `data.tickers` → `data.ingest` (weekly) or `data.daily_ingest` (daily; drops
+today's bar before 17:00 ET) → `scanners.coiled_cobra` → `scanners.breakout`.
+Outputs land in `data/logs/{mode}/` with a `_<date>` suffix.
 
-If a doc disagrees with `run_vibe.py` or `config.py`, the code wins.
-`docs/handbook/coiled_cobra_rubric.md` was re-audited against
-`coiled_cobra.py` on 2026-10-08.
+If a doc disagrees with `pipeline.py` or `config.py`, the code wins.
 
 ## Rules that matter
 
 - **Never run the full pipeline casually.** Without `--reuse-raw` it deletes
   `data/raw/{mode}/` and re-downloads hundreds of tickers from Yahoo. For
   experiments use `--reuse-raw` or call a single stage.
-- **No lookahead.** Anything touching `--as-of`, backtests or backfills
-  must only use bars completed on/before the as-of date. Weekly
+- **No lookahead.** Anything touching `--as-of` must only use bars completed
+  on/before the as-of date. Weekly
   as-of on a non-Friday excludes the week in progress. `tests/test_as_of.py`
   guards this; keep it green.
-- **Config lives in `config.py`.** Thresholds, profiles (`TIMEFRAME_PROFILES`,
-  `SWING_PROFILES`), schemas (`REQUIRED_OHLCV`, `SETUP_ROW_COLUMNS`) and paths
+- **Config lives in `config.py`.** Profiles (`TIMEFRAME_PROFILES`), schemas (`REQUIRED_OHLCV`, `SETUP_ROW_COLUMNS`) and paths
   belong there, not hard-coded in stage modules.
 - **Rubric versioning.** If you change Coiled Cobra gate/pillar logic or
   thresholds in a way that changes `Score` or which setups qualify, bump
-  `config.RUBRIC_VERSION` and update `docs/handbook/coiled_cobra_rubric.md`.
-  Breakout scanner state/status/score changes update
-  `docs/architecture/breakout_scanner.md`. `tests/test_rubric_docs_sync.py`
+  `config.RUBRIC_VERSION` and update `docs/coiled_cobra.md`.
+  Breakout scanner state/status/score changes update `docs/breakout.md`. `tests/test_rubric_docs_sync.py`
   fails when a quoted threshold in either doc drifts from the code.
 - **Data contracts.** Raw CSVs are named `<TICKER>_<period>_<interval>.csv`
   and must satisfy `REQUIRED_OHLCV`; setup rows must match
   `SETUP_ROW_COLUMNS`. Reject malformed input loudly rather than mis-scoring.
-  Read raw files only through `raw_data.load_raw` (contract, date cleanup,
+  Read raw files only through `data.raw.load_raw` (contract, date cleanup,
   float64 prices and the as-of cut in one place), never a bare `read_csv`.
-- **Signals, not advice.** Keep planner output informational (entry/stop/2R/3R
-  targets); don't add options metadata or position sizing without being asked.
+- **Signals, not advice.** Keep scanner output informational; don't add trade
+  levels, options metadata or position sizing without being asked.
 
 ## Coding standards
 
@@ -95,18 +93,18 @@ If a doc disagrees with `run_vibe.py` or `config.py`, the code wins.
 - Import as `from finance_vibe import ...`. Don't add new `sys.path`
   fallbacks.
 - Keep numeric code vectorized (pandas/numpy, float64 prices). Don't use
-  `iterrows`/`apply(axis=1)` in per-ticker or backtest hot paths. Reuse
-  `indicators.py` (EMA/SMA/RSI/ATR/MACD/BB/KC/OBV, frozen against pandas-ta by
-  `tests/test_indicators_parity.py`) and the helpers in `analysis_engine.py`
-  instead of writing new ones; numeric drift changes `Score`.
+  `iterrows`/`apply(axis=1)` in per-ticker hot paths. Reuse `indicators.py`
+  (EMA/SMA/RSI/ATR/MACD/BB/KC/OBV, frozen against pandas-ta by
+  `tests/test_indicators_parity.py`) and `market.py` instead of writing new
+  ones; numeric drift changes `Score`.
 - Catch specific exceptions (`ValueError`, `KeyError`, `OSError`) at IO and
   data-contract boundaries. Broad catches only in per-ticker scan loops, and
   log them with the traceback.
 - Don't add heavy dependencies (polars, duckdb, async frameworks) without a
   measured need.
 - ruff (lint + format, config in `pyproject.toml`) and mypy must stay clean.
-  mypy is strict for `config`, `analysis_engine`, `coiled_cobra`,
-  `trade_planner`; widen that list one module at a time. Prefer a targeted
+  mypy is strict for `config`, `market`, `scanners.coiled_cobra`; widen that
+  list one module at a time. Prefer a targeted
   `# type: ignore[code]` over `cast()`/runtime coercion for pandas-stubs noise.
 - Logging: `logger = logging.getLogger(__name__)` in modules;
   `finance_vibe.log.setup_logging()` once per `__main__`. Never configure
@@ -141,8 +139,8 @@ rubric-versioned score change should you run `baseline --force` to re-record.
 ## Working style
 
 - Before deleting or "cleaning up" code, search all of `src/`, `tests/`,
-  `templates/`, `scripts/`, Docker files and docs for references (stages are
-  invoked by path from `run_vibe.py`, so imports alone won't show usage).
+  `scripts/`, Docker files and docs for references (stages are invoked by
+  module name from `pipeline.STAGES`, so imports alone won't show usage).
   Present findings and wait for confirmation before removing things
   (mirrors `.cursorrules`).
 - Add or update a test in `tests/` with any logic change, and run the
@@ -153,6 +151,7 @@ rubric-versioned score change should you run `baseline --force` to re-record.
 ## Deployment
 
 `docker compose up -d` serves the Flask UI on port 5000 (container default
-command is `app.py`, not the pipeline). Host data volume:
-`/mnt/fast/finance-vibe-data` → `/app/data`; `docs/` is mounted read-only for
-the in-UI handbook. TZ is `America/New_York`.
+command is `python -m finance_vibe.web.app`, not the pipeline). Host data
+volume: `/mnt/fast/finance-vibe-data` → `/app/data`. TZ is `America/New_York`.
+Cron runs the pipeline in the container via `scripts/run_{daily,weekly}_pipeline.sh`
+(see `docs/operations.md`); rebuild the image after code changes.

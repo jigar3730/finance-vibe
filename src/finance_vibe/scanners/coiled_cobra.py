@@ -40,7 +40,7 @@ RVOL_BONUS = 1.2  # RVOL threshold for the quiet-coil credit check
 class Timeframe:
     """Every mode-dependent calibration constant, derived from one mode.
 
-    Weekly-native periods per docs/handbook/coiled_cobra_rubric.md, scaled 5x
+    Weekly-native periods per docs/coiled_cobra.md, scaled 5x
     for daily bars (5 trading days ~= 1 week). This 5x rule is not
     arbitrary: 10w*5=50d, 30w*5=150d, 40w*5=200d land exactly on Minervini's
     classic daily 50/150/200-SMA trend template -- the rubric explicitly names
@@ -148,8 +148,8 @@ GRADE_A_SCORE = 85
 def apply_timeframe(tf: str) -> str:
     """Set every mode-derived constant and path for ``weekly`` or ``daily``.
 
-    The module imports as weekly; ``main()`` and library callers (backtests,
-    golden scorecard) select the timeframe explicitly. Returns the mode used.
+    The module imports as weekly; ``main()`` and library callers (the golden
+    scorecard) select the timeframe explicitly. Returns the mode used.
     """
     global TIMEFRAME, mode, _data_mode, _is_daily_bars
     global LOOKBACK, COIL_BARS, RS_LOOKBACK, RS_RATIO_MA, _WK_TO_BAR
@@ -568,7 +568,7 @@ def evaluate_coiled_cobra(
     (not scored, regardless of ``include_rejects``) -- see the rubric's
     "Data requirements" section.
 
-    Full spec: docs/handbook/coiled_cobra_rubric.md (v4.0).
+    Full spec: docs/coiled_cobra.md (v4.0).
     """
     if len(df) < MIN_BARS_FULL_SCORE:
         return None

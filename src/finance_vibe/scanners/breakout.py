@@ -480,8 +480,6 @@ def add_indicators(
     out["Support"] = low.rolling(STRUCTURE_BARS, min_periods=STRUCTURE_BARS).min().shift(1)
 
     # Confirmed 3-bar swing pivots (pivot at i-1, confirmed on bar i).
-    out["Swing High"] = (high.shift(1) > high.shift(2)) & (high.shift(1) > high)
-    out["Swing Low"] = (low.shift(1) < low.shift(2)) & (low.shift(1) < low)
 
     atr = out["ATR"].replace(0, np.nan)
     out["Distance Resistance ATR"] = (out["Resistance"] - close) / atr
@@ -607,8 +605,6 @@ class BreakoutFeatures:
     breakout_confirmation: bool | None
     failed_breakout: bool | None
     wick_reject: bool | None
-    swing_high: bool | None
-    swing_low: bool | None
     macd_hist: float | None
     has_daily: bool = False
 
@@ -746,8 +742,6 @@ class FeatureEngine:
             breakout_confirmation=_safe_bool(last.get("Breakout Confirmation")),
             failed_breakout=_safe_bool(last.get("Failed Breakout")),
             wick_reject=_safe_bool(last.get("Wick Reject")),
-            swing_high=_safe_bool(last.get("Swing High")),
-            swing_low=_safe_bool(last.get("Swing Low")),
             macd_hist=_safe_float(last.get("MACD_Hist"), 6),
             has_daily=daily is not None,
         )

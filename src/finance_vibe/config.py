@@ -34,7 +34,7 @@ TIMEFRAME_PROFILES = {
 
 DEFAULT_MODE = "weekly"
 
-# Coiled Cobra rubric version (docs/handbook/coiled_cobra_rubric.md).
+# Coiled Cobra rubric version (docs/coiled_cobra.md).
 # Bump whenever gate/pillar logic or thresholds change in a way that alters
 # ``Score`` or which setups qualify (e.g. Gate D 5/6 -> 4/6).
 RUBRIC_VERSION = "4.0"

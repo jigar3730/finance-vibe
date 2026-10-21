@@ -1,6 +1,6 @@
 """Unit tests for the Coiled Cobra coil → expansion scorecard (rubric v4.0).
 
-Full spec: docs/handbook/coiled_cobra_rubric.md.
+Full spec: docs/coiled_cobra.md.
 """
 
 import numpy as np

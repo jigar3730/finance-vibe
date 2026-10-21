@@ -162,7 +162,7 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
         chunk = tickers[chunk_start : chunk_start + batch_size]
         try:
             # --- 3. DOWNLOAD (whole batch, one round-trip) ---
-            # auto_adjust=True handles splits/dividends for cleaner backtesting
+            # auto_adjust=True: split/dividend-adjusted prices
             batch = _download_batch(chunk, PERIOD, INTERVAL)
         except Exception as e:
             # Batch failed after all retries: log once per ticker and move on

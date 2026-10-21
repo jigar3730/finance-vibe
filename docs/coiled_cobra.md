@@ -4,12 +4,12 @@
 Supersedes v3.1. Target: identify coils likely to break out within 1-2 weekly
 bars, scanned against 10 years of weekly OHLCV history.
 
-> **Source of truth:** `src/finance_vibe/coiled_cobra.py`
+> **Source of truth:** `src/finance_vibe/scanners/coiled_cobra.py`
 > (`evaluate_coiled_cobra`; `config.RUBRIC_VERSION = "4.0"`). Indicator math
 > is in `src/finance_vibe/indicators.py`. This doc was re-audited line by
 > line against the code on 2026-10-10; where they disagree, the code wins.
 >
-> **Daily mode.** The rubric is weekly-native, but `coiled_cobra.py daily`
+> **Daily mode.** The rubric is weekly-native, but `coiled_cobra daily`
 > runs the same logic on daily bars with every week-denominated period scaled
 > ×5 (EMA 50/100/150/200, trend-rising lookback 40 bars, BBWidth window 650
 > with at least 162 bars, history floors 300/800 bars). A few constants are
@@ -42,9 +42,8 @@ bars, scanned against 10 years of weekly OHLCV history.
 # Data requirements
 
 - 10 years of weekly OHLCV (~520 bars) per ticker.
-- QQQ weekly series, same length, for RS (`BENCHMARK = "QQQ"`). SPY is
-  loaded and passed to the market gate but is currently **not used** in any
-  pass/fail or scoring decision.
+- QQQ weekly series, same length, for RS (`BENCHMARK = "QQQ"`). No other
+  benchmark is used.
 - Optional (recommended, not yet required): a sector/industry group proxy
   (ETF or custom basket) for group RS — see Known Limitations.
 
@@ -108,8 +107,8 @@ RS_13w > -15%           (fails only on outright multi-quarter lag)
 ```
 EMA50w here is the plain 50-bar EMA (`EMA50`). A ticker exactly at
 `RS_13w = -15%` fails. Fail-open: when benchmark data is unavailable (RS is
-`None`) only the EMA50 check applies, same as v3.1. SPY/QQQ trend is not part
-of this gate.
+`None`) only the EMA50 check applies, same as v3.1. Benchmark trend is not part
+of this gate. Code: `market.check_coiled_cobra_market_gate`.
 
 ## Gate C — Coil Integrity (new — replaces implicit additive credit)
 ```
@@ -146,8 +145,7 @@ genuine multi-factor confluence.
 > ~65% of otherwise equal-or-better `B/Watchlist`-tier signal volume, where
 > the blocked increment actually outperformed (+0.121R vs +0.087R). The
 > `A/Actionable` tier — the strongest cohort by far — was unaffected by the
-> threshold either way. See `gate_d_ablation_trades.csv` backtest run for
-> detail.
+> threshold either way.
 
 ---
 
@@ -367,10 +365,10 @@ columns exactly `config.SETUP_ROW_COLUMNS`. The scorecard fields are:
 - `Market Gate`, also copied to `Regime OK`.
 - `Fib Score`, always 0.0.
 
-The per-pillar `Parts` and `BBWidth Pctile` are **not** in the live CSV; the
-backtest archives keep them (`Part_*`, `BBWidth Pctile`). Rows are sorted by
-`Score`, descending. Ties
-have no guaranteed order.
+The per-pillar `Parts` and `BBWidth Pctile` are returned by
+`evaluate_coiled_cobra` but **not** written to the CSV (the golden-output
+scorecard records them). Rows are sorted by `Score`, descending. Ties have no
+guaranteed order.
 
 **Recommended pipeline:** run this weekly scorecard to produce the
 candidate list, then re-check `Actionable` names against **daily** bars for
@@ -402,9 +400,7 @@ question.
   a hot group is a meaningfully different signal than absolute RS vs. QQQ
   alone, and this rubric doesn't yet capture it.
 - **BBWidth percentile window (130w, chosen from the 104-156w range) is a
-  starting heuristic**, not back-tested here. Worth validating against your
-  existing trade archive (`backtest_and_backfill.md`) before fully replacing
-  the old ATR-ratio method in production.
+  starting heuristic**, not back-tested here.
 - **IPO / short-history names** (< 160 weekly bars) are not scored at all, so
   they never reach Stage 2. Nothing scores them on partial data, but nothing
   surfaces an explicit `Insufficient History` status either. They show up
@@ -412,8 +408,7 @@ question.
 - **Overhead Clearance is looser than intended.** See pillar 6: the 13-week
   local-high clause gives full marks well short of true open sky, and there
   is no prior-swing-high detection. Fixing it changes `Score`, so it needs a
-  `RUBRIC_VERSION` bump and backtest validation.
-- **SPY is unused.** It is loaded and passed to the market gate but ignored.
+  `RUBRIC_VERSION` bump and validation.
 - Daily-bar trigger confirmation (mentioned in Stage 3) is a **process
   recommendation**, not implemented in this rubric — it's a second, smaller
   scanner pass, not a rewrite of this one.
