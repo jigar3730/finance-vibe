@@ -106,8 +106,8 @@ STATUS_TRIGGERED = "BREAKOUT_TRIGGERED"
 STATUS_FAILED = "FAILED_BREAKOUT"
 
 CANDIDATE_STATUSES = {STATUS_PRE, STATUS_CONFIRMED, STATUS_TRIGGERED, STATUS_FAILED}
+# WATCH (the "nothing happening" catch-all) is never displayed; the CSV keeps it.
 DISPLAY_SCORE_FLOOR = {
-    STATUS_WATCH: 55,
     STATUS_DEV: 50,
 }
 
@@ -1141,7 +1141,7 @@ def _format_table(df: pd.DataFrame) -> str:
 
 
 def _display_mask(df: pd.DataFrame) -> pd.Series:
-    """Display rule: candidate statuses always, WATCH / DEVELOPING at or above their floor."""
+    """Display rule: candidate statuses always, DEVELOPING at or above its floor, never WATCH."""
     status = df["Status"]
     floor = status.map(DISPLAY_SCORE_FLOOR)
     score = pd.to_numeric(df["Breakout Readiness"], errors="coerce")

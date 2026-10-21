@@ -73,9 +73,15 @@ def test_breakout_view_kpis(client, breakout_logs):
     assert "Setups" in body
     assert ">4<" in body
     assert "66.0" in body  # median of [83, 72, 60, 25]
-    # All four symbols present when unfiltered.
-    for sym in ("AAA", "BBB", "CCC", "DDD"):
+    # Default view: PRE_BREAKOUT and the failed section; WATCH rows are hidden.
+    for sym in ("AAA", "DDD"):
         assert sym in body
+    for sym in ("BBB", "CCC"):
+        assert sym not in body
+    # "All" lists every row.
+    show_all = client.get("/breakout/daily/2026-09-04?show=all").get_data(as_text=True)
+    for sym in ("AAA", "BBB", "CCC", "DDD"):
+        assert sym in show_all
 
 
 def test_breakout_view_status_filter(client, breakout_logs):
@@ -98,7 +104,7 @@ def test_breakout_view_missing_file_404(client, breakout_logs):
 
 
 def test_breakout_view_live_price_next_to_close(client, breakout_logs):
-    body = client.get("/breakout/daily/2026-09-04").get_data(as_text=True)
+    body = client.get("/breakout/daily/2026-09-04?show=all").get_data(as_text=True)
     header = body.split("<thead>")[1].split("</thead>")[0]
     ths = [h.split("<")[0].strip() for h in header.split("<th>")[1:]]
     assert ths.index("Live Price") == ths.index("Close") + 1
@@ -181,13 +187,13 @@ def _main_table(body):
 def test_default_view_applies_display_rule_and_splits_failed(client, display_logs):
     body = client.get("/breakout/daily/2026-10-20").get_data(as_text=True)
     main = _main_table(body)
-    for sym in ("CONF", "TRIG", "HIGW"):
+    for sym in ("CONF", "TRIG"):
         assert sym in main
-    for sym in ("LOWW", "LOWD", "FAIL"):
+    for sym in ("LOWW", "HIGW", "LOWD", "FAIL"):  # WATCH never, DEVELOPING below its floor
         assert sym not in main
     assert "failed-section" in body and "FAIL" in body.split("failed-section")[1]
-    # Status order: confirmed, then triggered, then watch.
-    assert main.index("CONF") < main.index("TRIG") < main.index("HIGW")
+    # Status order: confirmed, then triggered.
+    assert main.index("CONF") < main.index("TRIG")
 
 
 def test_old_watch_rows_with_trigger_flag_are_relabelled(client, display_logs):

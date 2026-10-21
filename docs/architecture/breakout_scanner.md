@@ -148,8 +148,11 @@ Evaluated in order; the first match wins. "Not through" means `Breakout Triggere
 
 The console table and dashboard show these rows; the CSV keeps every scanned row:
 - every `PRE_BREAKOUT`, `BREAKOUT_CONFIRMED`, `BREAKOUT_TRIGGERED` and `FAILED_BREAKOUT` row;
-- `WATCH` rows with readiness ≥ 55;
 - `DEVELOPING` rows with readiness ≥ 50.
+
+`WATCH` rows (the catch-all: nothing has broken out, failed or started coiling)
+are never displayed by default. Before 2026-10-20, `WATCH` rows with readiness
+≥ 55 were shown.
 
 Rows are sorted by status (`PRE_BREAKOUT`, `BREAKOUT_CONFIRMED`,
 `BREAKOUT_TRIGGERED`, `FAILED_BREAKOUT`, `WATCH`, `DEVELOPING`), then readiness

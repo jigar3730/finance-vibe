@@ -51,11 +51,12 @@ BREAKOUT_DISPLAY_COLUMNS = [
 ]
 
 # Mirrors breakout_scanner's display rule and status order (tests/test_breakout_dashboard.py
-# checks they agree): event statuses always show; WATCH / DEVELOPING need a readiness floor.
+# checks they agree): event statuses always show; DEVELOPING needs a readiness floor; WATCH
+# is only listed via its status chip or "All".
 BREAKOUT_TRIGGERED = "BREAKOUT_TRIGGERED"
 BREAKOUT_FAILED = "FAILED_BREAKOUT"
 BREAKOUT_ALWAYS_SHOWN = {"PRE_BREAKOUT", "BREAKOUT_CONFIRMED", BREAKOUT_TRIGGERED, BREAKOUT_FAILED}
-BREAKOUT_SCORE_FLOOR = {"WATCH": 55, "DEVELOPING": 50}
+BREAKOUT_SCORE_FLOOR = {"DEVELOPING": 50}
 BREAKOUT_STATUS_ORDER = [
     "PRE_BREAKOUT",
     "BREAKOUT_CONFIRMED",
@@ -195,7 +196,7 @@ def _relabel_triggered_watch(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _breakout_display_mask(df: pd.DataFrame) -> pd.Series:
-    """Scanner display rule: event statuses always, WATCH / DEVELOPING above a floor."""
+    """Scanner display rule: event statuses always, DEVELOPING above a floor, never WATCH."""
     if "Status" not in df.columns:
         return pd.Series(True, index=df.index)
     status = df["Status"]

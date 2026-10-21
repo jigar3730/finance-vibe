@@ -50,7 +50,7 @@
         Showing <strong>{{ row_count }}</strong> row(s)
         {%- if active_status %} for status <code>{{ active_status }}</code>
         {%- elif show_all %} (every scanned ticker)
-        {%- else %}: every pre-breakout, confirmed and triggered setup, plus WATCH with readiness ≥ {{ score_floor['WATCH'] }} and DEVELOPING ≥ {{ score_floor['DEVELOPING'] }}
+        {%- else %}: every pre-breakout, confirmed and triggered setup, plus DEVELOPING with readiness ≥ {{ score_floor['DEVELOPING'] }} (WATCH rows: use the WATCH or All chip)
         {%- endif %}.
     </div>
 

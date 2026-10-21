@@ -64,7 +64,6 @@ def test_cobra_timeframe_numbers_in_doc():
         f"MACD({bs.MACD_FAST}, {bs.MACD_SLOW}, {bs.MACD_SIGNAL})",
         f"Bollinger({bs.BB_LEN}, {int(bs.BB_STD)})",
         f"Keltner({bs.KC_LEN}, {bs.KC_SCALAR})",
-        f"readiness ≥ {bs.DISPLAY_SCORE_FLOOR[bs.STATUS_WATCH]}",
         f"readiness ≥ {bs.DISPLAY_SCORE_FLOOR[bs.STATUS_DEV]}",
         "daily 252, weekly 52 or monthly 36",
     ],
