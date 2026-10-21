@@ -270,3 +270,67 @@ def test_top_setups_page_shows_cards_per_mode(client, tmp_path, monkeypatch):
     assert "50.31" in body and "45.23" in body  # trigger and stop
     assert "status-waiting" in body and "wide stop" in body
     assert "No weekly setups" in body
+    # Each card carries a level chart wired to its plan.
+    chart = body.split('class="level-chart"')[1].split("></div>")[0]
+    assert 'data-mode="daily"' in chart and 'data-symbol="VRNS"' in chart
+    assert 'data-trigger="50.31"' in chart and 'data-stop="45.23"' in chart
+    assert 'data-support="44.62"' in chart
+    assert "lightweight-charts-4.2.3.standalone.production.js" in body
+
+
+@pytest.fixture
+def raw_bars(tmp_path, monkeypatch):
+    """A daily raw silo with one ticker of 150 bars (out of date order on disk)."""
+    raw_dir = tmp_path / "raw" / "daily"
+    raw_dir.mkdir(parents=True)
+    dates = pd.bdate_range("2026-01-01", periods=150)
+    frame = pd.DataFrame(
+        {
+            "Date": dates.strftime("%Y-%m-%d"),
+            "Open": range(150),
+            "High": [x + 2 for x in range(150)],
+            "Low": [x - 1 for x in range(150)],
+            "Close": [x + 1 for x in range(150)],
+            "Volume": 1000,
+        }
+    )
+    frame.iloc[::-1].to_csv(raw_dir / "VRNS_5y_1d.csv", index=False)
+    profiles = {m: dict(p) for m, p in app_module.config.TIMEFRAME_PROFILES.items()}
+    profiles["daily"]["raw_dir"] = str(raw_dir)
+    monkeypatch.setattr(app_module.config, "TIMEFRAME_PROFILES", profiles)
+    return dates
+
+
+def test_api_bars_returns_recent_bars_in_date_order(client, raw_bars):
+    response = client.get("/api/bars/daily/VRNS")
+    assert response.status_code == 200
+    bars = response.get_json()
+    assert len(bars) == app_module.CHART_BARS["daily"] == 60
+    assert [b["time"] for b in bars] == sorted(b["time"] for b in bars)
+    assert bars[-1] == {
+        "time": raw_bars[-1].strftime("%Y-%m-%d"),
+        "open": 149.0,
+        "high": 151.0,
+        "low": 148.0,
+        "close": 150.0,
+    }
+    assert response.headers["Cache-Control"] == "max-age=60"
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "/api/bars/daily/NOPE",  # no raw file
+        "/api/bars/hourly/VRNS",  # unknown mode
+        "/api/bars/daily/vrns",  # symbols are upper-case
+        "/api/bars/daily/..%2Fx",  # path tricks never reach the filesystem
+        "/api/bars/daily/TOOLONGSYMBOL",
+    ],
+)
+def test_api_bars_rejects_unknown_or_unsafe_requests(client, raw_bars, url):
+    assert client.get(url).status_code == 404
+
+
+def test_api_bars_missing_raw_dir_is_404(client, raw_bars, tmp_path, monkeypatch):
+    app_module.config.TIMEFRAME_PROFILES["daily"]["raw_dir"] = str(tmp_path / "gone")
+    assert client.get("/api/bars/daily/VRNS").status_code == 404

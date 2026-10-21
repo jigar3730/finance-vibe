@@ -70,6 +70,7 @@ def test_plan_levels_from_resistance_support_and_swing_low():
     stop = max(44.62, 45.65) - 0.25 * 1.70
     risk = 50.31 - stop
     assert plan["trigger"] == 50.31
+    assert plan["support"] == 44.62
     assert plan["stop"] == pytest.approx(stop, abs=0.005)
     assert plan["risk"] == pytest.approx(risk, abs=0.005)
     assert plan["targets"] == pytest.approx([50.31 + 2 * risk, 50.31 + 3 * risk], abs=0.005)

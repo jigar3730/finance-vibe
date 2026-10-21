@@ -151,6 +151,7 @@ dashboard and the next scheduled run pick it up.
 | ----- | -------- |
 | `/` | Top setups: the best 3 of both scanners per mode, with key levels and an action plan |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
+| `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
 | `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, live price vs Close |
 | `/breakout/<mode>/<date>` | Breakout scan: KPIs, status chips, highlights (or `?show=all` / `?status=`), failed breakouts collapsed |
 
@@ -180,6 +181,13 @@ For each mode it reads the newest run and ranks both scanners together:
   - `TRIGGERED`: within 1 ATR above it.
   - `EXTENDED`: more than 1 ATR above it; don't chase.
   - `INVALIDATED`: below the stop.
+
+Each card has a level chart: recent candles from `/api/bars` with the trigger, stop,
+support, T1 and T2 drawn as price lines (`web/static/js/level-charts.js`). It uses
+TradingView Lightweight Charts v4.2.3 (Apache 2.0), vendored at
+`web/static/vendor/lightweight-charts-4.2.3.standalone.production.js` so the dashboard
+needs no internet access; to upgrade, replace that file and update the version in
+`top.html`. Its attribution logo stays on, as the licence notice asks.
 
 The rules are mechanical and unvalidated: a plan to review, not advice.
 

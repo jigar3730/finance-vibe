@@ -188,7 +188,8 @@ def action_plan(row: pd.Series | dict[str, Any], live_price: float | None = None
     atr = _num(row.get("ATR"))
     if entry is None or atr is None or atr <= 0:
         raise ValueError("row needs Resistance and a positive ATR")
-    floors = [_num(row.get("Support")), _num(row.get("Cobra Swing Low"))]
+    support = _num(row.get("Support"))
+    floors = [support, _num(row.get("Cobra Swing Low"))]
     floor = max((f for f in floors if f is not None and f < entry), default=None)
     if floor is None:
         raise ValueError("row needs a Support or Swing Low below the trigger")
@@ -218,6 +219,7 @@ def action_plan(row: pd.Series | dict[str, Any], live_price: float | None = None
     return {
         "trigger": round(entry, 2),
         "stop": round(stop, 2),
+        "support": None if support is None else round(support, 2),
         "risk": round(risk, 2),
         "risk_pct": round(risk_pct, 1),
         "targets": [round(entry + r * risk, 2) for r in TARGET_R],

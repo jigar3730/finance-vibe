@@ -4,14 +4,16 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pandas as pd
 import yfinance as yf
-from flask import Flask, abort, render_template, request
+from flask import Flask, Response, abort, jsonify, render_template, request
 
 from finance_vibe import config
+from finance_vibe.data import raw
 from finance_vibe.log import setup_logging
 from finance_vibe.web import playbook
 from finance_vibe.web.playbook import (
@@ -305,6 +307,10 @@ def _sort_breakout_rows(df: pd.DataFrame) -> pd.DataFrame:
 
 TOP_N = 3
 
+# /api/bars: recent bars for the Top Setups level charts.
+CHART_BARS = {"daily": 60, "weekly": 52}
+_SYMBOL = re.compile(r"^[A-Z0-9.\-]{1,10}$")
+
 
 @app.route("/")
 def index() -> str:
@@ -325,6 +331,42 @@ def index() -> str:
             cards.append({"symbol": row["Symbol"], "row": row.to_dict(), "plan": plan})
         sections.append({"mode": mode, "date": date, "cards": cards})
     return render_template("top.html", sections=sections, top_n=TOP_N)
+
+
+@app.route("/api/bars/<mode>/<symbol>")
+def api_bars(mode: str, symbol: str) -> Response:
+    """Recent OHLC bars for one ticker from the raw silo, for the level charts."""
+    if mode not in CHART_BARS or not _SYMBOL.match(symbol):
+        abort(404)
+    raw_dir = config.TIMEFRAME_PROFILES[mode]["raw_dir"]
+    try:
+        path = next((f.path for f in raw.raw_files(raw_dir) if f.ticker == symbol), None)
+        if path is None:
+            abort(404)
+        bars = raw.load_raw(path, weekly=mode == "weekly").tail(CHART_BARS[mode])
+    except (OSError, ValueError) as exc:
+        logger.warning("Bars unavailable for %s %s: %s", mode, symbol, exc)
+        abort(404)
+    payload = [
+        {
+            "time": d.strftime("%Y-%m-%d"),
+            "open": round(float(o), 4),
+            "high": round(float(h), 4),
+            "low": round(float(lo), 4),
+            "close": round(float(c), 4),
+        }
+        for d, o, h, lo, c in zip(
+            pd.to_datetime(bars["Date"]),
+            bars["Open"],
+            bars["High"],
+            bars["Low"],
+            bars["Close"],
+            strict=True,
+        )
+    ]
+    response = jsonify(payload)
+    response.headers["Cache-Control"] = "max-age=60"
+    return response
 
 
 @app.route("/runs")

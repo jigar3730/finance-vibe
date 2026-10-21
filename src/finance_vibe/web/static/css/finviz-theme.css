@@ -302,7 +302,7 @@ table.table tr:has(.live-surge) {
 .top-date { font-size: 0.8rem; color: var(--finviz-text-muted); font-weight: 400; margin-left: 8px; }
 .card-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
     gap: 16px;
 }
 .setup-card {
@@ -337,6 +337,16 @@ table.table tr:has(.live-surge) {
     color: var(--finviz-text-strong);
 }
 .setup-note { margin: 6px 0 10px; font-size: 0.85rem; }
+.level-chart { height: 240px; margin-bottom: 10px; }
+.level-chart-empty {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--finviz-text-muted);
+    font-size: 0.8rem;
+    border: 1px dashed var(--finviz-border);
+    border-radius: 4px;
+}
 .plan-table, .levels-table { margin-bottom: 10px; }
 .plan-table th, .levels-table th { width: 1%; }
 .plan-table td.muted { color: var(--finviz-text-muted); white-space: normal; }

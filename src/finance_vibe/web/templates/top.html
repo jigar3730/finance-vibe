@@ -1,5 +1,9 @@
 {% extends "base.html" %}
 {% block title %}Top setups - Finance Vibe{% endblock %}
+{% block extra_head %}
+    <script defer src="{{ url_for('static', filename='vendor/lightweight-charts-4.2.3.standalone.production.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/level-charts.js') }}"></script>
+{% endblock %}
 {% block content %}
     <h1>🏆 Top Setups</h1>
     <div class="meta scan-note">
@@ -34,6 +38,12 @@
                     <a class="chip" href="{{ url_for('breakout_view', mode=section.mode, date=section.date, status=r.get('Status')) }}">🎯 {{ r.get('Status') }} · {{ r.get('Breakout Readiness')|num(0) }}</a>
                 </div>
                 <p class="setup-note">{{ p.note }}</p>
+
+                <div class="level-chart"
+                     data-mode="{{ section.mode }}" data-symbol="{{ card.symbol }}"
+                     data-trigger="{{ p.trigger }}" data-stop="{{ p.stop }}"
+                     data-t1="{{ p.targets[0] }}" data-t2="{{ p.targets[1] }}"
+                     data-support="{{ p.support if p.support is not none else '' }}"></div>
 
                 <table class="table plan-table">
                     <tr><th>Trigger</th><td>{{ p.trigger|num }}</td><td class="muted">{{ p.condition }}</td></tr>
