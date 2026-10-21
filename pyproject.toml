@@ -1,7 +1,7 @@
 [project]
 name = "finance-vibe"
 version = "0.1.0"
-description = "Coil -> expansion stock signals: ticker universe, Yahoo OHLCV ingest, Coiled Cobra scoring, informational trade plans."
+description = "Two stock scanners (Coiled Cobra, breakout readiness) over a Yahoo OHLCV universe, with a Flask dashboard."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"  # numpy 2.2.6 (baseline) has no 3.14 wheels
 # Lower bounds are the versions the project was validated on (2026-10);
@@ -12,8 +12,6 @@ dependencies = [
     "yfinance>=1.7.0,<2",
     "yahooquery>=2.4.1,<3",
     "flask>=3.1.3,<4",
-    "markdown>=3.10.3,<4",
-    "pygments>=2.21.0,<3",
     "tabulate>=0.10.0",
 ]
 
@@ -80,7 +78,7 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 # Untyped third-party packages.
-module = ["yfinance.*", "yahooquery.*", "markdown.*", "pygments.*"]
+module = ["yfinance.*", "yahooquery.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
@@ -89,9 +87,8 @@ ignore_missing_imports = true
 # the flags it would turn on.
 module = [
     "finance_vibe.config",
-    "finance_vibe.analysis_engine",
+    "finance_vibe.market",
     "finance_vibe.coiled_cobra",
-    "finance_vibe.trade_planner",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

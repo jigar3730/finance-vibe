@@ -163,10 +163,9 @@ def _scorecard(mode: str, as_of: str, out_csv: str) -> int:
 
     cc.apply_timeframe(mode)  # calibration constants and RAW_DATA_DIR
     weekly = mode == "weekly"
-    bench = {}
-    for sym in (cc.BENCHMARK, cc.SPY_BENCHMARK):
-        frame = cc.load_benchmark_frame(sym, mode)
-        bench[sym] = config.cut_to_as_of(frame, as_of, weekly=weekly) if frame is not None else None
+    bench = cc.load_benchmark_frame(cc.BENCHMARK, mode)
+    if bench is not None:
+        bench = config.cut_to_as_of(bench, as_of, weekly=weekly)
     rows = []
     for path in sorted(Path(cc.RAW_DATA_DIR).glob("*.csv")):
         symbol = path.name.split("_")[0].upper()
@@ -178,13 +177,7 @@ def _scorecard(mode: str, as_of: str, out_csv: str) -> int:
                 row["Grade"] = "_insufficient_history"
             else:
                 df = cc.add_macro_indicators(df)
-                res = cc.evaluate_coiled_cobra(
-                    df,
-                    bench[cc.BENCHMARK],
-                    spy_df=bench[cc.SPY_BENCHMARK],
-                    qqq_df=bench[cc.BENCHMARK],
-                    include_rejects=True,
-                )
+                res = cc.evaluate_coiled_cobra(df, bench, include_rejects=True)
                 if res is None:
                     row["Grade"] = "_not_scored"
                 else:

@@ -6,7 +6,6 @@ Full spec: docs/handbook/coiled_cobra_rubric.md.
 import numpy as np
 import pandas as pd
 
-from finance_vibe.analysis_engine import check_coiled_cobra_market_gate
 from finance_vibe.coiled_cobra import (
     MIN_BARS_FULL_SCORE,
     add_macro_indicators,
@@ -18,6 +17,7 @@ from finance_vibe.coiled_cobra import (
     structure_score,
     vol_contraction_score,
 )
+from finance_vibe.market import check_coiled_cobra_market_gate
 
 
 def _ohlc(n=220, *, start=100.0, drift=0.3, noise=0.5, seed=0):
@@ -182,7 +182,6 @@ def test_relative_strength_score_rs_line_bonus(monkeypatch):
 
 def test_market_gate_fail_open_without_frames():
     assert check_coiled_cobra_market_gate() is True
-    assert check_coiled_cobra_market_gate(spy_df=None, qqq_df=None) is True
 
 
 def test_market_gate_fails_only_on_trend_break():

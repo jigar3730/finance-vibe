@@ -25,11 +25,8 @@ MODE = "weekly"
 MAX_INGEST_ERROR_SHARE = 0.20
 BENCHMARKS = ("SPY", "QQQ")
 EXPECTED_PREFIXES = (
-    "vibe_report_",
     "coiled_cobra_setups_",
     "breakout_setups_",
-    "trade_plan_",
-    "trade_plan_clean_",
 )
 
 

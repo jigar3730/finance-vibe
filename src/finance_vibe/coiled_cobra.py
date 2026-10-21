@@ -11,13 +11,13 @@ import pandas as pd
 
 # --- PACKAGE IMPORT ---
 from finance_vibe import config, indicators, raw_data
-from finance_vibe.analysis_engine import (
+from finance_vibe.config import AsOf
+from finance_vibe.log import setup_logging
+from finance_vibe.market import (
     check_coiled_cobra_market_gate,
     load_benchmark_frame,
     relative_strength,
 )
-from finance_vibe.config import AsOf
-from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 # RUBRIC v4.0 CALIBRATION
 # =====================================================================
 BENCHMARK = "QQQ"
-SPY_BENCHMARK = "SPY"
 # Local structural floor for dual-constraint stops (not the macro Fib lookback)
 STRUCTURE_STOP_BARS = 10
 
@@ -234,32 +233,6 @@ def add_macro_indicators(df: pd.DataFrame, lookback: int | None = None) -> pd.Da
     )
 
     # Keep early rows so RS / lookback windows still see full history.
-    return out
-
-
-def macro_indicator_history(df: pd.DataFrame, lookback: int | None = None) -> pd.DataFrame:
-    """``add_macro_indicators`` for every prefix of ``df`` in one pass.
-
-    Row ``t`` equals ``add_macro_indicators(df.iloc[: t + 1]).iloc[t]`` bit for
-    bit for every ``t >= 50`` (past the longest SMA window; see
-    ``indicators.sma`` for the one-row edge case), so a walk-forward can slice
-    this instead of recomputing per bar (O(n) instead of O(n^2)). Scoring
-    starts far later (``MIN_BARS_FULL_SCORE``). Every indicator is a causal recurrence or a
-    trailing window, except one pandas_ta quirk: ATR adds float epsilon to the
-    whole range series once *any* bar is flat, so a later flat bar would leak
-    into earlier ATR values. Rows before the first flat bar therefore get the
-    epsilon-free ATR. ``tests/test_macro_indicator_history.py`` checks the
-    prefix property.
-    """
-    out = add_macro_indicators(df, lookback)
-    flat = (out["High"] - out["Low"]).eq(0).to_numpy()
-    if flat.any():
-        first_flat = int(np.argmax(flat))
-        no_eps = indicators.atr(
-            out["High"], out["Low"], out["Close"], length=14, flat_epsilon=False
-        )
-        if no_eps is not None and first_flat > 0:
-            out.loc[out.index[:first_flat], "ATR"] = no_eps.iloc[:first_flat].to_numpy()
     return out
 
 
@@ -574,8 +547,6 @@ def evaluate_coiled_cobra(
     df: pd.DataFrame,
     benchmark_df: pd.DataFrame | None = None,
     *,
-    spy_df: pd.DataFrame | None = None,
-    qqq_df: pd.DataFrame | None = None,
     apply_market_gate: bool = True,
     include_rejects: bool = False,
 ) -> dict[str, Any] | None:
@@ -685,9 +656,6 @@ def evaluate_coiled_cobra(
     gate_ok = True
     if apply_market_gate:
         gate_ok = check_coiled_cobra_market_gate(
-            spy_df=spy_df,
-            qqq_df=qqq_df if qqq_df is not None else benchmark_df,
-            as_of=as_of,
             close=current_price,
             ema50=ema50_f,
             rs_63d=rs_rel,
@@ -776,21 +744,11 @@ def run_scanner(as_of: str | None = None) -> None:
 
     # Benchmarks live in the data timeframe's raw silo (_data_mode).
     qqq_df = load_benchmark_frame(BENCHMARK, _data_mode)
-    spy_df = load_benchmark_frame(SPY_BENCHMARK, _data_mode)
-    if as_of:
-        qqq_df = (
-            config.cut_to_as_of(qqq_df, as_of, weekly=weekly_bars) if qqq_df is not None else None
-        )
-        spy_df = (
-            config.cut_to_as_of(spy_df, as_of, weekly=weekly_bars) if spy_df is not None else None
-        )
+    if as_of and qqq_df is not None:
+        qqq_df = config.cut_to_as_of(qqq_df, as_of, weekly=weekly_bars)
     if qqq_df is None:
         logger.warning(
             f"Benchmark {BENCHMARK} unavailable in {_data_mode} raw data — RS pillar will score 0."
-        )
-    if spy_df is None:
-        logger.warning(
-            f"Benchmark {SPY_BENCHMARK} unavailable in {_data_mode} raw data — market gate uses QQQ only."
         )
 
     results = []
@@ -826,7 +784,7 @@ def run_scanner(as_of: str | None = None) -> None:
 
         try:
             df = add_macro_indicators(df)
-            setup = evaluate_coiled_cobra(df, qqq_df, spy_df=spy_df, qqq_df=qqq_df)
+            setup = evaluate_coiled_cobra(df, qqq_df)
 
             if not setup:
                 rejection_counts["IGNORE"] = rejection_counts.get("IGNORE", 0) + 1

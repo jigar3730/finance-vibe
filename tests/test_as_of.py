@@ -9,11 +9,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from finance_vibe import analysis_engine as ae
 from finance_vibe import breakout_scanner as bs
 from finance_vibe import coiled_cobra as cc
-from finance_vibe import config, run_vibe
-from finance_vibe import trade_plan_helper as tph
+from finance_vibe import config, market, run_vibe
 
 # ---------------------------------------------------------------------------
 # parse_as_of / run_stamp
@@ -266,33 +264,6 @@ def test_breakout_scan_files_cuts_each_frame_at_as_of(tmp_path, monkeypatch):
     assert seen[-1] == dates[-1]  # no as_of -> whole file
 
 
-def test_vibe_report_scores_the_as_of_bar(tmp_path):
-    path = tmp_path / "TEST_10y_1wk.csv"
-    dates = _write_weekly_csv(path)
-    as_of = (dates[150] + pd.Timedelta(days=4)).date().isoformat()
-    expected = pd.read_csv(path)["Close"].iloc[150]
-    assert ae.scan_one_file(str(path), as_of, True).price == pytest.approx(float(expected))
-    assert ae.scan_one_file(str(path)).price == pytest.approx(
-        float(pd.read_csv(path)["Close"].iloc[-1])
-    )
-
-
-# ---------------------------------------------------------------------------
-# Trade plan helper: strict resolution (no silent fallback to another week)
-# ---------------------------------------------------------------------------
-
-
-def test_helper_strict_lookup_refuses_to_fall_back_to_another_weeks_plan():
-    with pytest.raises(FileNotFoundError, match="--as-of"):
-        tph.resolve_trade_plan_path("weekly", today="1999-01-01", strict=True)
-
-
-def test_helper_main_validates_and_reports_missing_plan(caplog):
-    assert tph.main(["weekly", "--as-of", "not-a-date"]) == 2
-    assert tph.main(["weekly", "--as-of", "1999-01-01"]) == 1
-    assert "not found" in caplog.text
-
-
 # ---------------------------------------------------------------------------
 # Orchestrator
 # ---------------------------------------------------------------------------
@@ -316,11 +287,8 @@ def test_orchestrator_as_of_implies_reuse_raw_and_passes_the_date_to_each_stage(
 
     scripts = [c[1].rsplit("/", 1)[-1] for c in cmds]
     assert scripts == [
-        "analysis_engine.py",
         "coiled_cobra.py",
         "breakout_scanner.py",
-        "trade_planner.py",
-        "trade_plan_helper.py",
     ]  # no ticker refresh / ingest
     assert all(c[-2:] == ["--as-of", "2025-11-07"] and c[2] == "weekly" for c in cmds)
 
@@ -329,7 +297,7 @@ def test_orchestrator_without_as_of_is_unchanged(monkeypatch):
     monkeypatch.setattr(run_vibe, "clean_raw_folder", lambda *a, **k: None)
     cmds = _run_orchestrator(monkeypatch, ["--reuse-raw"])
     run_vibe.run_workflow()
-    assert len(cmds) == 5 and not any("--as-of" in c for c in cmds)
+    assert len(cmds) == 2 and not any("--as-of" in c for c in cmds)
 
 
 @pytest.mark.parametrize("bad", ["not-a-date", (date.today() + timedelta(days=3)).isoformat()])
@@ -343,6 +311,6 @@ def test_orchestrator_rejects_a_bad_as_of_before_running_anything(monkeypatch, b
 def test_unreadable_benchmark_is_unavailable_not_fatal(tmp_path, monkeypatch, caplog):
     bad = tmp_path / "QQQ_5y_1wk.csv"
     bad.write_text("Open,High\n1,2\n")  # no Date/Close: violates the contract
-    monkeypatch.setattr(ae, "_select_benchmark_path", lambda benchmark, data_mode: str(bad))
-    assert ae.load_benchmark_frame("QQQ", "weekly") is None
+    monkeypatch.setattr(market, "_select_benchmark_path", lambda benchmark, data_mode: str(bad))
+    assert market.load_benchmark_frame("QQQ", "weekly") is None
     assert "Benchmark QQQ unreadable" in caplog.text

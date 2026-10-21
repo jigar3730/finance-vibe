@@ -1,44 +1,29 @@
 {% extends "base.html" %}
-{% block title %}Finance Vibe Dashboard{% endblock %}
+{% block title %}Finance Vibe{% endblock %}
 {% block content %}
-    <h1>🚀 Finance Vibe Execution Hub</h1>
-    <p>Select an isolated timeframe run to inspect detected trade plans and scanning outputs.</p>
+    <h1>🚀 Finance Vibe</h1>
+    <p>Each run date links to that day's Coiled Cobra setups and breakout readiness scan.</p>
 
+    {% set labels = {'weekly': '📅 Weekly', 'daily': '⚡ Daily'} %}
     <div class="container">
+        {% for mode, mode_runs in runs.items() %}
         <div class="column">
-            <h2>📅 Weekly Framework (10Y Lookback)</h2>
-            {% if runs['weekly'] %}
+            <h2>{{ labels.get(mode, mode|capitalize) }}</h2>
+            {% if mode_runs %}
                 <ul>
-                {% for run in runs['weekly'] %}
+                {% for run in mode_runs %}
                     <li>
-                        <a href="/view/weekly/{{ run['date'] }}?file={{ run['file_name'] }}">Trade Plan ({{ run['date'] }})</a>
-                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
-                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
-                        </span>
+                        <strong>{{ run['date'] }}</strong>
+                        {% if run['cobra'] %}<a href="{{ url_for('cobra_view', mode=mode, date=run['date']) }}">Coiled Cobra</a>{% endif %}
+                        {% if run['cobra'] and run['breakout'] %} · {% endif %}
+                        {% if run['breakout'] %}<a href="{{ url_for('breakout_view', mode=mode, date=run['date']) }}">Breakout</a>{% endif %}
                     </li>
                 {% endfor %}
                 </ul>
             {% else %}
-                <p style="color: var(--finviz-text-muted);">No weekly log files discovered yet.</p>
+                <p style="color: var(--finviz-text-muted);">No {{ mode }} scans yet.</p>
             {% endif %}
         </div>
-
-        <div class="column">
-            <h2>⚡ Daily Framework (2Y Lookback)</h2>
-            {% if runs['daily'] %}
-                <ul>
-                {% for run in runs['daily'] %}
-                    <li>
-                        <a href="/view/daily/{{ run['date'] }}?file={{ run['file_name'] }}">Trade Plan ({{ run['date'] }})</a>
-                        <span class="badge {% if run['is_clean'] %}clean{% endif %}">
-                            {{ 'Cleaned' if run['is_clean'] else 'Raw' }}
-                        </span>
-                    </li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p style="color: var(--finviz-text-muted);">No daily log files discovered yet.</p>
-            {% endif %}
-        </div>
+        {% endfor %}
     </div>
 {% endblock %}

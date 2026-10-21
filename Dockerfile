@@ -31,7 +31,7 @@ COPY pyproject.toml uv.lock .python-version README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project
 
-# Sources, templates/, and docs/ (Handbook / Architecture / Labs) for the Flask UI
+# Sources and templates/ for the Flask UI (docs/ is excluded by .dockerignore)
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen

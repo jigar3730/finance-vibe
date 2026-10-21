@@ -1,4 +1,4 @@
-"""Breakout dashboard routes: run listing, KPI counts, and status filtering."""
+"""Dashboard routes: run listing, Coiled Cobra setups, breakout KPIs and status filtering."""
 
 from __future__ import annotations
 
@@ -41,28 +41,31 @@ def fake_live_prices(monkeypatch):
 
 @pytest.fixture
 def breakout_logs(tmp_path, monkeypatch):
-    """Point breakout silos at tmp dirs and seed one daily scan."""
+    """Point the log silos at tmp dirs and seed one daily breakout scan."""
     modes = {
         "weekly": str(tmp_path / "weekly"),
         "daily": str(tmp_path / "daily"),
     }
-    monkeypatch.setattr(app_module, "BREAKOUT_MODES", modes)
+    monkeypatch.setattr(app_module, "LOG_DIRS", modes)
     _write_scan(tmp_path / "daily", "2026-09-04")
     return modes
 
 
-def test_breakout_routes_registered():
+def test_routes_registered():
     rules = {rule.rule: rule.endpoint for rule in app.url_map.iter_rules()}
-    assert rules.get("/breakout") == "breakout_index"
+    assert rules.get("/") == "index"
+    assert rules.get("/cobra/<mode>/<date>") == "cobra_view"
     assert rules.get("/breakout/<mode>/<date>") == "breakout_view"
 
 
-def test_breakout_index_lists_runs(client, breakout_logs):
-    response = client.get("/breakout")
-    assert response.status_code == 200
-    body = response.get_data(as_text=True)
-    assert "2026-09-04" in body
-    assert "/breakout/daily/2026-09-04" in body
+def test_index_links_each_scanner_that_ran(client, breakout_logs, tmp_path):
+    pd.DataFrame([{"Symbol": "AAA", "Score": 90, "Close": 1.0}]).to_csv(
+        tmp_path / "daily" / "coiled_cobra_setups_2026-09-05.csv", index=False
+    )
+    body = client.get("/").get_data(as_text=True)
+    assert "/breakout/daily/2026-09-04" in body and "/cobra/daily/2026-09-04" not in body
+    assert "/cobra/daily/2026-09-05" in body and "/breakout/daily/2026-09-05" not in body
+    assert body.index("2026-09-05") < body.index("2026-09-04")  # newest first
 
 
 def test_breakout_view_kpis(client, breakout_logs):
@@ -115,25 +118,33 @@ def test_breakout_view_live_price_next_to_close(client, breakout_logs):
     assert 'live-price-cell live-flat">N/A' in body
 
 
-def test_trade_plan_live_price_colour_and_surge_row(client, tmp_path, monkeypatch):
+def test_cobra_view_orders_by_score_with_live_price_and_surge_row(client, tmp_path, monkeypatch):
     modes = {"weekly": str(tmp_path / "weekly"), "daily": str(tmp_path / "daily")}
-    monkeypatch.setattr(app_module, "MODES", modes)
+    monkeypatch.setattr(app_module, "LOG_DIRS", modes)
     (tmp_path / "weekly").mkdir()
     # AAA live 95 < 100 (red), BBB live 55.5 vs 50 = +11% (green + surge),
     # CCC live == close (neutral), DDD live N/A.
     pd.DataFrame(
         [
-            {"Symbol": s, "Score": 1, "Close": c}
-            for s, c in [("AAA", 100.0), ("BBB", 50.0), ("CCC", 20.0), ("DDD", 10.0)]
+            {"Symbol": s, "Score": score, "Close": c, "Pct_From_EMA20": 0.1}
+            for s, score, c in [
+                ("CCC", 70, 20.0),
+                ("AAA", 95, 100.0),
+                ("DDD", 60, 10.0),
+                ("BBB", 80, 50.0),
+            ]
         ]
-    ).to_csv(tmp_path / "weekly" / "trade_plan_2026-09-04.csv", index=False)
+    ).to_csv(tmp_path / "weekly" / "coiled_cobra_setups_2026-09-04.csv", index=False)
 
-    body = client.get("/view/weekly/2026-09-04?file=trade_plan_2026-09-04.csv").get_data(
-        as_text=True
-    )
+    body = client.get("/cobra/weekly/2026-09-04").get_data(as_text=True)
     header = body.split("<thead>")[1].split("</thead>")[0]
     ths = [h.split("<")[0].strip() for h in header.split("<th>")[1:]]
     assert ths.index("Live Price") == ths.index("Close") + 1
+    assert "Pct_From_EMA20" not in ths  # only the display columns
+    table = body.split("<tbody>")[1]
+    assert [table.index(s) for s in ("AAA", "BBB", "CCC", "DDD")] == sorted(
+        table.index(s) for s in ("AAA", "BBB", "CCC", "DDD")
+    )  # Score descending
     assert 'live-price-cell live-below-close">$95.00' in body
     assert 'live-price-cell live-above-close live-surge">$55.50' in body
     assert 'live-price-cell live-flat">$20.00' in body
@@ -155,7 +166,7 @@ def _write_rows(folder, date_str, rows):
 def display_logs(tmp_path, monkeypatch):
     """A scan exercising the display rule, the failed split, and the old-CSV relabel."""
     monkeypatch.setattr(
-        app_module, "BREAKOUT_MODES", {"weekly": str(tmp_path / "w"), "daily": str(tmp_path / "d")}
+        app_module, "LOG_DIRS", {"weekly": str(tmp_path / "w"), "daily": str(tmp_path / "d")}
     )
     monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {s: "N/A" for s in syms})
     row = {"Close": 10.0, "Breakout Triggered": False}

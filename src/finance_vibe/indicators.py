@@ -29,12 +29,10 @@ def _too_short(*series: pd.Series, length: int) -> bool:
     return any(s is None or s.size < length for s in series)
 
 
-def _non_zero_range(x: pd.Series, y: pd.Series, epsilon: bool | None = None) -> pd.Series:
-    """``x - y``, plus float epsilon everywhere if any difference is 0 (``epsilon=None``)."""
+def _non_zero_range(x: pd.Series, y: pd.Series) -> pd.Series:
+    """``x - y``, plus float epsilon everywhere if any difference is 0 (pandas_ta)."""
     diff = x - y
-    if epsilon is None:
-        epsilon = bool(diff.eq(0).any())
-    if epsilon:
+    if diff.eq(0).any():
         diff += _EPS
     return diff
 
@@ -88,16 +86,12 @@ def rsi(close: pd.Series, length: int = 14) -> pd.Series | None:
     return out
 
 
-def true_range(
-    high: pd.Series, low: pd.Series, close: pd.Series, *, flat_epsilon: bool | None = None
-) -> pd.Series | None:
-    """``flat_epsilon=None`` adds epsilon to every High-Low range when any bar is
-    flat (pandas_ta). That depends on *all* bars, later ones included; pass
-    False/True to fix it (see ``coiled_cobra.macro_indicator_history``)."""
+def true_range(high: pd.Series, low: pd.Series, close: pd.Series) -> pd.Series | None:
+    """True range; adds epsilon to every High-Low range when any bar is flat (pandas_ta)."""
     if _too_short(high, low, close, length=1):
         return None
     prev_close = close.shift(1)
-    hl = _non_zero_range(high, low, flat_epsilon)
+    hl = _non_zero_range(high, low)
     ranges = pd.concat([hl, high - prev_close, prev_close - low], axis=1)
     out = ranges.abs().max(axis=1)
     if out.isna().all():
@@ -110,13 +104,11 @@ def atr(
     low: pd.Series,
     close: pd.Series,
     length: int = 14,
-    *,
-    flat_epsilon: bool | None = None,
 ) -> pd.Series | None:
-    """Average true range: SMA-seeded RMA of the true range (``flat_epsilon``: see true_range)."""
+    """Average true range: SMA-seeded RMA of the true range."""
     if _too_short(high, low, close, length=length + 1):
         return None
-    tr = true_range(high, low, close, flat_epsilon=flat_epsilon)
+    tr = true_range(high, low, close)
     if tr is None:
         return None
     seed = tr.iloc[0:length].mean()

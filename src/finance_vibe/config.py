@@ -34,13 +34,10 @@ TIMEFRAME_PROFILES = {
 
 DEFAULT_MODE = "weekly"
 
-# Coiled Cobra rubric version. Stamped onto every backtest/backfill CSV
-# (``Rubric_Version`` column) so results from different rubric vintages are
-# never mixed.
+# Coiled Cobra rubric version (docs/handbook/coiled_cobra_rubric.md).
 # Bump whenever gate/pillar logic or thresholds change in a way that alters
 # ``Score`` or which setups qualify (e.g. Gate D 5/6 -> 4/6).
 RUBRIC_VERSION = "4.0"
-RUBRIC_VERSION_COL = "Rubric_Version"
 
 
 def get_mode_config(mode: str | None = None) -> dict[str, Any]:
@@ -85,60 +82,8 @@ def get_raw_path(ticker: str, cfg: dict[str, Any]) -> str:
     return os.path.join(cfg["raw_dir"], _get_raw_filename(ticker, cfg))
 
 
-# Coiled Cobra backtest defaults (offline validation; not part of run_vibe.py)
-BACKTEST_ENTRY_VALID_BARS = 4
-BACKTEST_MAX_HOLD_BARS = 12
-
-# Swing geometry profiles (fallback levels when a setup has no usable Fib 78.6%;
-# weekly = swing leg, daily = tighter targets)
-_SWING_WEEKLY = {
-    "entry_atr": 0.25,
-    "stop_buffer_atr": 0.25,
-    "stop_atr_cap": 1.5,  # dual-constraint vol floor: entry − 1.5×ATR
-    "t1_atr": 1.25,
-    "t2_atr": 2.25,
-}
-
-# Tuned on 5y daily QQQ/SPY/IWM: ~75% WR, +0.19 avg R vs weekly-like −0.33
-_SWING_DAILY = {
-    "entry_atr": 0.25,
-    "stop_buffer_atr": 0.25,
-    "stop_atr_cap": 1.5,
-    "t1_atr": 0.85,
-    "t2_atr": 1.6,
-}
-
-SWING_PROFILES = {
-    "weekly": _SWING_WEEKLY,
-    "daily": _SWING_DAILY,
-}
-
-# Optional keys applied to every profile so callers can read them uniformly.
-# Existing weekly/daily behavior is preserved because these defaults are inert.
-_SWING_DEFAULTS = {
-    "min_risk_atr": None,
-    "max_risk_atr": None,  # None -> cap stop via stop_atr_cap (legacy)
-    "use_r_targets": False,
-    "t1_r": 1.0,
-    "t2_r": 2.0,
-}
-
-
-def get_swing_params(mode: str = "weekly") -> dict[str, Any]:
-    """Return quality-swing geometry + filter params for a swing profile.
-
-    Optional keys from :data:`_SWING_DEFAULTS` are always present so callers
-    can read them uniformly. Profiles: ``weekly``, ``daily``.
-    Unknown → weekly.
-    """
-    key = (mode or "weekly").strip().lower()
-    merged = dict(_SWING_DEFAULTS)
-    merged.update(SWING_PROFILES.get(key, _SWING_WEEKLY))
-    return merged
-
-
 def resolve_pipeline_mode(mode: str = "weekly") -> tuple[str, str]:
-    """Map CLI/pipeline mode → (data_timeframe, swing_profile).
+    """Map a CLI/pipeline mode to (data_timeframe, signal_profile).
 
     Both are the mode itself; unknown modes fall back to ``DEFAULT_MODE``.
     """
@@ -216,177 +161,6 @@ def cut_to_as_of(df: pd.DataFrame, as_of: str | None, *, weekly: bool) -> pd.Dat
 
 
 # =====================================================================
-# SHARED SWING GEOMETRY (used by scanner, planner, and backtest)
-# =====================================================================
-
-# Hard ceiling on risk as a fraction of close (ingestion guardrail mirror).
-MAX_RISK_PCT_OF_CLOSE = 0.05
-
-
-def _structural_stop_long(
-    entry: float,
-    atr: float,
-    ema50: float,
-    swing_low: float | None,
-    *,
-    stop_buffer_atr: float,
-    stop_atr_cap: float | None = None,
-    close: float | None = None,
-    max_risk_pct: float | None = MAX_RISK_PCT_OF_CLOSE,
-) -> float:
-    """Stop below local structure with dual-constraint + price risk cap.
-
-    Local structure is the tighter of swing low / EMA50 (minus ATR buffer).
-    When ``stop_atr_cap`` is set, the stop is also floored at
-    ``entry - stop_atr_cap × ATR`` so distant macro lows cannot widen risk.
-    When ``max_risk_pct`` is set, risk is also capped at ``max_risk_pct × close``.
-    The final stop is the higher (tighter) of those floors.
-    """
-    buf = stop_buffer_atr * atr
-    candidates = [ema50 - buf]
-    if swing_low is not None and pd.notna(swing_low):
-        candidates.append(float(swing_low) - buf)
-    structural = min(candidates)
-    if stop_atr_cap is not None:
-        structural = max(structural, entry - stop_atr_cap * atr)
-    if max_risk_pct is not None and close is not None and close > 0:
-        structural = max(structural, entry - max_risk_pct * float(close))
-    return min(structural, entry - buf)
-
-
-def _structural_stop_short(
-    entry: float,
-    atr: float,
-    ema50: float,
-    swing_high: float | None,
-    *,
-    stop_buffer_atr: float,
-    stop_atr_cap: float | None = None,
-    close: float | None = None,
-    max_risk_pct: float | None = MAX_RISK_PCT_OF_CLOSE,
-) -> float:
-    """Stop above local structure with dual-constraint + price risk cap."""
-    buf = stop_buffer_atr * atr
-    candidates = [ema50 + buf]
-    if swing_high is not None and pd.notna(swing_high):
-        candidates.append(float(swing_high) + buf)
-    structural = max(candidates)
-    if stop_atr_cap is not None:
-        structural = min(structural, entry + stop_atr_cap * atr)
-    if max_risk_pct is not None and close is not None and close > 0:
-        structural = min(structural, entry + max_risk_pct * float(close))
-    return max(structural, entry + buf)
-
-
-def compute_swing_levels(
-    *,
-    setup_type: str,
-    close: float,
-    ema20: float,
-    ema50: float,
-    atr: float,
-    swing_low: float | None = None,
-    swing_high: float | None = None,
-    sp: dict[str, Any],
-) -> dict[str, Any]:
-    """Compute entry/stop/targets + risk for the non-cobra swing path.
-
-    Returns a dict with ``entry``, ``stop``, ``target1``, ``target2``,
-    ``risk``, and ``reject_reason`` (None when the setup passes risk bounds).
-
-    Behavior is profile-driven:
-      * All profiles use a dual-constraint stop: local structure vs
-        ``entry ± stop_atr_cap × ATR``, picking the tighter bound.
-      * ``max_risk_atr`` set  → also reject when risk is outside
-        ``[min_risk_atr, max_risk_atr]`` ATR after the floor is applied.
-      * ``use_r_targets``     → targets at ``t1_r``/``t2_r`` × risk; else ATR.
-    """
-    is_long = setup_type == "SETUP_LONG"
-    structural_mode = sp.get("max_risk_atr") is not None
-    buf = sp["stop_buffer_atr"] * atr
-    cap = sp["stop_atr_cap"]
-
-    max_risk_pct = sp.get("max_risk_pct", MAX_RISK_PCT_OF_CLOSE)
-
-    if is_long:
-        entry = max(ema20, close - sp["entry_atr"] * atr)
-        if structural_mode:
-            # Anchor on the local swing low (consolidation), fall back to EMA50.
-            # Triple constraint: structure vs ATR floor vs % of close (tightest wins).
-            anchor = float(swing_low) if (swing_low is not None and pd.notna(swing_low)) else ema50
-            structural = anchor - buf
-            vol_floor = entry - cap * atr
-            stop = max(structural, vol_floor)
-            if max_risk_pct is not None and close > 0:
-                stop = max(stop, entry - max_risk_pct * close)
-            stop = min(stop, entry - buf)
-        else:
-            stop = _structural_stop_long(
-                entry,
-                atr,
-                ema50,
-                swing_low,
-                stop_buffer_atr=sp["stop_buffer_atr"],
-                stop_atr_cap=cap,
-                close=close,
-                max_risk_pct=max_risk_pct,
-            )
-    else:
-        entry = min(ema20, close + sp["entry_atr"] * atr)
-        if structural_mode:
-            anchor = (
-                float(swing_high) if (swing_high is not None and pd.notna(swing_high)) else ema50
-            )
-            structural = anchor + buf
-            vol_ceil = entry + cap * atr
-            stop = min(structural, vol_ceil)
-            if max_risk_pct is not None and close > 0:
-                stop = min(stop, entry + max_risk_pct * close)
-            stop = max(stop, entry + buf)
-        else:
-            stop = _structural_stop_short(
-                entry,
-                atr,
-                ema50,
-                swing_high,
-                stop_buffer_atr=sp["stop_buffer_atr"],
-                stop_atr_cap=cap,
-                close=close,
-                max_risk_pct=max_risk_pct,
-            )
-
-    risk = abs(entry - stop)
-    risk_atr = risk / atr if atr > 0 else 0.0
-
-    reject_reason = None
-    if sp.get("min_risk_atr") is not None and risk_atr < sp["min_risk_atr"]:
-        reject_reason = f"risk_too_tight:{risk_atr:.2f}ATR<{sp['min_risk_atr']}"
-    elif sp.get("max_risk_atr") is not None and risk_atr > sp["max_risk_atr"]:
-        reject_reason = f"risk_too_wide:{risk_atr:.2f}ATR>{sp['max_risk_atr']}"
-
-    if sp.get("use_r_targets"):
-        t1_off = sp["t1_r"] * risk
-        t2_off = sp["t2_r"] * risk
-    else:
-        t1_off = sp["t1_atr"] * atr
-        t2_off = sp["t2_atr"] * atr
-
-    if is_long:
-        target1, target2 = entry + t1_off, entry + t2_off
-    else:
-        target1, target2 = entry - t1_off, entry - t2_off
-
-    return {
-        "entry": entry,
-        "stop": stop,
-        "target1": target1,
-        "target2": target2,
-        "risk": risk,
-        "reject_reason": reject_reason,
-    }
-
-
-# =====================================================================
 # DATA QUALITY CONTRACT
 # =====================================================================
 
@@ -396,8 +170,8 @@ REQUIRED_OHLCV = ["Date", "Open", "High", "Low", "Close", "Volume"]
 # Minimum usable rows before a raw CSV is worth saving/scanning.
 MIN_SAVE_ROWS = 60
 
-# Setup-row schema emitted by coiled_cobra.py so trade_planner can rely on a
-# single stable contract. Column order is significant for CSV output.
+# Setup-row schema emitted by coiled_cobra.py: a single stable contract for
+# coiled_cobra_setups_<date>.csv. Column order is significant for CSV output.
 #
 # Fill rules:
 #   - ``coiled_cobra``: sets Source="coiled_cobra"; fills the macro-only

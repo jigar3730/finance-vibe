@@ -54,11 +54,8 @@ STAGES: tuple[Stage, ...] = (
     Stage("data_ingestor", modes=("weekly",), ingest=True),
     # Daily has its own ingest wrapper (drops today's in-progress bar).
     Stage("daily_ingest", modes=("daily",), pass_mode=False, ingest=True),
-    Stage("analysis_engine", as_of=True),
     Stage("coiled_cobra", as_of=True),  # primary signal engine
     Stage("breakout_scanner", as_of=True),
-    Stage("trade_planner", as_of=True),
-    Stage("trade_plan_helper", as_of=True),
 )
 
 

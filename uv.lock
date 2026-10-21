@@ -229,10 +229,8 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "flask" },
-    { name = "markdown" },
     { name = "numpy" },
     { name = "pandas" },
-    { name = "pygments" },
     { name = "tabulate" },
     { name = "yahooquery" },
     { name = "yfinance" },
@@ -251,10 +249,8 @@ lint = [
 [package.metadata]
 requires-dist = [
     { name = "flask", specifier = ">=3.1.3,<4" },
-    { name = "markdown", specifier = ">=3.10.3,<4" },
     { name = "numpy", specifier = ">=2.2.6,<3" },
     { name = "pandas", specifier = ">=3.0.5,<4" },
-    { name = "pygments", specifier = ">=2.21.0,<3" },
     { name = "tabulate", specifier = ">=0.10.0" },
     { name = "yahooquery", specifier = ">=2.4.1,<3" },
     { name = "yfinance", specifier = ">=1.7.0,<2" },
@@ -405,15 +401,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/e7/a7/485df55acf55dc35e4ca89d2f48f03889e5a3241826b18b85102b32ce9d8/lxml-6.1.3-cp313-cp313-win32.whl", hash = "sha256:160fcf381f76c3aeac28a756bec44f48942a8f7245a87aa28e3a523b4d90cd87", size = 3602214, upload-time = "2026-09-02T14:48:53.236Z" },
     { url = "https://files.pythonhosted.org/packages/c0/28/e46a7702bd95e9043291f7c3539b6184cba66f96cea9936f20939b284eeb/lxml-6.1.3-cp313-cp313-win_amd64.whl", hash = "sha256:e477aca0bc0d19f3b4ae9e4f2a1cfd687c31bf772d78734910658186b40b2477", size = 4004091, upload-time = "2026-09-02T14:48:55.699Z" },
     { url = "https://files.pythonhosted.org/packages/8a/1d/154c78e20479a43916e63f19cb720d83f44f024b03228be44c92d9a97b24/lxml-6.1.3-cp313-cp313-win_arm64.whl", hash = "sha256:b1cc980905221a5d8b3c476330730b3adb40ff80add71ffbdb6215ba055656f1", size = 3665468, upload-time = "2026-09-02T14:48:57.703Z" },
-]
-
-[[package]]
-name = "markdown"
-version = "3.10.3"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/29/6f/da4c6aea59b3001f2e8c0ec7497475aadaf3b021c10cab5b2858f0f32b26/markdown-3.10.3.tar.gz", hash = "sha256:3589362618f743188b4d955b874402bc814f4f83f544dc207719f4baa7d9c45f", size = 372596, upload-time = "2026-07-30T19:05:29.005Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/64/69/4a5af2bc115a9a33fefe51709749de8262be3f9ba063d1753a837cdbc49c/markdown-3.10.3-py3-none-any.whl", hash = "sha256:fa6c92a00a4a3c98b22728c64a935ae1928250ae65058a6ded814d2cc29a4cea", size = 110757, upload-time = "2026-07-30T19:05:27.883Z" },
 ]
 
 [[package]]

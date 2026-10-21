@@ -8,11 +8,9 @@ import sys
 
 import pytest
 
-from finance_vibe import analysis_engine as ae
 from finance_vibe import breakout_scanner as bs
 from finance_vibe import coiled_cobra as cc
 from finance_vibe import config, run_vibe
-from finance_vibe import trade_planner as tp
 
 
 @pytest.fixture
@@ -20,14 +18,13 @@ def restore_modes():
     yield
     cc.apply_timeframe("weekly")
     bs.set_mode("weekly")
-    tp.set_mode("weekly")
 
 
 def test_import_ignores_sys_argv():
     code = (
         "import sys; sys.argv = ['x', 'daily']\n"
-        "from finance_vibe import coiled_cobra as cc, breakout_scanner as bs, trade_planner as tp\n"
-        "print(cc.mode, cc.LOOKBACK, bs.mode, tp.mode)"
+        "from finance_vibe import coiled_cobra as cc, breakout_scanner as bs\n"
+        "print(cc.mode, cc.LOOKBACK, bs.mode)"
     )
     out = subprocess.run(
         [sys.executable, "-c", code],
@@ -36,7 +33,7 @@ def test_import_ignores_sys_argv():
         check=True,
         env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)},
     )
-    assert out.stdout.split() == ["weekly", "52", "weekly", "weekly"]
+    assert out.stdout.split() == ["weekly", "52", "weekly"]
     assert "Unknown mode" not in out.stderr
 
 
@@ -73,12 +70,9 @@ def test_apply_timeframe_sets_constants_and_paths(restore_modes):
 def test_set_mode_paths(restore_modes):
     assert bs.set_mode("daily") == "daily"
     assert bs.RAW_DATA_DIR.endswith(os.path.join("data", "raw", "daily"))
-    assert tp.set_mode("daily") == "daily"
-    assert tp.SCANNER_DIR.parts[-2:] == ("logs", "daily")
-    assert tp.set_mode("bogus") == "weekly"
 
 
-@pytest.mark.parametrize("module", [cc, bs, tp, ae])
+@pytest.mark.parametrize("module", [cc, bs])
 def test_main_rejects_bad_as_of(module, restore_modes):
     assert module.main(["weekly", "--as-of", "not-a-date"]) == 2
 
@@ -109,11 +103,8 @@ def test_in_process_calls_each_stage_main(monkeypatch):
     calls = _fake_stages(monkeypatch)
     run_vibe.run_workflow(["--mode", "daily", "--as-of", "2026-10-06", "--in-process"])
     replay_stages = (
-        "analysis_engine",
         "coiled_cobra",
         "breakout_scanner",
-        "trade_planner",
-        "trade_plan_helper",
     )
     assert calls == [(s, ["daily", "--as-of", "2026-10-06"]) for s in replay_stages]
 
