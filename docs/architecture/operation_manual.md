@@ -244,7 +244,7 @@ python src/finance_vibe/trade_plan_helper.py weekly
 ### `breakout_scanner.py` (research scanner: pre-breakout states)
 
 - Labels trend / volatility / volume / momentum / structure / MTF states and
-  classifies `PRE_BREAKOUT`, `BREAKOUT_CONFIRMED`, `FAILED_BREAKOUT`,
+  classifies `PRE_BREAKOUT`, `BREAKOUT_CONFIRMED`, `BREAKOUT_TRIGGERED`, `FAILED_BREAKOUT`,
   `DEVELOPING`, `WATCH`; records a 100-pt Breakout Readiness score + factor scores
 - Writes `breakout_setups_<date>.csv`; **not** consumed by the planner
 - **Specification:** [`breakout_scanner.md`](breakout_scanner.md)

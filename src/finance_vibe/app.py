@@ -5,6 +5,8 @@ from __future__ import annotations
 import glob
 import logging
 import os
+import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 
 import pandas as pd
@@ -47,6 +49,26 @@ BREAKOUT_DISPLAY_COLUMNS = [
     "RVOL20",
     "Compression",
 ]
+
+# Mirrors breakout_scanner's display rule and status order (tests/test_breakout_dashboard.py
+# checks they agree): event statuses always show; WATCH / DEVELOPING need a readiness floor.
+BREAKOUT_TRIGGERED = "BREAKOUT_TRIGGERED"
+BREAKOUT_FAILED = "FAILED_BREAKOUT"
+BREAKOUT_ALWAYS_SHOWN = {"PRE_BREAKOUT", "BREAKOUT_CONFIRMED", BREAKOUT_TRIGGERED, BREAKOUT_FAILED}
+BREAKOUT_SCORE_FLOOR = {"WATCH": 55, "DEVELOPING": 50}
+BREAKOUT_STATUS_ORDER = [
+    "PRE_BREAKOUT",
+    "BREAKOUT_CONFIRMED",
+    BREAKOUT_TRIGGERED,
+    BREAKOUT_FAILED,
+    "WATCH",
+    "DEVELOPING",
+]
+
+# Live quotes: parallel fast_info lookups, cached briefly per symbol.
+LIVE_PRICE_WORKERS = 16
+LIVE_PRICE_TTL_SECONDS = 60
+_live_price_cache: dict[str, tuple[float, float]] = {}
 
 app = Flask(
     __name__,
@@ -149,43 +171,125 @@ def _breakout_kpis(df: pd.DataFrame) -> dict[str, object]:
 
 
 def _breakout_status_mix(df: pd.DataFrame) -> list[dict]:
-    """Ordered per-status counts for the status chips (primary states first)."""
+    """Ordered per-status counts for the status chips (scanner status order)."""
     status = df.get("Status")
     if status is None:
         return []
     counts = status.value_counts()
-    preferred = [
-        "PRE_BREAKOUT",
-        "BREAKOUT_CONFIRMED",
-        "WATCH",
-        "DEVELOPING",
-        "FAILED_BREAKOUT",
-    ]
-    ordered = [s for s in preferred if s in counts.index]
-    ordered += [s for s in counts.index if s not in preferred]
+    ordered = [s for s in BREAKOUT_STATUS_ORDER if s in counts.index]
+    ordered += [s for s in counts.index if s not in BREAKOUT_STATUS_ORDER]
     return [{"status": s, "count": int(counts[s])} for s in ordered]
 
 
+def _relabel_triggered_watch(df: pd.DataFrame) -> pd.DataFrame:
+    """Scans before 2026-10-20 filed triggered-but-unconfirmed rows under WATCH.
+
+    The scanner's ``Breakout Triggered`` flag identifies them (a triggered row only
+    reaches WATCH via that rule), so older CSVs get the same BREAKOUT_TRIGGERED status.
+    """
+    if "Status" not in df.columns or "Breakout Triggered" not in df.columns:
+        return df
+    triggered = df["Breakout Triggered"].astype(str).str.strip().str.lower() == "true"
+    df.loc[(df["Status"] == "WATCH") & triggered, "Status"] = BREAKOUT_TRIGGERED
+    return df
+
+
+def _breakout_display_mask(df: pd.DataFrame) -> pd.Series:
+    """Scanner display rule: event statuses always, WATCH / DEVELOPING above a floor."""
+    if "Status" not in df.columns:
+        return pd.Series(True, index=df.index)
+    status = df["Status"]
+    floor = status.map(BREAKOUT_SCORE_FLOOR)
+    readiness = pd.to_numeric(df.get("Breakout Readiness"), errors="coerce")  # type: ignore[call-overload]
+    return status.isin(BREAKOUT_ALWAYS_SHOWN) | (readiness >= floor)
+
+
+def _sort_breakout_rows(df: pd.DataFrame) -> pd.DataFrame:
+    """Status order first, then readiness (descending), then symbol."""
+    out = df.copy()
+    sort_cols, ascending = [], []
+    if "Status" in out.columns:
+        rank = {s: i for i, s in enumerate(BREAKOUT_STATUS_ORDER)}
+        out["_rank"] = out["Status"].map(rank).fillna(len(rank))
+        sort_cols.append("_rank")
+        ascending.append(True)
+    if "Breakout Readiness" in out.columns:
+        sort_cols.append("Breakout Readiness")
+        ascending.append(False)
+    if "Symbol" in out.columns:
+        sort_cols.append("Symbol")
+        ascending.append(True)
+    if sort_cols:
+        out = out.sort_values(sort_cols, ascending=ascending)
+    return out.drop(columns="_rank", errors="ignore")
+
+
+def _breakout_table_html(table_df: pd.DataFrame, live_price_map: dict[str, float | str]) -> str:
+    """Render breakout rows with a Live Price column after Close and Finviz symbol links."""
+    table_df = table_df.copy()
+    if "Symbol" in table_df.columns and "Close" in table_df.columns:
+        closes = pd.to_numeric(table_df["Close"], errors="coerce")
+        table_df["Live Price"] = [
+            _live_price_cell(live_price_map.get(str(sym).strip().upper()), close)
+            if pd.notna(sym)
+            else ""
+            for sym, close in zip(table_df["Symbol"], closes, strict=True)
+        ]
+        cols = list(table_df.columns)
+        cols.insert(cols.index("Close") + 1, cols.pop(cols.index("Live Price")))
+        table_df = table_df[cols]
+
+    # Finviz quote links on the Symbol column (matches trade-plan view).
+    if "Symbol" in table_df.columns:
+        table_df["Symbol"] = table_df["Symbol"].apply(
+            lambda x: (
+                f'<a href="https://finviz.com/quote.ashx?t={str(x).strip().upper()}" '
+                f'target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
+                if pd.notna(x)
+                else ""
+            )
+        )
+    return table_df.to_html(classes="table", index=False, border=0, escape=False)
+
+
+def _fetch_one_live_price(sym: str) -> float | str:
+    """Last price for one symbol via yfinance ``fast_info``; ``N/A`` on any failure."""
+    try:
+        return round(yf.Ticker(sym).fast_info["last_price"], 2)
+    except Exception:
+        return "N/A"
+
+
 def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
-    """Fetch last prices via yfinance ``fast_info``; missing symbols map to ``N/A``."""
+    """Fetch last prices via yfinance ``fast_info``; missing symbols map to ``N/A``.
+
+    Each ``fast_info`` lookup is its own HTTP round-trip, so they run in a thread
+    pool (a ~275-symbol breakout scan: ~33s sequential, ~4s pooled). Successful
+    quotes are cached for ``LIVE_PRICE_TTL_SECONDS`` so reloads and status-filter
+    clicks don't re-fetch.
+    """
     if not symbols:
         return {}
-    try:
-        # Create a batch query string (e.g., "DKNG GOOGL HLT")
-        tickers_str = " ".join(symbols)
-        tickers = yf.Tickers(tickers_str)
-
-        prices = {}
-        for sym in symbols:
-            try:
-                # fast_info fetches the live feed price rapidly without scraping overhead
-                prices[sym] = round(tickers.tickers[sym].fast_info["last_price"], 2)
-            except Exception:
-                prices[sym] = "N/A"  # Fallback if ticker data fetch fails
-        return prices
-    except Exception as e:
-        logger.warning(f"Error fetching live prices: {e}")
-        return {sym: "N/A" for sym in symbols}
+    now = time.monotonic()
+    prices: dict[str, float | str] = {}
+    missing = []
+    for sym in symbols:
+        cached = _live_price_cache.get(sym)
+        if cached is not None and now - cached[0] < LIVE_PRICE_TTL_SECONDS:
+            prices[sym] = cached[1]
+        else:
+            missing.append(sym)
+    if missing:
+        with ThreadPoolExecutor(max_workers=min(LIVE_PRICE_WORKERS, len(missing))) as pool:
+            fetched = dict(zip(missing, pool.map(_fetch_one_live_price, missing), strict=True))
+        failed = sum(1 for p in fetched.values() if p == "N/A")
+        if failed:
+            logger.warning("Live price unavailable for %d/%d symbols", failed, len(missing))
+        for sym, price in fetched.items():
+            if isinstance(price, float):
+                _live_price_cache[sym] = (now, price)
+        prices.update(fetched)
+    return prices
 
 
 # Live price this far above the close (percent) highlights the trade-plan row.
@@ -307,8 +411,10 @@ def breakout_index() -> str:
 def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
     """Render one breakout scan CSV: KPI counts, status chips, and the table.
 
-    Read-only. The raw CSV is never rewritten. ``?status=`` filters the table
-    only; KPIs and the status mix are always computed on the full file.
+    Read-only. The raw CSV is never rewritten. By default the table follows the
+    scanner's display rule, with FAILED_BREAKOUT rows in a separate collapsed
+    table; ``?show=all`` lists every row and ``?status=`` every row of one status.
+    KPIs and the status mix are always computed on the full file.
     """
     if mode not in BREAKOUT_MODES:
         abort(404, "Invalid breakout mode.")
@@ -327,58 +433,50 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
     try:
         df = pd.read_csv(target_path)
         df.columns = df.columns.str.strip()
+        df = _relabel_triggered_watch(df)
 
         kpis = _breakout_kpis(df)
         status_mix = _breakout_status_mix(df)
 
-        # Table view: known display columns, sorted by readiness then symbol.
-        view_cols = [c for c in BREAKOUT_DISPLAY_COLUMNS if c in df.columns]
-        table_df = df[view_cols].copy() if view_cols else df.copy()
-
-        if "Breakout Readiness" in table_df.columns:
-            table_df["Breakout Readiness"] = pd.to_numeric(
-                table_df["Breakout Readiness"], errors="coerce"
-            )
-
-        # Status filter applies to the table only (KPIs stay full-file).
+        # Status filter or "show all" list every matching row; otherwise apply the
+        # scanner's display rule and split failed breakouts into their own table.
         active_status = request.args.get("status")
-        if active_status and "Status" in table_df.columns:
-            table_df = table_df[table_df["Status"] == active_status]
+        show_all = request.args.get("show") == "all" and not active_status
+        has_status = "Status" in df.columns
+        if active_status and has_status:
+            rows = df[df["Status"] == active_status]
+        elif show_all:
+            rows = df
+        else:
+            rows = df[_breakout_display_mask(df)]
 
-        sort_cols = [c for c in ["Breakout Readiness", "Symbol"] if c in table_df.columns]
-        if sort_cols:
-            table_df = table_df.sort_values(
-                sort_cols,
-                ascending=[c == "Symbol" for c in sort_cols],
-            )
+        split_failed = not active_status and not show_all and has_status
+        if split_failed:
+            failed_rows = rows[rows["Status"] == BREAKOUT_FAILED]
+            rows = rows[rows["Status"] != BREAKOUT_FAILED]
+        else:
+            failed_rows = rows.iloc[0:0]
+
+        view_cols = [c for c in BREAKOUT_DISPLAY_COLUMNS if c in df.columns] or list(df.columns)
+
+        def _prepare(part: pd.DataFrame) -> pd.DataFrame:
+            out = part[view_cols].copy()
+            if "Breakout Readiness" in out.columns:
+                out["Breakout Readiness"] = pd.to_numeric(
+                    out["Breakout Readiness"], errors="coerce"
+                )
+            return _sort_breakout_rows(out)
+
+        table_df, failed_df = _prepare(rows), _prepare(failed_rows)
 
         # Live price next to Close, coloured by live vs. close (only visible rows are quoted).
-        if "Symbol" in table_df.columns and "Close" in table_df.columns:
-            symbols = [str(x).strip().upper() for x in table_df["Symbol"].dropna().unique()]
-            live_price_map = _fetch_live_prices(symbols)
-            closes = pd.to_numeric(table_df["Close"], errors="coerce")
-            table_df["Live Price"] = [
-                _live_price_cell(live_price_map.get(str(sym).strip().upper()), close)
-                if pd.notna(sym)
-                else ""
-                for sym, close in zip(table_df["Symbol"], closes, strict=True)
-            ]
-            cols = list(table_df.columns)
-            cols.insert(cols.index("Close") + 1, cols.pop(cols.index("Live Price")))
-            table_df = table_df[cols]
-
-        # Finviz quote links on the Symbol column (matches trade-plan view).
-        if "Symbol" in table_df.columns:
-            table_df["Symbol"] = table_df["Symbol"].apply(
-                lambda x: (
-                    f'<a href="https://finviz.com/quote.ashx?t={str(x).strip().upper()}" '
-                    f'target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
-                    if pd.notna(x)
-                    else ""
-                )
+        live_price_map: dict[str, float | str] = {}
+        if "Symbol" in view_cols and "Close" in view_cols:
+            visible = pd.concat([table_df["Symbol"], failed_df["Symbol"]]).dropna()
+            live_price_map = _fetch_live_prices(
+                list(dict.fromkeys(str(x).strip().upper() for x in visible))
             )
 
-        table_html = table_df.to_html(classes="table", index=False, border=0, escape=False)
         return render_template(
             "breakout_view.html",
             mode=mode,
@@ -387,8 +485,14 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
             kpis=kpis,
             status_mix=status_mix,
             active_status=active_status,
+            show_all=show_all,
             row_count=int(len(table_df)),
-            table_html=table_html,
+            table_html=_breakout_table_html(table_df, live_price_map),
+            failed_count=int(len(failed_df)),
+            failed_table_html=_breakout_table_html(failed_df, live_price_map)
+            if len(failed_df)
+            else "",
+            score_floor=BREAKOUT_SCORE_FLOOR,
         )
     except Exception as e:  # route boundary: show the error page, keep the traceback in the log
         logger.exception("Failed to render %s", request.path)

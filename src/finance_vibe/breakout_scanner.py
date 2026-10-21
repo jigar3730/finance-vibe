@@ -102,9 +102,10 @@ STATUS_PRE = "PRE_BREAKOUT"
 STATUS_WATCH = "WATCH"
 STATUS_DEV = "DEVELOPING"
 STATUS_CONFIRMED = "BREAKOUT_CONFIRMED"
+STATUS_TRIGGERED = "BREAKOUT_TRIGGERED"
 STATUS_FAILED = "FAILED_BREAKOUT"
 
-CANDIDATE_STATUSES = {STATUS_PRE, STATUS_CONFIRMED, STATUS_FAILED}
+CANDIDATE_STATUSES = {STATUS_PRE, STATUS_CONFIRMED, STATUS_TRIGGERED, STATUS_FAILED}
 DISPLAY_SCORE_FLOOR = {
     STATUS_WATCH: 55,
     STATUS_DEV: 50,
@@ -921,7 +922,7 @@ def classify_status(feat: BreakoutFeatures, states: dict[str, str]) -> str:
         return STATUS_PRE
 
     if feat.breakout_triggered and not feat.breakout_confirmation:
-        return STATUS_WATCH
+        return STATUS_TRIGGERED
 
     early_coil = compressing or (feat.bb_width_pctl is not None and feat.bb_width_pctl <= 40)
     still_far = dist is not None and dist > PRE_BREAKOUT_ATR_MAX
@@ -1171,9 +1172,10 @@ def _sort_candidates(df: pd.DataFrame) -> pd.DataFrame:
     rank = {
         STATUS_PRE: 0,
         STATUS_CONFIRMED: 1,
-        STATUS_FAILED: 2,
-        STATUS_WATCH: 3,
-        STATUS_DEV: 4,
+        STATUS_TRIGGERED: 2,
+        STATUS_FAILED: 3,
+        STATUS_WATCH: 4,
+        STATUS_DEV: 5,
     }
     out = df.copy()
     out["_rank"] = out["Status"].map(rank).fillna(9)

@@ -140,3 +140,42 @@ def test_failed_breakout_penalty_is_20():
     states = bs.classify_states(feat)
     base = bs.score_readiness(_feat(failed_breakout=False, breakout_triggered=False), states)
     assert bs.score_readiness(feat, states)["Penalty"] - base["Penalty"] == 20
+
+
+def _status(**overrides):
+    feat = _feat(**overrides)
+    return bs.classify_status(feat, bs.classify_states(feat))
+
+
+def test_triggered_without_confirmation_is_breakout_triggered():
+    assert (
+        _status(breakout_triggered=True, breakout_confirmation=False, failed_breakout=False)
+        == bs.STATUS_TRIGGERED
+    )
+
+
+def test_confirmation_and_failure_outrank_triggered():
+    assert (
+        _status(breakout_triggered=True, breakout_confirmation=True, failed_breakout=False)
+        == bs.STATUS_CONFIRMED
+    )
+    assert _status(breakout_triggered=False, failed_breakout=True) == bs.STATUS_FAILED
+
+
+def test_untriggered_catch_all_is_still_watch():
+    assert (
+        _status(breakout_triggered=False, breakout_confirmation=False, failed_breakout=False)
+        == bs.STATUS_WATCH
+    )
+
+
+def test_triggered_rows_always_display_and_sort_after_confirmed():
+    assert bs._is_display_candidate({"Status": bs.STATUS_TRIGGERED, "Breakout Readiness": 0})
+    df = pd.DataFrame(
+        {
+            "Status": [bs.STATUS_WATCH, bs.STATUS_FAILED, bs.STATUS_TRIGGERED, bs.STATUS_CONFIRMED],
+            "Breakout Readiness": [90, 50, 10, 40],
+            "Symbol": ["W", "F", "T", "C"],
+        }
+    )
+    assert list(bs._sort_candidates(df)["Symbol"]) == ["C", "T", "F", "W"]

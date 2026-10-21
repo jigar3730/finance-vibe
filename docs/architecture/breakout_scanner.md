@@ -140,20 +140,26 @@ Evaluated in order; the first match wins. "Not through" means `Breakout Triggere
 | 1 | `FAILED_BREAKOUT` | `Failed Breakout` |
 | 2 | `BREAKOUT_CONFIRMED` | `Breakout Confirmation` |
 | 3 | `PRE_BREAKOUT` | Not through **and** Trend `BULLISH` **and** Volatility `COMPRESSING` **and** Momentum `ACCELERATING` **and** Structure `UNDER_RESISTANCE`/`AT_RESISTANCE` **and** 0 ≤ distance ≤ 1.25 ATR **and** MTF `ALIGNED`/`PARTIAL` **and** volume not climactic (Volume State `DRYING_UP`/`NORMAL`, or `EXPANDING` with RVOL20 < 1.5) |
-| 4 | `WATCH` | Triggered but not confirmed |
+| 4 | `BREAKOUT_TRIGGERED` | Triggered but not confirmed (closed above Resistance without the RVOL20 / SMA20 confirmation). Before 2026-10-20 these rows were labelled `WATCH`; older CSVs still say `WATCH`, and the dashboard relabels them from `Breakout Triggered`. |
 | 5 | `DEVELOPING` | Not through **and** Trend `BULLISH` **and** (Compression **or** BB Width Pctl ≤ 40) **and** distance > 1.25 ATR |
 | 6 | `WATCH` | Everything else |
 
 ## Display and sort
 
 The console table and dashboard show these rows; the CSV keeps every scanned row:
-- every `PRE_BREAKOUT`, `BREAKOUT_CONFIRMED` and `FAILED_BREAKOUT` row;
+- every `PRE_BREAKOUT`, `BREAKOUT_CONFIRMED`, `BREAKOUT_TRIGGERED` and `FAILED_BREAKOUT` row;
 - `WATCH` rows with readiness ≥ 55;
 - `DEVELOPING` rows with readiness ≥ 50.
 
 Rows are sorted by status (`PRE_BREAKOUT`, `BREAKOUT_CONFIRMED`,
-`FAILED_BREAKOUT`, `WATCH`, `DEVELOPING`), then readiness descending, then
-Symbol.
+`BREAKOUT_TRIGGERED`, `FAILED_BREAKOUT`, `WATCH`, `DEVELOPING`), then readiness
+descending, then Symbol.
+
+The dashboard (`/breakout/<mode>/<date>`) shows these rows by default, with
+`FAILED_BREAKOUT` rows in their own collapsed section below the main table.
+`?show=all` lists every scanned row; a status chip (`?status=`) lists every row
+of that status, whatever its readiness. KPIs and chip counts always use the
+full file.
 
 ## Breakout Readiness score (`score_readiness`)
 

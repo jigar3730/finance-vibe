@@ -88,7 +88,14 @@ VARIANTS = (*QUALIFYING, NEGATIVE, CONTROL)
 COBRA = "B0_cobra"  # report-only, joined from the leader experiment's bars file
 
 PILLARS = ("Trend Score", "Compression Score", "Momentum Score", "Volume Score", "Structure Score")
-STATUSES = (bs.STATUS_PRE, bs.STATUS_CONFIRMED, bs.STATUS_FAILED, bs.STATUS_WATCH, bs.STATUS_DEV)
+STATUSES = (
+    bs.STATUS_PRE,
+    bs.STATUS_CONFIRMED,
+    bs.STATUS_TRIGGERED,
+    bs.STATUS_FAILED,
+    bs.STATUS_WATCH,
+    bs.STATUS_DEV,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -103,7 +110,10 @@ def variant_flags(row: Mapping[str, Any]) -> dict[str, bool]:
     ready = float(ready) if ready is not None and pd.notna(ready) else -1.0
     pre = status == bs.STATUS_PRE
     conf = status == bs.STATUS_CONFIRMED
-    display = bs._is_display_candidate({"Status": status, "Breakout Readiness": ready})
+    # BK_DISPLAY keeps its pre-registered rule: BREAKOUT_TRIGGERED was split out of
+    # WATCH on 2026-10-20 and is scored here as WATCH (readiness >= 55).
+    display_status = bs.STATUS_WATCH if status == bs.STATUS_TRIGGERED else status
+    display = bs._is_display_candidate({"Status": display_status, "Breakout Readiness": ready})
     return {
         "BK_PRE": pre,
         "BK_CONFIRMED": conf,

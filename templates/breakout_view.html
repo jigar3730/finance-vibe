@@ -24,9 +24,17 @@
         </div>
     </div>
 
+    <div class="meta scan-note">
+        Descriptive only: a walk-forward test found no status or readiness cut that beats random entries.
+        <a href="{{ url_for('docs.show_doc', doc_path='architecture/breakout_scanner') }}#validation-status">Validation</a>
+    </div>
+
     {% if status_mix %}
     <div class="chip-row">
-        <a class="chip {% if not active_status %}active{% endif %}" href="{{ url_for('breakout_view', mode=mode, date=date) }}">
+        <a class="chip {% if not active_status and not show_all %}active{% endif %}" href="{{ url_for('breakout_view', mode=mode, date=date) }}">
+            Highlights <span class="chip-count">{{ row_count + failed_count }}</span>
+        </a>
+        <a class="chip {% if show_all %}active{% endif %}" href="{{ url_for('breakout_view', mode=mode, date=date, show='all') }}">
             All <span class="chip-count">{{ kpis['setups'] }}</span>
         </a>
         {% for item in status_mix %}
@@ -39,10 +47,23 @@
     {% endif %}
 
     <div class="meta" style="margin-top: 4px;">
-        Showing <strong>{{ row_count }}</strong> row(s){% if active_status %} for status <code>{{ active_status }}</code>{% endif %}.
+        Showing <strong>{{ row_count }}</strong> row(s)
+        {%- if active_status %} for status <code>{{ active_status }}</code>
+        {%- elif show_all %} (every scanned ticker)
+        {%- else %}: every pre-breakout, confirmed and triggered setup, plus WATCH with readiness ≥ {{ score_floor['WATCH'] }} and DEVELOPING ≥ {{ score_floor['DEVELOPING'] }}
+        {%- endif %}.
     </div>
 
     <div class="table-container">
         {{ table_html|safe }}
     </div>
+
+    {% if failed_table_html %}
+    <details class="failed-section">
+        <summary>Failed breakouts <span class="chip-count">{{ failed_count }}</span></summary>
+        <div class="table-container">
+            {{ failed_table_html|safe }}
+        </div>
+    </details>
+    {% endif %}
 {% endblock %}

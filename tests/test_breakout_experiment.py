@@ -52,6 +52,11 @@ def test_status_variants():
 def test_display_floors_match_dashboard_rule():
     assert bx.variant_flags({"Status": bs.STATUS_WATCH, "Breakout Readiness": 55})["BK_DISPLAY"]
     assert not bx.variant_flags({"Status": bs.STATUS_WATCH, "Breakout Readiness": 54})["BK_DISPLAY"]
+    # BREAKOUT_TRIGGERED keeps the pre-registered WATCH floor in the experiment.
+    assert bx.variant_flags({"Status": bs.STATUS_TRIGGERED, "Breakout Readiness": 55})["BK_DISPLAY"]
+    assert not bx.variant_flags({"Status": bs.STATUS_TRIGGERED, "Breakout Readiness": 54})[
+        "BK_DISPLAY"
+    ]
     assert bx.variant_flags({"Status": bs.STATUS_DEV, "Breakout Readiness": 50})["BK_DISPLAY"]
     assert not bx.variant_flags({"Status": bs.STATUS_DEV, "Breakout Readiness": 49})["BK_DISPLAY"]
 

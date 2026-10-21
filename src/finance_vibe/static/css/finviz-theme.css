@@ -313,6 +313,19 @@ table.table tr:has(.live-surge) {
 
 .chip.active .chip-count { color: var(--finviz-text-strong); }
 
+.scan-note { margin: -8px 0 12px; font-size: 0.8rem; }
+.scan-note a { color: var(--finviz-accent-blue); }
+
+/* Breakout dashboard: collapsed failed-breakout table */
+.failed-section { margin-top: 20px; }
+.failed-section > summary {
+    cursor: pointer;
+    padding: 8px 0;
+    color: var(--finviz-text-primary);
+    font-weight: 600;
+}
+.failed-section > summary:hover { color: var(--finviz-text-strong); }
+
 /* Docs layout */
 .docs-shell {
     display: grid;

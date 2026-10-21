@@ -138,3 +138,89 @@ def test_live_price_cell_surge_threshold_is_strictly_over_five_percent():
     assert "live-surge" not in app_module._live_price_cell(105.0, 100.0, 5.0)
     assert "live-surge" in app_module._live_price_cell(105.01, 100.0, 5.0)
     assert "live-surge" not in app_module._live_price_cell(120.0, 100.0)
+
+
+def _write_rows(folder, date_str, rows):
+    folder.mkdir(parents=True, exist_ok=True)
+    pd.DataFrame(rows).to_csv(folder / f"breakout_setups_{date_str}.csv", index=False)
+
+
+@pytest.fixture
+def display_logs(tmp_path, monkeypatch):
+    """A scan exercising the display rule, the failed split, and the old-CSV relabel."""
+    monkeypatch.setattr(
+        app_module, "BREAKOUT_MODES", {"weekly": str(tmp_path / "w"), "daily": str(tmp_path / "d")}
+    )
+    monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {s: "N/A" for s in syms})
+    row = {"Close": 10.0, "Breakout Triggered": False}
+    _write_rows(
+        tmp_path / "d",
+        "2026-10-20",
+        [
+            {**row, "Symbol": "LOWW", "Status": "WATCH", "Breakout Readiness": 54},
+            {**row, "Symbol": "HIGW", "Status": "WATCH", "Breakout Readiness": 55},
+            {**row, "Symbol": "LOWD", "Status": "DEVELOPING", "Breakout Readiness": 49},
+            {**row, "Symbol": "CONF", "Status": "BREAKOUT_CONFIRMED", "Breakout Readiness": 40},
+            {**row, "Symbol": "FAIL", "Status": "FAILED_BREAKOUT", "Breakout Readiness": 5},
+            # Pre-2026-10-20 CSV: triggered-but-unconfirmed filed under WATCH.
+            {
+                **row,
+                "Symbol": "TRIG",
+                "Status": "WATCH",
+                "Breakout Readiness": 20,
+                "Breakout Triggered": True,
+            },
+        ],
+    )
+
+
+def _main_table(body):
+    return body.split('class="table-container"')[1].split("</table>")[0]
+
+
+def test_default_view_applies_display_rule_and_splits_failed(client, display_logs):
+    body = client.get("/breakout/daily/2026-10-20").get_data(as_text=True)
+    main = _main_table(body)
+    for sym in ("CONF", "TRIG", "HIGW"):
+        assert sym in main
+    for sym in ("LOWW", "LOWD", "FAIL"):
+        assert sym not in main
+    assert "failed-section" in body and "FAIL" in body.split("failed-section")[1]
+    # Status order: confirmed, then triggered, then watch.
+    assert main.index("CONF") < main.index("TRIG") < main.index("HIGW")
+
+
+def test_old_watch_rows_with_trigger_flag_are_relabelled(client, display_logs):
+    body = client.get("/breakout/daily/2026-10-20?status=BREAKOUT_TRIGGERED").get_data(as_text=True)
+    main = _main_table(body)
+    assert "TRIG" in main and "HIGW" not in main
+
+
+def test_show_all_lists_every_row_in_one_table(client, display_logs):
+    body = client.get("/breakout/daily/2026-10-20?show=all").get_data(as_text=True)
+    main = _main_table(body)
+    for sym in ("LOWW", "HIGW", "LOWD", "CONF", "FAIL", "TRIG"):
+        assert sym in main
+    assert "failed-section" not in body
+
+
+def test_status_chip_ignores_readiness_floor(client, display_logs):
+    main = _main_table(client.get("/breakout/daily/2026-10-20?status=WATCH").get_data(as_text=True))
+    assert "LOWW" in main and "HIGW" in main and "TRIG" not in main
+
+
+def test_dashboard_display_rule_mirrors_scanner():
+    from finance_vibe import breakout_scanner as bs
+
+    assert bs.CANDIDATE_STATUSES == app_module.BREAKOUT_ALWAYS_SHOWN
+    assert bs.DISPLAY_SCORE_FLOOR == app_module.BREAKOUT_SCORE_FLOOR
+    rank = bs._sort_candidates(
+        pd.DataFrame(
+            {
+                "Status": app_module.BREAKOUT_STATUS_ORDER[::-1],
+                "Breakout Readiness": 0,
+                "Symbol": "X",
+            }
+        )
+    )
+    assert list(rank["Status"]) == app_module.BREAKOUT_STATUS_ORDER
