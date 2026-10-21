@@ -228,3 +228,47 @@ def test_market_rows_build_both_plans_per_symbol():
     assert rows["SPY"]["bias"] == "LONG" and rows["SPY"]["plans"]["long"]["status"] == "EXTENDED"
     assert rows["QQQ"]["bias"] == "NEUTRAL" and rows["QQQ"]["plans"] is not None  # no weekly row
     assert rows["SCHG"]["plans"] is None and rows["SCHG"]["levels"] is None
+
+
+# ---------------------------------------------------------------------------
+# Review fixes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("bad", [float("nan"), float("inf"), "N/A", None, True])
+def test_unusable_live_price_falls_back_to_close(bad):
+    plan = pb.action_plan(_row(), live_price=bad)
+    assert plan["status"] == "WAITING" and plan["price"] == 48.68 and not plan["price_is_live"]
+
+
+def test_breakout_csv_without_status_column_still_ranks_cobra_setups():
+    breakout = pd.DataFrame([_bo("COBRA", "WATCH", 40)]).drop(columns=["Status"])
+    ranked = pb.candidates(pd.DataFrame([_cobra("COBRA", 85)]), breakout)
+    assert list(ranked["Symbol"]) == ["COBRA"] and list(ranked["Rank Score"]) == [85]
+
+
+def test_cobra_setup_without_breakout_row_is_logged(caplog):
+    caplog.set_level("INFO")
+    breakout = pd.DataFrame([_bo("OTHER", "PRE_BREAKOUT", 10)])
+    ranked = pb.candidates(pd.DataFrame([_cobra("LOST", 95)]), breakout)
+    assert "LOST" not in set(ranked["Symbol"])
+    assert "no breakout row" in caplog.text and "LOST" in caplog.text
+
+
+def test_extended_note_uses_the_threshold(monkeypatch):
+    monkeypatch.setattr(pb, "EXTENDED_ATR", 1.5)
+    plan = pb.action_plan(_row(), live_price=50.31 + 2 * 1.70)
+    assert plan["status"] == "EXTENDED" and "More than 1.5 ATR" in plan["note"]
+
+
+def test_short_side_says_it_is_not_a_scanner_signal():
+    plan = pb.action_plan(_spy(), live_price=755.0, side="short")
+    assert "not a scanner signal" in plan["condition"]
+    assert "does not confirm breakdowns" in plan["note"]
+
+
+def test_rvol_threshold_comes_from_config():
+    from finance_vibe import config
+    from finance_vibe.scanners import breakout as bs
+
+    assert pb.RVOL_CONFIRM == bs.RVOL_CONFIRM == config.BREAKOUT_RVOL_CONFIRM

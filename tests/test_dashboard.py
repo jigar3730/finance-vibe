@@ -394,3 +394,19 @@ def test_market_page_without_runs(client, tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {})
     body = client.get("/market").get_data(as_text=True)
     assert body.count("No daily scan row") == 3
+
+
+def test_nan_quote_from_yfinance_is_not_a_price(monkeypatch):
+    class FakeTicker:
+        def __init__(self, sym):
+            self.fast_info = {"last_price": float("nan")}
+
+    monkeypatch.setattr(app_module.yf, "Ticker", FakeTicker)
+    assert app_module._fetch_one_live_price("XYZ") == "N/A"
+
+
+@pytest.mark.parametrize(
+    ("value", "shown"), [(float("nan"), "—"), (None, "—"), ("", "—"), ("ALIGNED", "ALIGNED")]
+)
+def test_text_filter_hides_blank_cells(value, shown):
+    assert app_module._text_filter(value) == shown

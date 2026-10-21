@@ -40,9 +40,9 @@
                 <div class="setup-badges">
                     <span class="badge-score">Rank {{ r.get('Rank Score')|num(1) }}</span>
                     {% if 'cobra' in r.get('Sources') %}
-                        <a class="chip" href="{{ url_for('cobra_view', mode=section.mode, date=section.date) }}">🐍 {{ r.get('Cobra Grade') or 'Cobra' }} · {{ r.get('Cobra Score')|num(0) }}</a>
+                        <a class="chip" href="{{ url_for('cobra_view', mode=section.mode, date=section.date) }}">🐍 {{ r.get('Cobra Grade')|text }} · {{ r.get('Cobra Score')|num(0) }}</a>
                     {% endif %}
-                    <a class="chip" href="{{ url_for('breakout_view', mode=section.mode, date=section.date, status=r.get('Status')) }}">🎯 {{ r.get('Status') }} · {{ r.get('Breakout Readiness')|num(0) }}</a>
+                    <a class="chip" href="{{ url_for('breakout_view', mode=section.mode, date=section.date, status=r.get('Status')) }}">🎯 {{ r.get('Status')|text }} · {{ r.get('Breakout Readiness')|num(0) }}</a>
                 </div>
                 <p class="setup-note">{{ p.note }}</p>
 
@@ -65,7 +65,7 @@
                     {% else %}
                     <tr><th>SMA20</th><td>{{ r.get('SMA20')|num }}</td><th>SMA50</th><td>{{ r.get('SMA50')|num }}</td></tr>
                     {% endif %}
-                    <tr><th>RVOL20</th><td>{{ r.get('RVOL20')|num }}</td><th>MTF</th><td>{{ r.get('MTF') or '—' }}</td></tr>
+                    <tr><th>RVOL20</th><td>{{ r.get('RVOL20')|num }}</td><th>MTF</th><td>{{ r.get('MTF')|text }}</td></tr>
                 </table>
             </article>
             {% endfor %}

@@ -29,7 +29,7 @@
                 {% for label, r in [('Weekly', w), ('Daily', d)] %}
                 <tr><th>{{ label }}</th>
                     {% for col in ['Trend', 'MTF', 'Momentum', 'Structure', 'Status'] %}
-                    <td>{{ (r.get(col) or '—')|replace('_', ' ') }}</td>
+                    <td>{{ r.get(col)|text|replace('_', ' ') }}</td>
                     {% endfor %}
                 </tr>
                 {% endfor %}

@@ -99,6 +99,14 @@ app = Flask(
 )
 
 
+@app.template_filter("text")
+def _text_filter(value: object) -> str:
+    """Display a CSV cell as text; blanks and NaN become an em dash."""
+    if value is None or (isinstance(value, float) and pd.isna(value)) or value == "":
+        return "—"
+    return str(value)
+
+
 @app.template_filter("num")
 def _num_filter(value: object, digits: int = 2) -> str:
     """Format a number for display; blanks and NaN become an em dash."""
@@ -142,11 +150,16 @@ def _resolve_csv(mode: str, prefix: str, date: str) -> str:
 
 
 def _fetch_one_live_price(sym: str) -> float | str:
-    """Last price for one symbol via yfinance ``fast_info``; ``N/A`` on any failure."""
+    """Last price for one symbol via yfinance ``fast_info``; ``N/A`` on any failure.
+
+    yfinance can return NaN for a thin, halted or pre-open symbol; that is ``N/A``
+    too, so it is never cached or treated as a price.
+    """
     try:
-        return round(yf.Ticker(sym).fast_info["last_price"], 2)
+        price = playbook.live_price_or_none(yf.Ticker(sym).fast_info["last_price"])
     except Exception:
         return "N/A"
+    return "N/A" if price is None else round(price, 2)
 
 
 def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
@@ -313,29 +326,33 @@ CHART_BARS = {"daily": 60, "weekly": 52}
 _SYMBOL = re.compile(r"^[A-Z0-9.\-]{1,10}$")
 
 
-def _market(live: dict[str, float | str] | None = None) -> list[dict[str, Any]]:
-    """Market tab rows from the latest daily and weekly breakout runs."""
-    _, _, daily = playbook.load_latest(LOG_DIRS["daily"])
-    _, _, weekly = playbook.load_latest(LOG_DIRS["weekly"])
-    return playbook.market_rows(daily, weekly, live)
+def _latest_runs() -> dict[str, tuple[str | None, pd.DataFrame, pd.DataFrame]]:
+    """Latest (date, cobra, breakout) per mode, read once per request."""
+    return {mode: playbook.load_latest(folder) for mode, folder in LOG_DIRS.items()}
+
+
+def _market(
+    latest: dict[str, tuple[str | None, pd.DataFrame, pd.DataFrame]],
+    live: dict[str, float | str] | None = None,
+    symbols: tuple[str, ...] = playbook.MARKET_SYMBOLS,
+) -> list[dict[str, Any]]:
+    """Market tab rows from the latest daily and weekly breakout frames."""
+    return playbook.market_rows(latest["daily"][2], latest["weekly"][2], live, symbols)
 
 
 @app.route("/")
 def index() -> str:
     """Top setups: the best 3 of both scanners per mode, with key levels and a plan."""
-    latest = {}
-    for mode, folder in LOG_DIRS.items():
-        date, cobra, breakout = playbook.load_latest(folder)
-        latest[mode] = (date, playbook.top_setups(cobra, breakout, TOP_N))
-    symbols = [s for _, top in latest.values() if not top.empty for s in top["Symbol"]]
+    latest = _latest_runs()
+    tops = {mode: playbook.top_setups(cobra, bo, TOP_N) for mode, (_, cobra, bo) in latest.items()}
+    symbols = [s for top in tops.values() if not top.empty for s in top["Symbol"]]
     live = _fetch_live_prices(list(dict.fromkeys(symbols)))
 
     sections = []
-    for mode, (date, top) in latest.items():
+    for mode, top in tops.items():
         cards = []
         for _, row in top.iterrows():
-            price = live.get(row["Symbol"])
-            plan = playbook.action_plan(row, price if isinstance(price, float) else None)
+            plan = playbook.action_plan(row, playbook.live_price_or_none(live.get(row["Symbol"])))
             cards.append(
                 {
                     "symbol": row["Symbol"],
@@ -344,9 +361,10 @@ def index() -> str:
                     "levels": playbook.chart_levels(plan, with_support=True),
                 }
             )
-        sections.append({"mode": mode, "date": date, "cards": cards})
-    headwinds = [m for m in _market() if m["symbol"] in playbook.HEADWIND_SYMBOLS]
-    headwinds = [m for m in headwinds if m["bias"] == "SHORT"]
+        sections.append({"mode": mode, "date": latest[mode][0], "cards": cards})
+    # Only the bias is needed here, so no live prices for the market rows.
+    market_rows = _market(latest, symbols=playbook.HEADWIND_SYMBOLS)
+    headwinds = [m for m in market_rows if m["bias"] == "SHORT"]
     return render_template("top.html", sections=sections, top_n=TOP_N, headwinds=headwinds)
 
 
@@ -354,7 +372,7 @@ def index() -> str:
 def market() -> str:
     """SPY / QQQ / SCHG: bias from the breakout states, with long and short levels."""
     live = _fetch_live_prices(list(playbook.MARKET_SYMBOLS))
-    return render_template("market.html", rows=_market(live))
+    return render_template("market.html", rows=_market(_latest_runs(), live))
 
 
 @app.route("/api/bars/<mode>/<symbol>")
@@ -362,11 +380,11 @@ def api_bars(mode: str, symbol: str) -> Response:
     """Recent OHLC bars for one ticker from the raw silo, for the level charts."""
     if mode not in CHART_BARS or not _SYMBOL.match(symbol):
         abort(404)
-    raw_dir = config.TIMEFRAME_PROFILES[mode]["raw_dir"]
+    # The raw-file naming contract gives the path directly (no directory scan).
+    path = config.get_raw_path(symbol, config.TIMEFRAME_PROFILES[mode])
+    if not os.path.isfile(path):
+        abort(404)
     try:
-        path = next((f.path for f in raw.raw_files(raw_dir) if f.ticker == symbol), None)
-        if path is None:
-            abort(404)
         bars = raw.load_raw(path, weekly=mode == "weekly").tail(CHART_BARS[mode])
     except (OSError, ValueError) as exc:
         logger.warning("Bars unavailable for %s %s: %s", mode, symbol, exc)

@@ -11,11 +11,17 @@ neither scanner has a validated edge, so they are a plan to review, not advice.
 
 from __future__ import annotations
 
+import logging
+import math
 import os
 import re
 from typing import Any
 
 import pandas as pd
+
+from finance_vibe import config
+
+logger = logging.getLogger(__name__)
 
 COBRA_PREFIX = "coiled_cobra_setups_"
 BREAKOUT_PREFIX = "breakout_setups_"
@@ -31,9 +37,7 @@ FAILED_STATUS = "FAILED_BREAKOUT"
 CONFIRMED_STATUS = "BREAKOUT_CONFIRMED"
 AGREEMENT_BONUS = 10  # a Cobra setup the breakout scan also flags
 
-# Mirrors scanners.breakout.RVOL_CONFIRM (tests/test_dashboard.py checks it); the
-# dashboard doesn't import the scanner and its indicator stack.
-RVOL_CONFIRM = 1.5
+RVOL_CONFIRM = config.BREAKOUT_RVOL_CONFIRM
 STOP_BUFFER_ATR = 0.25
 EXTENDED_ATR = 1.0  # above trigger + this many ATR: don't chase
 TARGET_R = (2.0, 3.0)
@@ -105,6 +109,13 @@ def _num_col(df: pd.DataFrame, name: str) -> pd.Series:
     return pd.Series(float("nan"), index=df.index, dtype="float64")
 
 
+def live_price_or_none(value: object) -> float | None:
+    """A usable live quote, or None (missing, "N/A", NaN or infinite)."""
+    if isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value):
+        return float(value)
+    return None
+
+
 def _num(value: Any) -> float | None:
     v = pd.to_numeric(value, errors="coerce")
     return None if pd.isna(v) else float(v)
@@ -116,7 +127,8 @@ def candidates(cobra: pd.DataFrame, breakout: pd.DataFrame) -> pd.DataFrame:
     Columns: the breakout row's fields, Cobra fields prefixed ``Cobra `` (``Cobra
     Score``, ``Cobra Grade`` ...), ``Sources`` (tuple) and ``Rank Score``.
     Symbols whose breakout status is FAILED_BREAKOUT, and rows without usable
-    Resistance / Support / ATR, are dropped.
+    Resistance / Support / ATR, are dropped; so are Cobra setups the breakout
+    scan has no row for (logged at INFO), since their levels come from that row.
     """
     if breakout.empty or "Symbol" not in breakout.columns:
         return pd.DataFrame()
@@ -130,8 +142,17 @@ def candidates(cobra: pd.DataFrame, breakout: pd.DataFrame) -> pd.DataFrame:
         cb["Symbol"] = cb["Symbol"].astype(str).str.strip().str.upper()
         cb = cb.drop_duplicates("Symbol").set_index("Symbol").add_prefix("Cobra ")
 
-    status = bo.get("Status", pd.Series(dtype=object))
+    if "Status" not in bo.columns:
+        bo["Status"] = None
+    status = bo["Status"]
     events = set(status[status.isin(BREAKOUT_EVENT_BONUS)].index)
+    unmatched = sorted(set(cb.index) - set(bo.index))
+    if unmatched:
+        logger.info(
+            "Top setups: %d Coiled Cobra setup(s) have no breakout row and no levels: %s",
+            len(unmatched),
+            ", ".join(unmatched),
+        )
     pool = (set(cb.index) | events) & set(bo.index)
     pool -= set(status[status == FAILED_STATUS].index)
     if not pool:
@@ -208,6 +229,7 @@ def action_plan(
     stop = level - d * STOP_BUFFER_ATR * atr
     risk = d * (entry - stop)
     close = _num(row.get("Close"))
+    live_price = live_price_or_none(live_price)
     price = live_price if live_price is not None else close
     beyond, toward = ("above", "below") if long else ("below", "above")
 
@@ -220,16 +242,21 @@ def action_plan(
         state, note = "WAITING", f"{gap:.1f} ATR {toward} the trigger."
     elif d * (price - entry) <= EXTENDED_ATR * atr:
         state = "TRIGGERED"
-        if long and row.get("Status") == CONFIRMED_STATUS:
+        if not long:
+            note = (
+                "Below the trigger. The breakout scan does not confirm breakdowns; "
+                "judge the close and volume yourself."
+            )
+        elif row.get("Status") == CONFIRMED_STATUS:
             note = "Breakout confirmed by the scan (close above on volume)."
         else:
-            note = (
-                f"{beyond.capitalize()} the trigger; needs a close {beyond} it "
-                f"on RVOL ≥ {RVOL_CONFIRM:g}."
-            )
+            note = f"Above the trigger; needs a close above it on RVOL ≥ {RVOL_CONFIRM:g}."
     else:
         state = "EXTENDED"
-        note = f"More than 1 ATR {beyond} the trigger: don't chase, wait for a pullback toward it."
+        note = (
+            f"More than {EXTENDED_ATR:g} ATR {beyond} the trigger: don't chase, "
+            "wait for a pullback toward it."
+        )
 
     risk_pct = 100 * risk / entry
     return {
@@ -247,7 +274,9 @@ def action_plan(
         "note": note,
         "wide_stop": risk_pct > WIDE_STOP_PCT,
         "condition": (
-            f"Close {beyond} {entry:.2f} with RVOL20 ≥ {RVOL_CONFIRM:g} and {beyond} SMA20"
+            f"Close above {entry:.2f} with RVOL20 ≥ {RVOL_CONFIRM:g} and above SMA20"
+            if long
+            else f"Close below {entry:.2f} (mirror of the long rule; not a scanner signal)"
         ),
     }
 
@@ -362,8 +391,7 @@ def market_rows(
     for symbol in symbols:
         daily, weekly = _row_for(daily_breakout, symbol), _row_for(weekly_breakout, symbol)
         bias, reasons = market_bias(daily, weekly)
-        price = (live or {}).get(symbol)
-        price = price if isinstance(price, float) else None
+        price = live_price_or_none((live or {}).get(symbol))
         plans = levels = None
         if daily:
             try:

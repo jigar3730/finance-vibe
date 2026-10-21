@@ -60,7 +60,8 @@ python -m finance_vibe.scanners.breakout weekly
   `TIMEFRAME_PROFILES`, split/dividend-adjusted (`auto_adjust=True`), in batches with
   retry and backoff. It drops the current weekly candle while its week is still
   trading (complete from Friday 17:00 ET, `ingest.drop_incomplete_weeks` drops every
-  trailing row of the week in progress) and logs
+  trailing row of the week in progress, and `one_row_per_week` keeps only the
+  Monday-dated bar when yfinance adds a same-week row) and logs
   per-ticker failures to `ingest_errors_<date>.csv`.
 - **`data.daily_ingest`** runs `ingest.ingest_market_data("daily")`, then drops
   today's bar from every daily CSV while the session is still trading (final from
@@ -172,7 +173,7 @@ For each mode it reads the newest run and ranks both scanners together:
   that is also a breakout event gets the higher of the two, +10.
 - **Levels** come from the ticker's breakout row (every scanned ticker has one):
   - **Trigger:** `Resistance`. A close above it with RVOL20 ≥ 1.5 and above SMA20
-    confirms, which is the scanner's own rule.
+    confirms, which is the scanner's own rule (`config.BREAKOUT_RVOL_CONFIRM`).
   - **Stop:** the higher of `Support` and the Cobra swing low (if below the trigger),
     minus 0.25 × ATR.
   - **Targets:** 2R and 3R above the trigger.
@@ -208,7 +209,8 @@ range-break plans:
 
 - **Long:** above `Resistance`, with the stop under support, as on Top Setups.
 - **Short:** below `Support`, with the stop at the lower of `Resistance` and `SMA20`
-  plus 0.25 × ATR, and targets 2R / 3R below.
+  plus 0.25 × ATR, and targets 2R / 3R below. This mirrors the long rule; the
+  breakout scanner has no breakdown confirmation, so the card says so.
 
 The plan matching the bias is highlighted and the other dimmed; NEUTRAL shows both as
 range-break levels. When SPY or QQQ is SHORT, Top Setups shows a "market headwind"

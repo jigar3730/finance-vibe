@@ -68,3 +68,19 @@ def test_drop_incomplete_weeks_removes_every_trailing_partial_row():
     assert list(di.drop_incomplete_weeks(df, now=tuesday)["Close"]) == [1.0, 2.0]
     friday_close = datetime(2026, 10, 23, 17, 0, tzinfo=ET)
     assert len(di.drop_incomplete_weeks(df, now=friday_close)) == 4
+
+
+def test_closed_week_keeps_one_row_when_yfinance_adds_a_dated_duplicate():
+    # Friday after the close: the Monday bar and a same-week row dated Friday.
+    idx = pd.to_datetime(["2026-10-05", "2026-10-12", "2026-10-16"])
+    df = pd.DataFrame({"Close": [1.0, 2.0, 2.1]}, index=idx)
+    friday_close = datetime(2026, 10, 16, 18, 0, tzinfo=ET)
+    out = di.one_row_per_week(di.drop_incomplete_weeks(df, now=friday_close))
+    assert list(out.index.strftime("%Y-%m-%d")) == ["2026-10-05", "2026-10-12"]
+    assert list(out["Close"]) == [1.0, 2.0]
+
+
+def test_one_row_per_week_handles_tz_aware_and_non_monday_bars():
+    idx = pd.DatetimeIndex(["2026-10-13 00:00", "2026-10-20 00:00"], tz="America/New_York")
+    df = pd.DataFrame({"Close": [1.0, 2.0]}, index=idx)  # holiday-week Tuesday bar is kept
+    assert len(di.one_row_per_week(df)) == 2

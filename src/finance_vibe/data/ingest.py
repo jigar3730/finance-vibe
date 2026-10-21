@@ -130,6 +130,22 @@ def drop_incomplete_weeks(df: pd.DataFrame, now: datetime | None = None) -> pd.D
     return df.loc[complete]
 
 
+def one_row_per_week(df: pd.DataFrame) -> pd.DataFrame:
+    """Keep the first row of each calendar week (Monday-start) in a Date-indexed frame.
+
+    After a week closes, yfinance can still return its Monday-dated bar plus a
+    separate row dated later in the same week; keeping both would count the
+    week twice. The Monday-dated (first) row is the weekly bar.
+    """
+    if df.empty:
+        return df
+    days = pd.DatetimeIndex(df.index)
+    if days.tz is not None:
+        days = days.tz_convert(MARKET_TZ).tz_localize(None)
+    week = days.normalize() - pd.to_timedelta(days.weekday, unit="D")
+    return df.loc[~week.duplicated(keep="first")]
+
+
 def _ticker_frame(batch, ticker: str):
     """Extract one ticker's OHLCV frame from a batch keyed by ticker.
 
@@ -204,9 +220,9 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
 
                 # --- 4. DATA CLEANING ---
                 # Keep only weeks that have closed (Monday-dated bars; complete
-                # after that Friday's close).
+                # after that Friday's close), one row per week.
                 if INTERVAL == "1wk":
-                    df = drop_incomplete_weeks(df)
+                    df = one_row_per_week(drop_incomplete_weeks(df))
 
                 # --- 4b. VALIDATE OHLCV CONTRACT (reject, never save partial) ---
                 clean = config.validate_and_clean_ohlcv(df, require_volume=True)

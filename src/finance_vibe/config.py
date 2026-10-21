@@ -170,6 +170,11 @@ REQUIRED_OHLCV = ["Date", "Open", "High", "Low", "Close", "Volume"]
 # Minimum usable rows before a raw CSV is worth saving/scanning.
 MIN_SAVE_ROWS = 60
 
+# Breakout confirmation volume: RVOL20 at or above this on a close through
+# resistance confirms a breakout. Shared by scanners.breakout and the
+# dashboard's trigger rule (web.playbook).
+BREAKOUT_RVOL_CONFIRM = 1.50
+
 # Setup-row schema emitted by scanners.coiled_cobra: a single stable contract for
 # coiled_cobra_setups_<date>.csv. Column order is significant for CSV output.
 #
