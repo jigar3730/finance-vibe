@@ -6,7 +6,4 @@ data/
 *.pyc
 .pytest_cache/
 .ipynb_checkpoints/
-notebooks/
-*.docx
-.devcontainer/
 .env

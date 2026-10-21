@@ -52,8 +52,8 @@ testpaths = ["tests"]
 target-version = "py312"
 line-length = 100
 src = ["src", "tests"]
-# notebooks: exploration only. docs: hand-written prose; leave its code blocks alone.
-extend-exclude = ["notebooks", "docs"]
+# docs: hand-written prose; leave its code blocks alone.
+extend-exclude = ["docs"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "PD", "RUF"]

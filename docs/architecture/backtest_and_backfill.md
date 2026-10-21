@@ -126,7 +126,7 @@ Useful for:
 
 - Counting historical signal frequency
 - Auditing grade distribution
-- Feeding research notebooks without re-scanning
+- Ad-hoc research without re-scanning
 
 ### Walk-forward backtest
 
