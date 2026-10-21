@@ -123,3 +123,108 @@ def test_load_latest_picks_the_newest_breakout_run(tmp_path):
     date, cobra, breakout = pb.load_latest(str(tmp_path))
     assert date == "2026-10-20" and list(breakout["Symbol"]) == ["B"] and len(cobra) == 1
     assert pb.load_latest(str(tmp_path / "missing"))[0] is None
+
+
+# ---------------------------------------------------------------------------
+# Short side and chart lines
+# ---------------------------------------------------------------------------
+
+
+def _spy(**kw):
+    row = {
+        "Symbol": "SPY",
+        "Close": 769.05,
+        "Resistance": 781.62,
+        "Support": 758.79,
+        "ATR": 7.08,
+        "SMA20": 770.62,
+        "SMA50": 767.26,
+        "Trend": "NEUTRAL",
+        "MTF": "PARTIAL",
+    }
+    row.update(kw)
+    return row
+
+
+def test_short_plan_mirrors_the_long_plan():
+    plan = pb.action_plan(_spy(), side="short")
+    stop = min(781.62, 770.62) + 0.25 * 7.08
+    risk = stop - 758.79
+    assert plan["side"] == "short" and plan["trigger"] == 758.79
+    assert plan["stop"] == pytest.approx(stop, abs=0.01)
+    assert plan["targets"] == pytest.approx([758.79 - 2 * risk, 758.79 - 3 * risk], abs=0.01)
+    assert plan["condition"].startswith("Close below 758.79")
+    long = pb.action_plan(_spy())
+    assert long["trigger"] == 781.62 and long["stop"] == pytest.approx(
+        758.79 - 0.25 * 7.08, abs=0.01
+    )
+
+
+@pytest.mark.parametrize(
+    ("price", "status"),
+    [(769.05, "WAITING"), (755.0, "TRIGGERED"), (745.0, "EXTENDED"), (775.0, "INVALIDATED")],
+)
+def test_short_status_follows_the_price(price, status):
+    assert pb.action_plan(_spy(), live_price=price, side="short")["status"] == status
+
+
+def test_bad_side_is_rejected():
+    with pytest.raises(ValueError):
+        pb.action_plan(_spy(), side="sideways")
+
+
+def test_chart_levels_long_with_support():
+    lines = pb.chart_levels(pb.action_plan(_row()), with_support=True)
+    assert [line["label"] for line in lines] == ["Trigger", "Stop", "T1", "T2", "Support"]
+    assert lines[0]["price"] == 50.31 and lines[-1]["price"] == 44.62
+
+
+@pytest.mark.parametrize(
+    ("bias", "labels"),
+    [
+        ("LONG", ["Trigger", "Stop", "T1", "T2", "Short trigger"]),
+        ("SHORT", ["Short Trigger", "Short Stop", "Short T1", "Short T2", "Long trigger"]),
+        ("NEUTRAL", ["Break up", "Break down", "Long stop", "Short stop"]),
+    ],
+)
+def test_market_chart_levels(bias, labels):
+    long, short = pb.action_plan(_spy()), pb.action_plan(_spy(), side="short")
+    assert [line["label"] for line in pb.market_chart_levels(bias, long, short)] == labels
+
+
+# ---------------------------------------------------------------------------
+# Market bias
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("weekly", "daily_close", "bias"),
+    [
+        ({"Trend": "BULLISH", "MTF": "ALIGNED"}, 769.05, "LONG"),
+        ({"Trend": "BULLISH", "MTF": "PARTIAL"}, 760.0, "NEUTRAL"),  # below SMA50
+        ({"Trend": "BULLISH", "MTF": "DIVERGENT"}, 769.05, "NEUTRAL"),
+        ({"Trend": "BEARISH", "MTF": "PARTIAL"}, 760.0, "SHORT"),
+        ({"Trend": "NEUTRAL", "MTF": "BEARISH"}, 760.0, "SHORT"),
+        ({"Trend": "BEARISH", "MTF": "BEARISH"}, 769.05, "NEUTRAL"),  # above SMA50
+        ({"Trend": "NEUTRAL", "MTF": "PARTIAL"}, 769.05, "NEUTRAL"),
+    ],
+)
+def test_market_bias_rule(weekly, daily_close, bias):
+    got, reasons = pb.market_bias(_spy(Close=daily_close), weekly)
+    assert got == bias
+    assert reasons[0] == f"weekly trend {weekly['Trend']}"
+
+
+def test_market_bias_is_neutral_without_rows():
+    assert pb.market_bias(None, {"Trend": "BULLISH"})[0] == "NEUTRAL"
+    assert pb.market_bias(_spy(SMA50=None), {"Trend": "BULLISH", "MTF": "ALIGNED"})[0] == "NEUTRAL"
+
+
+def test_market_rows_build_both_plans_per_symbol():
+    daily = pd.DataFrame([_spy(), _spy(Symbol="QQQ")])
+    weekly = pd.DataFrame([_spy(Trend="BULLISH", MTF="ALIGNED")])
+    rows = {r["symbol"]: r for r in pb.market_rows(daily, weekly, {"SPY": 790.0})}
+    assert list(rows) == ["SPY", "QQQ", "SCHG"]
+    assert rows["SPY"]["bias"] == "LONG" and rows["SPY"]["plans"]["long"]["status"] == "EXTENDED"
+    assert rows["QQQ"]["bias"] == "NEUTRAL" and rows["QQQ"]["plans"] is not None  # no weekly row
+    assert rows["SCHG"]["plans"] is None and rows["SCHG"]["levels"] is None

@@ -17,7 +17,7 @@ dashboard. It produces *signals* for review, not trades.
 - `src/finance_vibe/data/` — `tickers`, `ingest` (Yahoo download, both modes),
   `daily_ingest`, `raw` (the raw CSV loader)
 - `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout`
-- `src/finance_vibe/web/` — Flask app, `playbook.py` (Top Setups ranking and levels), `templates/`, `static/`
+- `src/finance_vibe/web/` — Flask app, `playbook.py` (Top Setups ranking, Market tab bias, long/short levels), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
 - `data/` — gitignored. `data/raw/{weekly|daily}/`, `data/logs/{weekly|daily}/`, `data/active_tickers.csv`

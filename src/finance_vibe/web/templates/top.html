@@ -12,6 +12,13 @@
         edge; treat this as a plan to review, not advice.
     </div>
 
+    {% for m in headwinds %}
+    <div class="headwind-banner">
+        ⚠ Market headwind: <strong>{{ m.symbol }}</strong> bias SHORT ({{ m.reasons|join(', ') }}).
+        Long setups fight the tape. <a href="{{ url_for('market') }}">Market tab</a>
+    </div>
+    {% endfor %}
+
     {% set labels = {'weekly': '📅 Weekly', 'daily': '⚡ Daily'} %}
     {% for section in sections %}
     <section class="top-section">
@@ -39,11 +46,8 @@
                 </div>
                 <p class="setup-note">{{ p.note }}</p>
 
-                <div class="level-chart"
-                     data-mode="{{ section.mode }}" data-symbol="{{ card.symbol }}"
-                     data-trigger="{{ p.trigger }}" data-stop="{{ p.stop }}"
-                     data-t1="{{ p.targets[0] }}" data-t2="{{ p.targets[1] }}"
-                     data-support="{{ p.support if p.support is not none else '' }}"></div>
+                <div class="level-chart" data-mode="{{ section.mode }}" data-symbol="{{ card.symbol }}"
+                     data-levels='{{ card.levels|tojson }}'></div>
 
                 <table class="table plan-table">
                     <tr><th>Trigger</th><td>{{ p.trigger|num }}</td><td class="muted">{{ p.condition }}</td></tr>

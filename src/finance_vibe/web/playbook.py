@@ -175,58 +175,214 @@ def top_setups(cobra: pd.DataFrame, breakout: pd.DataFrame, n: int = 3) -> pd.Da
 # ---------------------------------------------------------------------------
 
 
-def action_plan(row: pd.Series | dict[str, Any], live_price: float | None = None) -> dict[str, Any]:
-    """Trigger / stop / targets and a status for one candidate row.
+def action_plan(
+    row: pd.Series | dict[str, Any], live_price: float | None = None, side: str = "long"
+) -> dict[str, Any]:
+    """Trigger / stop / targets and a status for one row, long or short.
 
-    Trigger is the breakout Resistance (a close above it on RVOL20 >= RVOL_CONFIRM
-    and above SMA20 confirms). Stop is the higher of Support and Cobra Swing Low
-    (when below the trigger) minus ``STOP_BUFFER_ATR`` x ATR. Targets are
-    ``TARGET_R`` multiples of the risk above the trigger. Status uses the live
-    price when given, else the scan's Close.
+    Long: trigger is the breakout Resistance (a close above it on RVOL20 >=
+    RVOL_CONFIRM and above SMA20 confirms); stop is the higher of Support and Cobra
+    Swing Low (when below the trigger) minus ``STOP_BUFFER_ATR`` x ATR.
+    Short (the mirror): trigger is Support (a close below it); stop is the lower of
+    Resistance and SMA20 (when above the trigger) plus the same buffer.
+    Targets are ``TARGET_R`` multiples of the risk beyond the trigger. Status uses
+    the live price when given, else the scan's Close.
     """
-    entry = _num(row.get("Resistance"))
+    if side not in ("long", "short"):
+        raise ValueError(f"side must be 'long' or 'short', not {side!r}")
+    long = side == "long"
     atr = _num(row.get("ATR"))
+    support, resistance = _num(row.get("Support")), _num(row.get("Resistance"))
+    entry = resistance if long else support
     if entry is None or atr is None or atr <= 0:
-        raise ValueError("row needs Resistance and a positive ATR")
-    support = _num(row.get("Support"))
-    floors = [support, _num(row.get("Cobra Swing Low"))]
-    floor = max((f for f in floors if f is not None and f < entry), default=None)
-    if floor is None:
-        raise ValueError("row needs a Support or Swing Low below the trigger")
-    stop = floor - STOP_BUFFER_ATR * atr
-    risk = entry - stop
+        raise ValueError("row needs a trigger level (Resistance / Support) and a positive ATR")
+    if long:
+        floors = [support, _num(row.get("Cobra Swing Low"))]
+        level = max((f for f in floors if f is not None and f < entry), default=None)
+    else:
+        ceilings = [resistance, _num(row.get("SMA20"))]
+        level = min((c for c in ceilings if c is not None and c > entry), default=None)
+    if level is None:
+        raise ValueError("row needs a stop level on the other side of the trigger")
+    d = 1 if long else -1  # +1: profit when price rises
+    stop = level - d * STOP_BUFFER_ATR * atr
+    risk = d * (entry - stop)
     close = _num(row.get("Close"))
     price = live_price if live_price is not None else close
+    beyond, toward = ("above", "below") if long else ("below", "above")
 
     if price is None:
         state, note = "UNKNOWN", "No price available."
-    elif price < stop:
-        state, note = "INVALIDATED", "Price is below the stop; the setup is broken."
-    elif price < entry:
-        gap = (entry - price) / atr
-        state, note = "WAITING", f"{gap:.1f} ATR below the trigger."
-    elif price <= entry + EXTENDED_ATR * atr:
+    elif d * (price - stop) < 0:
+        state, note = "INVALIDATED", f"Price is {toward} the stop; the setup is broken."
+    elif d * (price - entry) < 0:
+        gap = d * (entry - price) / atr
+        state, note = "WAITING", f"{gap:.1f} ATR {toward} the trigger."
+    elif d * (price - entry) <= EXTENDED_ATR * atr:
         state = "TRIGGERED"
-        if row.get("Status") == CONFIRMED_STATUS:
+        if long and row.get("Status") == CONFIRMED_STATUS:
             note = "Breakout confirmed by the scan (close above on volume)."
         else:
-            note = f"Above the trigger; needs a close above it on RVOL ≥ {RVOL_CONFIRM:g}."
+            note = (
+                f"{beyond.capitalize()} the trigger; needs a close {beyond} it "
+                f"on RVOL ≥ {RVOL_CONFIRM:g}."
+            )
     else:
         state = "EXTENDED"
-        note = "More than 1 ATR above the trigger: don't chase, wait for a pullback toward it."
+        note = f"More than 1 ATR {beyond} the trigger: don't chase, wait for a pullback toward it."
 
     risk_pct = 100 * risk / entry
     return {
+        "side": side,
         "trigger": round(entry, 2),
         "stop": round(stop, 2),
         "support": None if support is None else round(support, 2),
+        "resistance": None if resistance is None else round(resistance, 2),
         "risk": round(risk, 2),
         "risk_pct": round(risk_pct, 1),
-        "targets": [round(entry + r * risk, 2) for r in TARGET_R],
+        "targets": [round(entry + d * r * risk, 2) for r in TARGET_R],
         "price": None if price is None else round(price, 2),
         "price_is_live": live_price is not None,
         "status": state,
         "note": note,
         "wide_stop": risk_pct > WIDE_STOP_PCT,
-        "condition": f"Close above {entry:.2f} with RVOL20 ≥ {RVOL_CONFIRM:g} and above SMA20",
+        "condition": (
+            f"Close {beyond} {entry:.2f} with RVOL20 ≥ {RVOL_CONFIRM:g} and {beyond} SMA20"
+        ),
     }
+
+
+# ---------------------------------------------------------------------------
+# Chart levels (shared by the Top Setups and Market pages)
+# ---------------------------------------------------------------------------
+
+LEVEL_COLORS = {
+    "trigger": "#2962ff",
+    "stop": "#f23645",
+    "target": "#26a69a",
+    "support": "#787b86",
+}
+SOLID, DOTTED, DASHED = 0, 1, 2  # Lightweight Charts LineStyle
+
+
+def _line(price: float | None, label: str, color: str, style: int) -> dict[str, Any] | None:
+    if price is None:
+        return None
+    return {"price": price, "label": label, "color": color, "style": style}
+
+
+def chart_levels(plan: dict[str, Any], *, with_support: bool = False) -> list[dict[str, Any]]:
+    """Price lines for one plan: trigger, stop and both targets (and Support if asked)."""
+    prefix = "" if plan["side"] == "long" else "Short "
+    lines = [
+        _line(plan["trigger"], f"{prefix}Trigger", LEVEL_COLORS["trigger"], SOLID),
+        _line(plan["stop"], f"{prefix}Stop", LEVEL_COLORS["stop"], SOLID),
+        _line(plan["targets"][0], f"{prefix}T1", LEVEL_COLORS["target"], DASHED),
+        _line(plan["targets"][1], f"{prefix}T2", LEVEL_COLORS["target"], DASHED),
+    ]
+    if with_support:
+        lines.append(_line(plan.get("support"), "Support", LEVEL_COLORS["support"], DOTTED))
+    return [line for line in lines if line is not None]
+
+
+def market_chart_levels(
+    bias: str, long_plan: dict[str, Any], short_plan: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Market card lines: the bias side's full plan plus the other side's trigger, dotted.
+
+    NEUTRAL draws both range-break triggers and both stops.
+    """
+    if bias == "NEUTRAL":
+        lines = [
+            _line(long_plan["trigger"], "Break up", LEVEL_COLORS["trigger"], SOLID),
+            _line(short_plan["trigger"], "Break down", LEVEL_COLORS["trigger"], SOLID),
+            _line(long_plan["stop"], "Long stop", LEVEL_COLORS["stop"], DOTTED),
+            _line(short_plan["stop"], "Short stop", LEVEL_COLORS["stop"], DOTTED),
+        ]
+    else:
+        on, off = (long_plan, short_plan) if bias == "LONG" else (short_plan, long_plan)
+        other = "Short trigger" if bias == "LONG" else "Long trigger"
+        lines = [*chart_levels(on), _line(off["trigger"], other, LEVEL_COLORS["trigger"], DOTTED)]
+    return [line for line in lines if line is not None]
+
+
+# ---------------------------------------------------------------------------
+# Market tab: SPY / QQQ / SCHG bias from the breakout scanner's states
+# ---------------------------------------------------------------------------
+
+MARKET_SYMBOLS = ("SPY", "QQQ", "SCHG")
+HEADWIND_SYMBOLS = ("SPY", "QQQ")  # a SHORT bias here puts a banner on Top Setups
+_LONG_MTF = {"ALIGNED", "PARTIAL"}
+
+
+def market_bias(
+    daily: dict[str, Any] | None, weekly: dict[str, Any] | None
+) -> tuple[str, list[str]]:
+    """LONG / SHORT / NEUTRAL for one ETF, with the reasons shown on its card.
+
+    LONG: weekly Trend BULLISH, weekly MTF ALIGNED or PARTIAL, daily Close above
+    daily SMA50. SHORT: weekly Trend or MTF BEARISH, daily Close below daily SMA50.
+    Anything else (or a missing row) is NEUTRAL.
+    """
+    if not daily or not weekly:
+        return "NEUTRAL", ["missing a daily or weekly scan row"]
+    trend, mtf = weekly.get("Trend"), weekly.get("MTF")
+    close, sma50 = _num(daily.get("Close")), _num(daily.get("SMA50"))
+    reasons = [f"weekly trend {trend}", f"weekly MTF {mtf}"]
+    if close is None or sma50 is None:
+        return "NEUTRAL", [*reasons, "daily SMA50 unavailable"]
+    above = close > sma50
+    reasons.append(f"daily close {'above' if above else 'below'} SMA50 ({sma50:,.2f})")
+    if trend == "BULLISH" and mtf in _LONG_MTF and above:
+        return "LONG", reasons
+    if (trend == "BEARISH" or mtf == "BEARISH") and not above:
+        return "SHORT", reasons
+    return "NEUTRAL", reasons
+
+
+def _row_for(df: pd.DataFrame, symbol: str) -> dict[str, Any] | None:
+    if df.empty or "Symbol" not in df.columns:
+        return None
+    hit = df[df["Symbol"].astype(str).str.strip().str.upper() == symbol]
+    return None if hit.empty else {str(k): v for k, v in hit.iloc[0].items()}
+
+
+def market_rows(
+    daily_breakout: pd.DataFrame,
+    weekly_breakout: pd.DataFrame,
+    live: dict[str, float | str] | None = None,
+    symbols: tuple[str, ...] = MARKET_SYMBOLS,
+) -> list[dict[str, Any]]:
+    """One dict per ETF: its scan rows, bias and reasons, both plans and chart lines.
+
+    Plans use the daily row's levels; a symbol without a usable daily row gets
+    ``plans`` = None.
+    """
+    rows = []
+    for symbol in symbols:
+        daily, weekly = _row_for(daily_breakout, symbol), _row_for(weekly_breakout, symbol)
+        bias, reasons = market_bias(daily, weekly)
+        price = (live or {}).get(symbol)
+        price = price if isinstance(price, float) else None
+        plans = levels = None
+        if daily:
+            try:
+                plans = {
+                    "long": action_plan(daily, price, side="long"),
+                    "short": action_plan(daily, price, side="short"),
+                }
+                levels = market_chart_levels(bias, plans["long"], plans["short"])
+            except ValueError:
+                plans = levels = None
+        rows.append(
+            {
+                "symbol": symbol,
+                "daily": daily,
+                "weekly": weekly,
+                "bias": bias,
+                "reasons": reasons,
+                "plans": plans,
+                "levels": levels,
+            }
+        )
+    return rows

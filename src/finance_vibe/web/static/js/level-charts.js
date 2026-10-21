@@ -1,6 +1,7 @@
-// Top Setups level charts: recent candles with the card's plan levels as price lines.
-// Each <div class="level-chart"> carries data-mode, data-symbol and data-trigger /
-// data-stop / data-t1 / data-t2 / data-support (blank when unknown). Bars come from
+// Level charts: recent candles with a card's plan levels as price lines.
+// Each <div class="level-chart"> carries data-mode, data-symbol and data-levels, a
+// JSON list of {price, label, color, style} built by playbook.chart_levels (style is
+// a LightweightCharts LineStyle: 0 solid, 1 dotted, 2 dashed). Bars come from
 // /api/bars/<mode>/<symbol>. Needs the vendored LightweightCharts global (v4).
 (function () {
   "use strict";
@@ -12,21 +13,15 @@
     down: "#f23645",
   };
 
-  // [data attribute, label, colour, line style] (LineStyle: 0 solid, 1 dotted, 2 dashed).
-  var LEVELS = [
-    ["t2", "T2", "#26a69a", 2],
-    ["t1", "T1", "#26a69a", 2],
-    ["trigger", "Trigger", "#2962ff", 0],
-    ["support", "Support", "#787b86", 1],
-    ["stop", "Stop", "#f23645", 0],
-  ];
-
   function levelValues(el) {
-    return LEVELS.map(function (level) {
-      var value = parseFloat(el.dataset[level[0]]);
-      return { key: level[0], label: level[1], color: level[2], style: level[3], value: value };
-    }).filter(function (level) {
-      return isFinite(level.value);
+    var levels;
+    try {
+      levels = JSON.parse(el.dataset.levels || "[]");
+    } catch (err) {
+      return [];
+    }
+    return levels.filter(function (level) {
+      return isFinite(level.price);
     });
   }
 
@@ -56,7 +51,7 @@
       autoscaleInfoProvider: function (original) {
         var range = original();
         if (!range || !levels.length) return range;
-        var values = levels.map(function (l) { return l.value; });
+        var values = levels.map(function (l) { return l.price; });
         return {
           priceRange: {
             minValue: Math.min(range.priceRange.minValue, Math.min.apply(null, values)),
@@ -68,7 +63,7 @@
     series.setData(bars);
     levels.forEach(function (level) {
       series.createPriceLine({
-        price: level.value,
+        price: level.price,
         color: level.color,
         lineWidth: 1,
         lineStyle: level.style,

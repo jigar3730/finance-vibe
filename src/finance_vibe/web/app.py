@@ -7,6 +7,7 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+from typing import Any
 
 import pandas as pd
 import yfinance as yf
@@ -312,6 +313,13 @@ CHART_BARS = {"daily": 60, "weekly": 52}
 _SYMBOL = re.compile(r"^[A-Z0-9.\-]{1,10}$")
 
 
+def _market(live: dict[str, float | str] | None = None) -> list[dict[str, Any]]:
+    """Market tab rows from the latest daily and weekly breakout runs."""
+    _, _, daily = playbook.load_latest(LOG_DIRS["daily"])
+    _, _, weekly = playbook.load_latest(LOG_DIRS["weekly"])
+    return playbook.market_rows(daily, weekly, live)
+
+
 @app.route("/")
 def index() -> str:
     """Top setups: the best 3 of both scanners per mode, with key levels and a plan."""
@@ -328,9 +336,25 @@ def index() -> str:
         for _, row in top.iterrows():
             price = live.get(row["Symbol"])
             plan = playbook.action_plan(row, price if isinstance(price, float) else None)
-            cards.append({"symbol": row["Symbol"], "row": row.to_dict(), "plan": plan})
+            cards.append(
+                {
+                    "symbol": row["Symbol"],
+                    "row": row.to_dict(),
+                    "plan": plan,
+                    "levels": playbook.chart_levels(plan, with_support=True),
+                }
+            )
         sections.append({"mode": mode, "date": date, "cards": cards})
-    return render_template("top.html", sections=sections, top_n=TOP_N)
+    headwinds = [m for m in _market() if m["symbol"] in playbook.HEADWIND_SYMBOLS]
+    headwinds = [m for m in headwinds if m["bias"] == "SHORT"]
+    return render_template("top.html", sections=sections, top_n=TOP_N, headwinds=headwinds)
+
+
+@app.route("/market")
+def market() -> str:
+    """SPY / QQQ / SCHG: bias from the breakout states, with long and short levels."""
+    live = _fetch_live_prices(list(playbook.MARKET_SYMBOLS))
+    return render_template("market.html", rows=_market(live))
 
 
 @app.route("/api/bars/<mode>/<symbol>")

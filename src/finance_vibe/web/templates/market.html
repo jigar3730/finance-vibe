@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% block title %}Market - Finance Vibe{% endblock %}
+{% block extra_head %}
+    <script defer src="{{ url_for('static', filename='vendor/lightweight-charts-4.2.3.standalone.production.js') }}"></script>
+    <script defer src="{{ url_for('static', filename='js/level-charts.js') }}"></script>
+{% endblock %}
+{% block content %}
+    <h1>🧭 Market</h1>
+    <div class="meta scan-note">
+        Bias from the breakout scan: LONG when the weekly trend is bullish with MTF aligned or partial and the
+        daily close is above its SMA50; SHORT when the weekly trend or MTF is bearish and the daily close is below
+        its SMA50; otherwise NEUTRAL. Levels are daily range breaks. The rule is unvalidated; treat it as market
+        context, not a call.
+    </div>
+
+    {% set plan_names = {'long': 'Long: break above resistance', 'short': 'Short: break below support'} %}
+    <div class="card-grid">
+    {% for m in rows %}
+        {% set d = m.daily or {} %}{% set w = m.weekly or {} %}
+        <article class="setup-card">
+            <header class="setup-head">
+                <a class="ticker-link setup-symbol" href="https://finviz.com/quote.ashx?t={{ m.symbol }}" target="_blank" rel="noopener noreferrer">{{ m.symbol }}</a>
+                <span class="bias-pill bias-{{ m.bias|lower }}">{{ m.bias }}</span>
+            </header>
+            <p class="setup-note">{{ m.reasons|join(' · ') }}</p>
+
+            <table class="table states-table">
+                <tr><th></th><th>Trend</th><th>MTF</th><th>Momentum</th><th>Structure</th><th>Status</th></tr>
+                {% for label, r in [('Weekly', w), ('Daily', d)] %}
+                <tr><th>{{ label }}</th>
+                    {% for col in ['Trend', 'MTF', 'Momentum', 'Structure', 'Status'] %}
+                    <td>{{ (r.get(col) or '—')|replace('_', ' ') }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </table>
+
+            {% if m.plans %}
+            <div class="level-chart" data-mode="daily" data-symbol="{{ m.symbol }}"
+                 data-levels='{{ m.levels|tojson }}'></div>
+
+            {% for side in ['long', 'short'] %}
+            {% set p = m.plans[side] %}
+            {% set on = m.bias == 'NEUTRAL' or (m.bias == 'LONG' and side == 'long') or (m.bias == 'SHORT' and side == 'short') %}
+            <div class="plan-block {% if not on %}plan-off{% endif %}">
+                <div class="plan-title">{{ plan_names[side] }}
+                    <span class="status-pill status-{{ p.status|lower }}">{{ p.status }}</span>
+                </div>
+                <p class="setup-note">{{ p.note }}</p>
+                <table class="table plan-table">
+                    <tr><th>Trigger</th><td>{{ p.trigger|num }}</td><td class="muted">{{ p.condition }}</td></tr>
+                    <tr><th>Stop</th><td>{{ p.stop|num }}</td><td class="muted">risk {{ p.risk|num }} ({{ p.risk_pct|num(1) }}%){% if p.wide_stop %} <span class="warn">wide stop</span>{% endif %}</td></tr>
+                    <tr><th>Targets</th><td>{{ p.targets[0]|num }}</td><td class="muted">2R · 3R {{ p.targets[1]|num }}</td></tr>
+                </table>
+            </div>
+            {% endfor %}
+
+            <table class="table levels-table">
+                <tr><th>{{ 'Live' if m.plans.long.price_is_live else 'Close' }}</th><td>{{ m.plans.long.price|num }}</td><th>ATR</th><td>{{ d.get('ATR')|num }}</td></tr>
+                <tr><th>SMA20</th><td>{{ d.get('SMA20')|num }}</td><th>SMA50</th><td>{{ d.get('SMA50')|num }}</td></tr>
+                <tr><th>SMA200</th><td>{{ d.get('SMA200')|num }}</td><th>RVOL20</th><td>{{ d.get('RVOL20')|num }}</td></tr>
+            </table>
+            {% else %}
+            <p style="color: var(--finviz-text-muted);">No daily scan row for {{ m.symbol }} yet.</p>
+            {% endif %}
+        </article>
+    {% endfor %}
+    </div>
+{% endblock %}

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -273,8 +275,15 @@ def test_top_setups_page_shows_cards_per_mode(client, tmp_path, monkeypatch):
     # Each card carries a level chart wired to its plan.
     chart = body.split('class="level-chart"')[1].split("></div>")[0]
     assert 'data-mode="daily"' in chart and 'data-symbol="VRNS"' in chart
-    assert 'data-trigger="50.31"' in chart and 'data-stop="45.23"' in chart
-    assert 'data-support="44.62"' in chart
+    levels = json.loads(chart.split("data-levels='")[1].split("'")[0])
+    assert {line["label"]: line["price"] for line in levels} == {
+        "Trigger": 50.31,
+        "Stop": 45.23,
+        "T1": 60.48,
+        "T2": 65.56,
+        "Support": 44.62,
+    }
+    assert "headwind-banner" not in body
     assert "lightweight-charts-4.2.3.standalone.production.js" in body
 
 
@@ -334,3 +343,54 @@ def test_api_bars_rejects_unknown_or_unsafe_requests(client, raw_bars, url):
 def test_api_bars_missing_raw_dir_is_404(client, raw_bars, tmp_path, monkeypatch):
     app_module.config.TIMEFRAME_PROFILES["daily"]["raw_dir"] = str(tmp_path / "gone")
     assert client.get("/api/bars/daily/VRNS").status_code == 404
+
+
+def _market_logs(tmp_path, monkeypatch, weekly_trend):
+    dirs = {"weekly": tmp_path / "w", "daily": tmp_path / "d"}
+    for d in dirs.values():
+        d.mkdir()
+    monkeypatch.setattr(app_module, "LOG_DIRS", {m: str(d) for m, d in dirs.items()})
+    monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {s: "N/A" for s in syms})
+    base = {"Status": "WATCH", "Breakout Readiness": 10, "Resistance": 781.62, "Support": 758.79}
+    base |= {"ATR": 7.08, "SMA20": 770.62, "SMA50": 767.26, "Momentum": "FADING"}
+    daily = [
+        {"Symbol": s, "Close": 760.0, "Trend": "NEUTRAL", "MTF": "PARTIAL", **base}
+        for s in ("SPY", "QQQ")
+    ]
+    weekly = [{"Symbol": "SPY", "Close": 760.0, "Trend": weekly_trend, "MTF": "PARTIAL", **base}]
+    pd.DataFrame(daily).to_csv(dirs["daily"] / "breakout_setups_2026-10-20.csv", index=False)
+    pd.DataFrame(weekly).to_csv(dirs["weekly"] / "breakout_setups_2026-10-20.csv", index=False)
+
+
+def test_market_page_shows_bias_and_both_plans(client, tmp_path, monkeypatch):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BEARISH")
+    body = client.get("/market").get_data(as_text=True)
+    spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
+    assert "bias-short" in spy and "SHORT" in spy
+    assert "Long: break above resistance" in spy and "Short: break below support" in spy
+    long_block = spy.split("Long: break above resistance")[0].rsplit('<div class="plan-block', 1)[1]
+    assert long_block.startswith(" plan-off")  # off-bias side is dimmed
+    assert "758.79" in spy and "781.62" in spy
+    levels = json.loads(spy.split("data-levels='")[1].split("'")[0])
+    assert levels[0]["label"] == "Short Trigger" and levels[-1]["label"] == "Long trigger"
+    assert "No daily scan row for SCHG" in body
+
+
+def test_top_setups_banner_when_spy_is_short(client, tmp_path, monkeypatch):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BEARISH")
+    body = client.get("/").get_data(as_text=True)
+    assert "headwind-banner" in body and "<strong>SPY</strong> bias SHORT" in body
+
+
+def test_no_banner_when_spy_is_not_short(client, tmp_path, monkeypatch):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    assert "headwind-banner" not in client.get("/").get_data(as_text=True)
+
+
+def test_market_page_without_runs(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        app_module, "LOG_DIRS", {"weekly": str(tmp_path / "x"), "daily": str(tmp_path / "y")}
+    )
+    monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {})
+    body = client.get("/market").get_data(as_text=True)
+    assert body.count("No daily scan row") == 3

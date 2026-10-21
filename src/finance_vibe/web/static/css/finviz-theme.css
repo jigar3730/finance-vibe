@@ -352,6 +352,38 @@ table.table tr:has(.live-surge) {
 .plan-table td.muted { color: var(--finviz-text-muted); white-space: normal; }
 .warn { color: #ffb74d; font-weight: 700; }
 
+/* Market tab */
+.bias-pill {
+    margin-left: auto;
+    padding: 4px 12px;
+    border-radius: 12px;
+    font-size: 0.8rem;
+    font-weight: 700;
+    font-family: var(--finviz-font-mono);
+}
+.bias-long { background: rgba(8, 153, 129, 0.18); color: var(--finviz-green-light); }
+.bias-short { background: rgba(242, 54, 69, 0.16); color: var(--finviz-red); }
+.bias-neutral { background: var(--finviz-bg-hover); color: var(--finviz-text-muted); }
+.plan-block { margin-bottom: 10px; }
+.plan-title { display: flex; align-items: center; font-weight: 600; font-size: 0.85rem; }
+.plan-off { opacity: 0.45; }
+.states-table { margin-bottom: 10px; table-layout: fixed; }
+table.states-table th, table.states-table td {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: 0.68rem;
+    padding: 4px 5px;
+}
+.headwind-banner {
+    margin: 0 0 16px;
+    padding: 10px 14px;
+    border: 1px solid rgba(242, 54, 69, 0.5);
+    border-radius: 6px;
+    background: rgba(242, 54, 69, 0.1);
+    color: var(--finviz-text-primary);
+}
+.headwind-banner a { color: var(--finviz-accent-blue); }
+
 @media (max-width: 880px) {
     .page-body { padding: 20px 16px 36px; }
     .container { flex-direction: column; }

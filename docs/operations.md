@@ -150,6 +150,7 @@ dashboard and the next scheduled run pick it up.
 | Route | Contents |
 | ----- | -------- |
 | `/` | Top setups: the best 3 of both scanners per mode, with key levels and an action plan |
+| `/market` | SPY / QQQ / SCHG: long / short / neutral bias with long and short range-break levels |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
 | `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, live price vs Close |
@@ -190,6 +191,28 @@ needs no internet access; to upgrade, replace that file and update the version i
 `top.html`. Its attribution logo stays on, as the licence notice asks.
 
 The rules are mechanical and unvalidated: a plan to review, not advice.
+
+### Market tab (`/market`, `playbook.market_bias`)
+
+SPY, QQQ and SCHG are in `STATIC_TICKERS`, so every run scans them. Their bias comes
+from the breakout scan's states:
+
+- **LONG:** the weekly `Trend` is BULLISH, the weekly `MTF` is ALIGNED or PARTIAL, and
+  the daily close is above its SMA50.
+- **SHORT:** the weekly `Trend` or `MTF` is BEARISH, and the daily close is below its
+  SMA50.
+- **NEUTRAL:** anything else, or a missing row.
+
+Each card shows the weekly and daily states, a daily level chart, and two daily
+range-break plans:
+
+- **Long:** above `Resistance`, with the stop under support, as on Top Setups.
+- **Short:** below `Support`, with the stop at the lower of `Resistance` and `SMA20`
+  plus 0.25 × ATR, and targets 2R / 3R below.
+
+The plan matching the bias is highlighted and the other dimmed; NEUTRAL shows both as
+range-break levels. When SPY or QQQ is SHORT, Top Setups shows a "market headwind"
+banner. The ranking is unchanged.
 
 ## Maintenance
 
