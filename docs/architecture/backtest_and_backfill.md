@@ -266,7 +266,7 @@ PY
 
 | File | Role |
 | ---- | ---- |
-| `config.py` | Timeframes, backtest constants (`BACKTEST_*`), `RUBRIC_VERSION`, `resolve_pipeline_mode`, `get_log_dir`, `cut_to_as_of` |
+| `config.py` | Timeframes, backtest constants (`BACKTEST_*`), `RUBRIC_VERSION`, `resolve_pipeline_mode`, `cut_to_as_of` |
 | `data_ingestor.py` | yfinance download → validated raw CSVs |
 | `analysis_engine.py` | Vibe Score + `load_benchmark_frame` / `relative_strength` / `check_coiled_cobra_market_gate` |
 | `coiled_cobra.py` | `evaluate_coiled_cobra()` (shared by live scan and backtest) |

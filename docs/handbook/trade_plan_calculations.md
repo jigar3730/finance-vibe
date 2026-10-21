@@ -4,7 +4,7 @@
 `trade_planner.calculate_stock_levels` / `trade_plan_helper.py`.
 
 The planner reads **today's** `coiled_cobra_setups_<date>.csv` from
-`config.get_log_dir(mode)` and writes `trade_plan_<date>.csv`. Row `Mode` is
+`data/logs/<mode>/` and writes `trade_plan_<date>.csv`. Row `Mode` is
 authoritative for the swing-geometry fallback.
 
 ```bash

@@ -148,14 +148,6 @@ def resolve_pipeline_mode(mode: str = "weekly") -> tuple[str, str]:
     return DEFAULT_MODE, DEFAULT_MODE
 
 
-def get_log_dir(mode: str = "weekly") -> str:
-    """Absolute log directory for a pipeline mode (``data/logs/<mode>``)."""
-    _, profile = resolve_pipeline_mode(mode)
-    d = os.path.join(PROJECT_ROOT, "data", "logs", profile)
-    os.makedirs(d, exist_ok=True)
-    return d
-
-
 # =====================================================================
 # HISTORICAL "AS-OF" RUNS
 # =====================================================================

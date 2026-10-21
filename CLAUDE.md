@@ -52,9 +52,7 @@ Stages are declared in `run_vibe.STAGES` and run as subprocesses (or
 `trade_planner` → `trade_plan_helper`. All outputs land in
 `data/logs/{mode}/` with a `_<date>` suffix.
 
-If a doc disagrees with `run_vibe.py` or `config.py`, the code wins. Some
-architecture docs are stale (e.g. `project_resurrection_prompt.md` and
-`code_review.md` still describe a `swing_scanner.py` that no longer exists).
+If a doc disagrees with `run_vibe.py` or `config.py`, the code wins.
 `docs/handbook/coiled_cobra_rubric.md` was re-audited against
 `coiled_cobra.py` on 2026-10-08.
 

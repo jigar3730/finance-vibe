@@ -379,10 +379,9 @@ def test_relative_strength_no_lookahead_alignment():
 # ---------------------------------------------------------------------------
 
 
-def test_mode_routing_and_log_dirs():
+def test_mode_routing():
     assert config.resolve_pipeline_mode("daily") == ("daily", "daily")
     assert config.resolve_pipeline_mode("weekly") == ("weekly", "weekly")
-    assert config.get_log_dir("daily").endswith("logs/daily")
     assert set(config.SWING_PROFILES) == {"weekly", "daily"}
     # The removed high_beta mode no longer routes to daily data.
     assert config.resolve_pipeline_mode("high_beta") == (config.DEFAULT_MODE, config.DEFAULT_MODE)

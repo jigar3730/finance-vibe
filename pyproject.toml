@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Coil -> expansion stock signals: ticker universe, Yahoo OHLCV ingest, Coiled Cobra scoring, informational trade plans."
 readme = "README.md"
 requires-python = ">=3.12,<3.14"  # numpy 2.2.6 (baseline) has no 3.14 wheels
-# Lower bounds come from constraints/2026-10-baseline.txt (Phase 0 freeze);
+# Lower bounds are the versions the project was validated on (2026-10);
 # exact versions live in uv.lock.
 dependencies = [
     "pandas>=3.0.5,<4",
@@ -84,8 +84,8 @@ module = ["yfinance.*", "yahooquery.*", "markdown.*", "pygments.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-# Scoring and data-contract core: strict. Widen one module per PR
-# (MODERNIZATION_PLAN Phase 2). mypy's `strict` is global-only, so this lists
+# Scoring and data-contract core: strict. Widen one module per PR.
+# mypy's `strict` is global-only, so this lists
 # the flags it would turn on.
 module = [
     "finance_vibe.config",
