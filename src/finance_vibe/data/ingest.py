@@ -1,3 +1,13 @@
+"""Yahoo OHLCV download for the active ticker universe (weekly or daily).
+
+Writes one validated ``<TICKER>_<period>_<interval>.csv`` per ticker into
+``data/raw/{mode}/`` and logs per-ticker failures to
+``data/logs/{mode}/ingest_errors_<date>.csv``. The pipeline runs it directly
+for weekly; daily goes through :mod:`finance_vibe.data.daily_ingest`.
+"""
+
+from __future__ import annotations
+
 import logging
 import os
 import sys
@@ -132,7 +142,7 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
 
     if not os.path.exists(csv_path):
         logger.error(
-            f"Could not find ticker list at {csv_path}. Please run ticker_provider.py first."
+            f"Could not find ticker list at {csv_path}. Please run `python -m finance_vibe.data.tickers` first."
         )
         return
 
@@ -222,7 +232,7 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI: ``data_ingestor.py [weekly|daily]`` (default weekly)."""
+    """CLI: ``python -m finance_vibe.data.ingest [weekly|daily]`` (default weekly)."""
     args = sys.argv[1:] if argv is None else argv
     selected_mode = "weekly"
     if args:

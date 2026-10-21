@@ -4,8 +4,8 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-# Stages are run by path (run_vibe.py, cron `docker exec`), so keep src/ importable
-# even outside the venv's editable install.
+# Keep src/ importable for `python -m finance_vibe...` even outside the venv's
+# editable install (cron `docker exec`, scripts/*_in_container.sh).
 ENV PYTHONPATH=/app/src
 ENV TZ=America/New_York
 # Use the image's interpreter; never let uv download another one.
@@ -31,11 +31,11 @@ COPY pyproject.toml uv.lock .python-version README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project
 
-# Sources and templates/ for the Flask UI (docs/ is excluded by .dockerignore)
+# Sources (templates and static files live in src/finance_vibe/web/; docs/ is excluded)
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen
 
 EXPOSE 5000
 
-CMD ["python", "src/finance_vibe/app.py"]
+CMD ["python", "-m", "finance_vibe.web.app"]

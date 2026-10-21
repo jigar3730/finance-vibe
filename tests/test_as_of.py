@@ -9,9 +9,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from finance_vibe import breakout_scanner as bs
-from finance_vibe import coiled_cobra as cc
-from finance_vibe import config, market, run_vibe
+from finance_vibe import config, market, pipeline
+from finance_vibe.scanners import breakout as bs
+from finance_vibe.scanners import coiled_cobra as cc
 
 # ---------------------------------------------------------------------------
 # parse_as_of / run_stamp
@@ -271,32 +271,31 @@ def test_breakout_scan_files_cuts_each_frame_at_as_of(tmp_path, monkeypatch):
 
 def _run_orchestrator(monkeypatch, argv):
     cmds: list[list[str]] = []
-    monkeypatch.setattr(sys, "argv", ["run_vibe.py", *argv])
-    monkeypatch.setattr(run_vibe.subprocess, "run", lambda cmd, **kw: cmds.append(cmd))
+    monkeypatch.setattr(sys, "argv", ["pipeline", *argv])
+    monkeypatch.setattr(pipeline.subprocess, "run", lambda cmd, **kw: cmds.append(cmd))
     return cmds
 
 
 def test_orchestrator_as_of_implies_reuse_raw_and_passes_the_date_to_each_stage(monkeypatch):
     monkeypatch.setattr(
-        run_vibe,
+        pipeline,
         "clean_raw_folder",
         lambda *a, **k: pytest.fail("as-of must never wipe the raw data"),
     )
     cmds = _run_orchestrator(monkeypatch, ["--as-of", "2025-11-07"])
-    run_vibe.run_workflow()
+    pipeline.run_workflow()
 
-    scripts = [c[1].rsplit("/", 1)[-1] for c in cmds]
-    assert scripts == [
-        "coiled_cobra.py",
-        "breakout_scanner.py",
+    assert [c[1:3] for c in cmds] == [
+        ["-m", "finance_vibe.scanners.coiled_cobra"],
+        ["-m", "finance_vibe.scanners.breakout"],
     ]  # no ticker refresh / ingest
-    assert all(c[-2:] == ["--as-of", "2025-11-07"] and c[2] == "weekly" for c in cmds)
+    assert all(c[-2:] == ["--as-of", "2025-11-07"] and c[3] == "weekly" for c in cmds)
 
 
 def test_orchestrator_without_as_of_is_unchanged(monkeypatch):
-    monkeypatch.setattr(run_vibe, "clean_raw_folder", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline, "clean_raw_folder", lambda *a, **k: None)
     cmds = _run_orchestrator(monkeypatch, ["--reuse-raw"])
-    run_vibe.run_workflow()
+    pipeline.run_workflow()
     assert len(cmds) == 2 and not any("--as-of" in c for c in cmds)
 
 
@@ -304,7 +303,7 @@ def test_orchestrator_without_as_of_is_unchanged(monkeypatch):
 def test_orchestrator_rejects_a_bad_as_of_before_running_anything(monkeypatch, bad):
     cmds = _run_orchestrator(monkeypatch, ["--as-of", bad])
     with pytest.raises(SystemExit) as exc:
-        run_vibe.run_workflow()
+        pipeline.run_workflow()
     assert exc.value.code == 2 and cmds == []
 
 

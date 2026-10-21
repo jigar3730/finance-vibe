@@ -8,8 +8,8 @@ from datetime import date, datetime
 import pandas as pd
 import pytest
 
-from finance_vibe import config, run_vibe
-from finance_vibe import daily_ingest as di
+from finance_vibe import config, pipeline
+from finance_vibe.data import daily_ingest as di
 
 ET = di.MARKET_TZ
 DAY = pd.Timestamp("2026-09-16")  # a Wednesday session
@@ -144,26 +144,25 @@ def test_last_complete_session(now, expected):
 
 def _stage_cmds(monkeypatch, argv):
     cmds: list[list[str]] = []
-    monkeypatch.setattr(sys, "argv", ["run_vibe.py", *argv])
-    monkeypatch.setattr(run_vibe.subprocess, "run", lambda cmd, **kw: cmds.append(cmd))
-    monkeypatch.setattr(run_vibe, "clean_raw_folder", lambda *a, **k: None)
-    run_vibe.run_workflow()
+    monkeypatch.setattr(sys, "argv", ["pipeline", *argv])
+    monkeypatch.setattr(pipeline.subprocess, "run", lambda cmd, **kw: cmds.append(cmd))
+    monkeypatch.setattr(pipeline, "clean_raw_folder", lambda *a, **k: None)
+    pipeline.run_workflow()
     return cmds
 
 
 def test_daily_mode_runs_daily_ingest_without_a_mode_argument(monkeypatch):
     cmds = _stage_cmds(monkeypatch, ["--mode", "daily"])
-    ingest = cmds[1]
-    assert ingest[1].endswith("src/finance_vibe/daily_ingest.py") and len(ingest) == 2
-    assert not any(c[1].endswith("data_ingestor.py") for c in cmds)
+    assert cmds[1][1:] == ["-m", "finance_vibe.data.daily_ingest"]  # no mode argument
+    assert "finance_vibe.data.ingest" not in [c[2] for c in cmds]
 
 
-def test_weekly_mode_still_runs_data_ingestor(monkeypatch):
+def test_weekly_mode_runs_the_shared_ingest(monkeypatch):
     cmds = _stage_cmds(monkeypatch, ["--mode", "weekly"])
-    assert cmds[1][1].endswith("src/finance_vibe/data_ingestor.py") and cmds[1][2] == "weekly"
-    assert not any(c[1].endswith("daily_ingest.py") for c in cmds)
+    assert cmds[1][1:] == ["-m", "finance_vibe.data.ingest", "weekly"]
+    assert "finance_vibe.data.daily_ingest" not in [c[2] for c in cmds]
 
 
 def test_daily_reuse_raw_skips_daily_ingest(monkeypatch):
     cmds = _stage_cmds(monkeypatch, ["--mode", "daily", "--reuse-raw"])
-    assert not any(c[1].endswith(("daily_ingest.py", "data_ingestor.py")) for c in cmds)
+    assert not any(c[2].startswith("finance_vibe.data.") for c in cmds)

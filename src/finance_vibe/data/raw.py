@@ -4,8 +4,8 @@ Raw files are written by the ingestors as ``<TICKER>_<period>_<interval>.csv``
 and must satisfy :data:`config.REQUIRED_OHLCV`. :func:`load_raw` applies the
 data contract and the as-of cut in one place, so no reader can skip either.
 
-(Not named ``io``: stages run by path put this directory first on
-``sys.path``, where an ``io.py`` could shadow the standard library.)
+(Not named ``io``: running this package's modules as scripts would put this
+directory first on ``sys.path``, where an ``io.py`` could shadow the standard library.)
 """
 
 from __future__ import annotations

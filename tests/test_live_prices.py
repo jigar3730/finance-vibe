@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from finance_vibe import app as app_module
+from finance_vibe.web import app as app_module
 
 
 @pytest.fixture

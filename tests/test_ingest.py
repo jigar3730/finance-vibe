@@ -7,7 +7,7 @@ from datetime import datetime
 import pandas as pd
 import pytest
 
-from finance_vibe import data_ingestor as di
+from finance_vibe.data import ingest as di
 
 ET = di.MARKET_TZ
 MONDAY = pd.Timestamp("2026-09-14")  # week of Mon 09-14 .. Fri 09-18

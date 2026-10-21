@@ -16,8 +16,8 @@ dependencies = [
 ]
 
 [project.scripts]
-finance-vibe = "finance_vibe.run_vibe:run_workflow"
-finance-vibe-app = "finance_vibe.app:main"
+finance-vibe = "finance_vibe.pipeline:run_workflow"
+finance-vibe-app = "finance_vibe.web.app:main"
 
 [dependency-groups]
 dev = [
@@ -88,7 +88,7 @@ ignore_missing_imports = true
 module = [
     "finance_vibe.config",
     "finance_vibe.market",
-    "finance_vibe.coiled_cobra",
+    "finance_vibe.scanners.coiled_cobra",
 ]
 disallow_untyped_defs = true
 disallow_incomplete_defs = true

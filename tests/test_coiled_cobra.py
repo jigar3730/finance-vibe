@@ -6,7 +6,8 @@ Full spec: docs/handbook/coiled_cobra_rubric.md.
 import numpy as np
 import pandas as pd
 
-from finance_vibe.coiled_cobra import (
+from finance_vibe.market import check_coiled_cobra_market_gate
+from finance_vibe.scanners.coiled_cobra import (
     MIN_BARS_FULL_SCORE,
     add_macro_indicators,
     evaluate_coiled_cobra,
@@ -17,7 +18,6 @@ from finance_vibe.coiled_cobra import (
     structure_score,
     vol_contraction_score,
 )
-from finance_vibe.market import check_coiled_cobra_market_gate
 
 
 def _ohlc(n=220, *, start=100.0, drift=0.3, noise=0.5, seed=0):
@@ -153,7 +153,7 @@ def test_rvol_full_points_at_2x():
 
 
 def test_relative_strength_score_smoothed_bands(monkeypatch):
-    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.scanners import coiled_cobra as cc
 
     def _score(rel, ok):
         monkeypatch.setattr(cc, "relative_strength", lambda *a, **k: (ok, rel))
@@ -171,7 +171,7 @@ def test_relative_strength_score_smoothed_bands(monkeypatch):
 
 
 def test_relative_strength_score_rs_line_bonus(monkeypatch):
-    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.scanners import coiled_cobra as cc
 
     monkeypatch.setattr(cc, "relative_strength", lambda *a, **k: (True, 0.05))
     monkeypatch.setattr(cc, "_rs_line_new_high", lambda *a, **k: True)
@@ -200,7 +200,7 @@ def _force_all_pillars_strong(monkeypatch):
     """Monkeypatch every pillar to a guaranteed-strong value so evaluate_
     coiled_cobra's gate/tier/score logic is deterministic across TA noise.
     """
-    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.scanners import coiled_cobra as cc
 
     monkeypatch.setattr(cc, "evaluate_volume_profile_shelf", lambda *a, **k: 15)
     monkeypatch.setattr(cc, "vol_contraction_score", lambda *a, **k: (25, 5.0))
@@ -216,7 +216,7 @@ def test_insufficient_history_returns_none_even_with_include_rejects():
 
 
 def test_evaluate_passes_and_tiers_actionable(monkeypatch):
-    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.scanners import coiled_cobra as cc
 
     df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
     df["RVOL"] = 1.0
@@ -250,7 +250,7 @@ def test_evaluate_rejects_gate_a_on_downtrend(monkeypatch):
 
 
 def test_evaluate_rejects_gate_b_trend_fail_but_still_scores(monkeypatch):
-    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.scanners import coiled_cobra as cc
 
     df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
     _force_all_pillars_strong(monkeypatch)
@@ -268,7 +268,7 @@ def test_evaluate_rejects_gate_b_trend_fail_but_still_scores(monkeypatch):
 def test_evaluate_rejects_gate_c_when_structure_fails_independently(monkeypatch):
     """High total score but a hard-zero structure pillar must still reject
     (this is the exact v3.1 false-positive class Gate C exists to close)."""
-    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.scanners import coiled_cobra as cc
 
     df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
     monkeypatch.setattr(cc, "evaluate_volume_profile_shelf", lambda *a, **k: 15)
@@ -289,7 +289,7 @@ def test_evaluate_rejects_gate_d_breadth_despite_high_score(monkeypatch):
     """Score >=70 concentrated in few pillars, but fewer than MIN_CHECKS_MET
     (4/6, recalibrated 2026-09-18 from 5/6 -- see coiled_cobra_rubric.md)
     individually clear their own check threshold -> Gate D rejects."""
-    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.scanners import coiled_cobra as cc
 
     df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
     monkeypatch.setattr(
@@ -319,7 +319,7 @@ def test_evaluate_passes_gate_d_at_four_of_six_checks(monkeypatch):
     expectancy edge over >=4/6 and discarded ~65% of equal-or-better
     B/Watchlist-tier signal volume). Same pillar mix as the rejection test
     above, but with overhead_clearance also clearing its own threshold."""
-    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.scanners import coiled_cobra as cc
 
     df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
     monkeypatch.setattr(
@@ -344,7 +344,7 @@ def test_evaluate_passes_gate_d_at_four_of_six_checks(monkeypatch):
 def test_evaluate_watchlist_when_no_breakout_or_rvol(monkeypatch):
     """Gates pass and score clears threshold, but no RVOL trigger / breakout
     yet -> Watchlist, not Actionable (the v3.1 tiering gap this rubric fixes)."""
-    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.scanners import coiled_cobra as cc
 
     df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
     _force_all_pillars_strong(monkeypatch)
@@ -358,7 +358,7 @@ def test_evaluate_watchlist_when_no_breakout_or_rvol(monkeypatch):
 
 
 def test_macd_penalty_reduces_score(monkeypatch):
-    from finance_vibe import coiled_cobra as cc
+    from finance_vibe.scanners import coiled_cobra as cc
 
     df = add_macro_indicators(_ohlc(220, drift=0.8, noise=0.15, seed=4))
     df["RVOL"] = 1.0

@@ -59,7 +59,7 @@ def get_mode_config(mode: str | None = None) -> dict[str, Any]:
 # Always-included symbols merged with manifest and screener output
 STATIC_TICKERS = ["SPY", "QQQ", "IWM", "SCHD", "IBIT", "SCHG"]
 
-# Universe size for ticker_provider → data/active_tickers.csv
+# Universe size for data.tickers → data/active_tickers.csv
 ACTIVE_TICKER_CAP = 1000
 # yahooquery Screener IDs merged after the manifest (deduped, then capped)
 SCREENER_IDS = [
@@ -170,7 +170,7 @@ REQUIRED_OHLCV = ["Date", "Open", "High", "Low", "Close", "Volume"]
 # Minimum usable rows before a raw CSV is worth saving/scanning.
 MIN_SAVE_ROWS = 60
 
-# Setup-row schema emitted by coiled_cobra.py: a single stable contract for
+# Setup-row schema emitted by scanners.coiled_cobra: a single stable contract for
 # coiled_cobra_setups_<date>.csv. Column order is significant for CSV output.
 #
 # Fill rules:

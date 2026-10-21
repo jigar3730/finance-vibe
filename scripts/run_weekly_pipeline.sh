@@ -51,13 +51,13 @@ fi
 status=0
 {
     echo "=== weekly pipeline start $(TZ=America/New_York date -Is) ==="
-    docker exec "$CONTAINER" python src/finance_vibe/run_vibe.py --mode weekly || status=$?
+    docker exec "$CONTAINER" python -m finance_vibe.pipeline --mode weekly || status=$?
     echo "=== weekly pipeline end $(TZ=America/New_York date -Is) exit=$status ==="
 } >> "$log" 2>&1
 
 if [[ "$status" -ne 0 ]]; then
     alert "weekly pipeline FAILED (exit $status)" \
-          "run_vibe.py --mode weekly exited with status $status."
+          "pipeline --mode weekly exited with status $status."
     exit "$status"
 fi
 
@@ -65,7 +65,7 @@ check=0
 docker exec -i "$CONTAINER" python - < "$SCRIPT_DIR/check_weekly_outputs.py" >> "$log" 2>&1 || check=$?
 if [[ "$check" -ne 0 ]]; then
     alert "weekly pipeline finished but its outputs look wrong" \
-          "run_vibe.py exited 0, but the post-run health check failed (details at the end of the log)."
+          "The pipeline exited 0, but the post-run health check failed (details at the end of the log)."
     exit 3
 fi
 exit 0

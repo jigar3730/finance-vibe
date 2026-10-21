@@ -1,7 +1,7 @@
 """Daily OHLCV ingest: the shared Yahoo download plus a daily-only bar guard.
 
-``run_vibe.py --mode daily`` runs this instead of ``data_ingestor.py``. The
-download itself is ``data_ingestor.ingest_market_data("daily")`` (unchanged);
+``pipeline --mode daily`` runs this instead of ``ingest``. The
+download itself is ``ingest.ingest_market_data("daily")`` (unchanged);
 afterwards every raw daily CSV is checked and today's bar is dropped while its
 session is still trading. During market hours (and until ``DAY_FINAL_HOUR_ET``)
 yfinance returns a bar for today built from partial trading, and every later
@@ -10,7 +10,7 @@ stage would otherwise score it as a finished candle.
 Also holds the NYSE session calendar the daily health check uses
 (``last_complete_session``).
 
-    python src/finance_vibe/daily_ingest.py
+    python -m finance_vibe.data.daily_ingest
 """
 
 from __future__ import annotations
@@ -34,13 +34,14 @@ from pandas.tseries.holiday import (
 )
 from pandas.tseries.offsets import CustomBusinessDay
 
-from finance_vibe import config, data_ingestor
+from finance_vibe import config
+from finance_vibe.data import ingest
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
 
 MODE = "daily"
-MARKET_TZ = data_ingestor.MARKET_TZ
+MARKET_TZ = ingest.MARKET_TZ
 # A day's bar is final once the 16:00 ET close has passed plus a buffer for
 # Yahoo to publish the close (half-day sessions close earlier, so are covered).
 DAY_FINAL_HOUR_ET = 17
@@ -95,7 +96,7 @@ def drop_incomplete_daily_bars(raw_dir: str, logs_dir: str, now: datetime | None
         if len(df) < config.MIN_SAVE_ROWS:
             os.remove(path)
             ticker = name.split("_", 1)[0]
-            data_ingestor._log_ingest_error(
+            ingest._log_ingest_error(
                 logs_dir, ticker, f"insufficient_rows:{len(df)}<{config.MIN_SAVE_ROWS}"
             )
             continue
@@ -134,7 +135,7 @@ def last_complete_session(now: datetime | None = None) -> date:
 
 
 def ingest_daily(now: datetime | None = None) -> None:
-    data_ingestor.ingest_market_data(mode=MODE)
+    ingest.ingest_market_data(mode=MODE)
     cfg = config.get_mode_config(MODE)
     trimmed = drop_incomplete_daily_bars(cfg["raw_dir"], cfg["logs_dir"], now=now)
     if trimmed:
@@ -145,7 +146,7 @@ def ingest_daily(now: datetime | None = None) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI: ``daily_ingest.py`` (takes no arguments)."""
+    """CLI: ``python -m finance_vibe.data.daily_ingest`` (takes no arguments)."""
     ingest_daily()
     return 0
 

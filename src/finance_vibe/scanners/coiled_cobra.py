@@ -10,8 +10,9 @@ import numpy as np
 import pandas as pd
 
 # --- PACKAGE IMPORT ---
-from finance_vibe import config, indicators, raw_data
+from finance_vibe import config, indicators
 from finance_vibe.config import AsOf
+from finance_vibe.data import raw
 from finance_vibe.log import setup_logging
 from finance_vibe.market import (
     check_coiled_cobra_market_gate,
@@ -112,8 +113,7 @@ MIN_BARS_FULL_SCORE: int
 
 # Paths (also set by apply_timeframe). Raw OHLCV comes from the data
 # timeframe's silo; outputs go to LOG_DIR (created by run_scanner).
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-ACTIVE_TICKERS_PATH = os.path.join(BASE_DIR, "data", "active_tickers.csv")
+ACTIVE_TICKERS_PATH = config.TICKER_LIST_PATH
 RAW_DATA_DIR: str
 LOG_DIR: str
 
@@ -168,8 +168,8 @@ def apply_timeframe(tf: str) -> str:
     BBWIDTH_WINDOW = 130 * w
     MIN_BARS_TO_EVALUATE = max(COIL_BARS + 2, 60 * w)
     MIN_BARS_FULL_SCORE = 160 * w
-    RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw", _data_mode)
-    LOG_DIR = os.path.join(config.PROJECT_ROOT, "data", "logs", mode)
+    RAW_DATA_DIR = config.TIMEFRAME_PROFILES[_data_mode]["raw_dir"]
+    LOG_DIR = config.TIMEFRAME_PROFILES[mode]["logs_dir"]
     return mode
 
 
@@ -739,7 +739,7 @@ def run_scanner(as_of: str | None = None) -> None:
         logger.warning(f"Target raw directory empty or non-existent: {RAW_DATA_DIR}")
         return
 
-    files = raw_data.raw_files(RAW_DATA_DIR)
+    files = raw.raw_files(RAW_DATA_DIR)
     logger.info(f"Found {len(files)} historical files to analyze in target silo.")
 
     # Benchmarks live in the data timeframe's raw silo (_data_mode).
@@ -759,17 +759,17 @@ def run_scanner(as_of: str | None = None) -> None:
     # files with almost no data before paying the indicator-computation cost).
     min_required_history = MIN_BARS_TO_EVALUATE
 
-    for raw in files:
-        symbol = raw.ticker
+    for raw_file in files:
+        symbol = raw_file.ticker
 
         if symbol not in active_tickers:
             rejection_counts["inactive_ticker"] = rejection_counts.get("inactive_ticker", 0) + 1
             continue
 
         try:
-            df = raw_data.load_raw(raw.path, weekly=weekly_bars, as_of=as_of)
+            df = raw.load_raw(raw_file.path, weekly=weekly_bars, as_of=as_of)
         except OSError as exc:
-            logger.warning(f"Failed to read {raw.path}: {exc}")
+            logger.warning(f"Failed to read {raw_file.path}: {exc}")
             rejection_counts["read_error"] = rejection_counts.get("read_error", 0) + 1
             continue
         except ValueError:
@@ -863,7 +863,7 @@ def run_scanner(as_of: str | None = None) -> None:
 # ENTRY
 # =========================
 def main(argv: list[str] | None = None) -> int:
-    """CLI: ``coiled_cobra.py [weekly|daily] [--as-of YYYY-MM-DD]``."""
+    """CLI: ``python -m finance_vibe.scanners.coiled_cobra [weekly|daily] [--as-of YYYY-MM-DD]``."""
     args = sys.argv[1:] if argv is None else argv
     cli_mode = args[0].lower() if args and not args[0].startswith("-") else "weekly"
     if cli_mode not in ("weekly", "daily"):

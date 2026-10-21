@@ -1,12 +1,12 @@
-"""Finance Vibe pipeline orchestrator.
+"""Finance Vibe pipeline: refresh the ticker universe and raw OHLCV, then run both scanners.
 
-Runs ingestion, macro scoring, tactical scanning, and trade plan generation
-in sequence for a given timeframe profile (weekly or daily).
+Stages run in order for one mode (weekly or daily), each as
+``python -m <module> ...`` (or in-process with ``--in-process``).
 
 ``--as-of YYYY-MM-DD`` replays a past date from the raw data already on disk
-(implies ``--reuse-raw``): every stage sees only bars completed on that date and
-writes its usual dated files stamped with it, e.g.
-``python src/finance_vibe/run_vibe.py --as-of 2025-11-07``.
+(implies ``--reuse-raw``): every scanner sees only bars completed on that date
+and writes its usual dated files stamped with it, e.g.
+``python -m finance_vibe.pipeline --as-of 2025-11-07``.
 """
 
 from __future__ import annotations
@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from finance_vibe import config
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class Stage:
-    """One pipeline stage: ``src/finance_vibe/<module>.py``, entry point ``main(argv)``."""
+    """One pipeline stage: a module with an entry point ``main(argv)``."""
 
     module: str
     modes: tuple[str, ...] = ("weekly", "daily")
@@ -38,8 +39,8 @@ class Stage:
     ingest: bool = False  # refreshes data/raw; skipped with --reuse-raw / --as-of
 
     @property
-    def path(self) -> str:
-        return f"src/finance_vibe/{self.module}.py"
+    def name(self) -> str:
+        return self.module.rsplit(".", 1)[-1]
 
     def argv(self, mode: str, as_of: str | None) -> list[str]:
         args = [mode] if self.pass_mode else []
@@ -50,28 +51,28 @@ class Stage:
 
 # Run in this order. Data timeframe and signal profile are the same mode.
 STAGES: tuple[Stage, ...] = (
-    Stage("ticker_provider", pass_mode=False, ingest=True),
-    Stage("data_ingestor", modes=("weekly",), ingest=True),
+    Stage("finance_vibe.data.tickers", pass_mode=False, ingest=True),
+    Stage("finance_vibe.data.ingest", modes=("weekly",), ingest=True),
     # Daily has its own ingest wrapper (drops today's in-progress bar).
-    Stage("daily_ingest", modes=("daily",), pass_mode=False, ingest=True),
-    Stage("coiled_cobra", as_of=True),  # primary signal engine
-    Stage("breakout_scanner", as_of=True),
+    Stage("finance_vibe.data.daily_ingest", modes=("daily",), pass_mode=False, ingest=True),
+    Stage("finance_vibe.scanners.coiled_cobra", as_of=True),
+    Stage("finance_vibe.scanners.breakout", as_of=True),
 )
 
 
 def _run_in_process(stage: Stage, argv: list[str]) -> bool:
     """Import the stage and call its ``main(argv)``; True on exit code 0."""
     try:
-        module = importlib.import_module(f"finance_vibe.{stage.module}")
+        module = importlib.import_module(stage.module)
         return int(module.main(argv) or 0) == 0
     except SystemExit as exc:
         return exc.code in (None, 0)
     except Exception:  # stage boundary: report and halt like a failed subprocess
-        logger.exception(f"{stage.path} raised")
+        logger.exception(f"{stage.module} raised")
         return False
 
 
-def clean_raw_folder(root_dir, mode):
+def clean_raw_folder(root_dir: str, mode: str) -> None:
     """Remove all files in data/raw/{mode}/ before a fresh ingestion run."""
     raw_dir = Path(root_dir) / "data" / "raw" / mode
     if not raw_dir.exists():
@@ -93,7 +94,7 @@ def clean_raw_folder(root_dir, mode):
 def run_workflow(argv: list[str] | None = None) -> None:
     """Parse CLI args and run each pipeline stage (subprocess by default)."""
     setup_logging()
-    parser = argparse.ArgumentParser(description="Finance-Vibe Pipeline Orchestrator")
+    parser = argparse.ArgumentParser(description="Finance Vibe pipeline")
     parser.add_argument(
         "--mode",
         choices=["weekly", "daily"],
@@ -128,28 +129,21 @@ def run_workflow(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     mode = args.mode.lower()
 
-    # 2. CLIMB TO ROOT
-    SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-    ROOT_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "../../"))
-    SRC_DIR = os.path.join(ROOT_DIR, "src")
-
-    # 3. ENVIRONMENT SETUP
+    root_dir = config.PROJECT_ROOT
     env = os.environ.copy()
-    env["PYTHONPATH"] = SRC_DIR + os.pathsep + env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = os.path.join(root_dir, "src") + os.pathsep + env.get("PYTHONPATH", "")
 
     # Validate --as-of once, up front, with the same parser every stage uses.
     as_of = None
     if args.as_of:
-        from finance_vibe import config
-
         try:
             as_of = config.parse_as_of(["--as-of", args.as_of])
         except ValueError as exc:
             parser.error(str(exc))
     reuse_raw = args.reuse_raw or as_of is not None
 
-    logger.info(f"🚀 Starting Finance-Vibe Pipeline [{mode.upper()} MODE]...")
-    logger.info(f"📍 Project Root: {ROOT_DIR}")
+    logger.info(f"🚀 Starting Finance Vibe pipeline [{mode.upper()} MODE]...")
+    logger.info(f"📍 Project Root: {root_dir}")
     if as_of:
         logger.info(f"⏪ AS-OF replay: {as_of} (bars completed on/before this date only)")
         if mode == "weekly" and date.fromisoformat(as_of).weekday() != 4:
@@ -162,33 +156,33 @@ def run_workflow(argv: list[str] | None = None) -> None:
     if reuse_raw:
         logger.info(f"♻️  Reusing existing raw files in data/raw/{mode}/")
     else:
-        clean_raw_folder(ROOT_DIR, mode)
+        clean_raw_folder(root_dir, mode)
 
     for stage in STAGES:
         if mode not in stage.modes:
             continue
         if reuse_raw and stage.ingest:
-            logger.info(f"⏭️  Skipping {stage.path} (--reuse-raw).")
+            logger.info(f"⏭️  Skipping {stage.name} (--reuse-raw).")
             continue
 
-        logger.info(f"🔹 Running: {stage.path}...")
+        logger.info(f"🔹 Running: {stage.name}...")
         stage_argv = stage.argv(mode, as_of)
         if args.in_process:
             ok = _run_in_process(stage, stage_argv)
         else:
-            cmd = [sys.executable, os.path.join(ROOT_DIR, stage.path), *stage_argv]
+            cmd = [sys.executable, "-m", stage.module, *stage_argv]
             try:
-                subprocess.run(cmd, check=True, env=env, cwd=ROOT_DIR)
+                subprocess.run(cmd, check=True, env=env, cwd=root_dir)
                 ok = True
             except subprocess.CalledProcessError:
                 ok = False
         if not ok:
-            logger.error(f"Error in {stage.path}. Pipeline halted.")
+            logger.error(f"Error in {stage.name}. Pipeline halted.")
             sys.exit(1)
-        logger.info(f"✅ Finished: {stage.path}")
+        logger.info(f"✅ Finished: {stage.name}")
 
     logger.info("🏁 Workflow Complete!")
-    logger.info(f"📁 Reports saved to: {os.path.join(ROOT_DIR, 'data', 'logs', mode)}")
+    logger.info(f"📁 Reports saved to: {os.path.join(root_dir, 'data', 'logs', mode)}")
 
 
 if __name__ == "__main__":

@@ -19,7 +19,7 @@ from datetime import datetime
 import pandas as pd
 
 from finance_vibe import config
-from finance_vibe.data_ingestor import MARKET_TZ, weekly_bar_is_complete
+from finance_vibe.data.ingest import MARKET_TZ, weekly_bar_is_complete
 
 MODE = "weekly"
 MAX_INGEST_ERROR_SHARE = 0.20

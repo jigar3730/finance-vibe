@@ -8,9 +8,9 @@ import sys
 
 import pytest
 
-from finance_vibe import breakout_scanner as bs
-from finance_vibe import coiled_cobra as cc
-from finance_vibe import config, run_vibe
+from finance_vibe import config, pipeline
+from finance_vibe.scanners import breakout as bs
+from finance_vibe.scanners import coiled_cobra as cc
 
 
 @pytest.fixture
@@ -23,7 +23,7 @@ def restore_modes():
 def test_import_ignores_sys_argv():
     code = (
         "import sys; sys.argv = ['x', 'daily']\n"
-        "from finance_vibe import coiled_cobra as cc, breakout_scanner as bs\n"
+        "from finance_vibe.scanners import coiled_cobra as cc, breakout as bs\n"
         "print(cc.mode, cc.LOOKBACK, bs.mode)"
     )
     out = subprocess.run(
@@ -91,28 +91,28 @@ def _fake_stages(monkeypatch, fail: str | None = None, boom: str | None = None):
 
         return type("M", (), {"main": staticmethod(main)})
 
-    monkeypatch.setattr(run_vibe.importlib, "import_module", fake_import)
+    monkeypatch.setattr(pipeline.importlib, "import_module", fake_import)
     monkeypatch.setattr(
-        run_vibe.subprocess, "run", lambda *a, **k: pytest.fail("in-process must not fork")
+        pipeline.subprocess, "run", lambda *a, **k: pytest.fail("in-process must not fork")
     )
-    monkeypatch.setattr(run_vibe, "clean_raw_folder", lambda *a, **k: None)
+    monkeypatch.setattr(pipeline, "clean_raw_folder", lambda *a, **k: None)
     return calls
 
 
 def test_in_process_calls_each_stage_main(monkeypatch):
     calls = _fake_stages(monkeypatch)
-    run_vibe.run_workflow(["--mode", "daily", "--as-of", "2026-10-06", "--in-process"])
+    pipeline.run_workflow(["--mode", "daily", "--as-of", "2026-10-06", "--in-process"])
     replay_stages = (
         "coiled_cobra",
-        "breakout_scanner",
+        "breakout",
     )
     assert calls == [(s, ["daily", "--as-of", "2026-10-06"]) for s in replay_stages]
 
 
 def test_in_process_stage_lists_match_subprocess(monkeypatch):
     calls = _fake_stages(monkeypatch)
-    run_vibe.run_workflow(["--mode", "daily", "--in-process"])
-    assert [c[0] for c in calls][:2] == ["ticker_provider", "daily_ingest"]
+    pipeline.run_workflow(["--mode", "daily", "--in-process"])
+    assert [c[0] for c in calls][:2] == ["tickers", "daily_ingest"]
     assert calls[1][1] == []  # daily_ingest takes no mode argument
 
 
@@ -120,6 +120,6 @@ def test_in_process_stage_lists_match_subprocess(monkeypatch):
 def test_in_process_failure_halts_pipeline(monkeypatch, kind):
     calls = _fake_stages(monkeypatch, **{kind: "coiled_cobra"})
     with pytest.raises(SystemExit) as exc:
-        run_vibe.run_workflow(["--reuse-raw", "--in-process"])
+        pipeline.run_workflow(["--reuse-raw", "--in-process"])
     assert exc.value.code == 1
     assert calls[-1][0] == "coiled_cobra"  # nothing after the failed stage ran

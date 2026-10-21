@@ -5,8 +5,8 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from finance_vibe import app as app_module
-from finance_vibe.app import app
+from finance_vibe.web import app as app_module
+from finance_vibe.web.app import app
 
 
 @pytest.fixture
@@ -227,7 +227,7 @@ def test_status_chip_ignores_readiness_floor(client, display_logs):
 
 
 def test_dashboard_display_rule_mirrors_scanner():
-    from finance_vibe import breakout_scanner as bs
+    from finance_vibe.scanners import breakout as bs
 
     assert bs.CANDIDATE_STATUSES == app_module.BREAKOUT_ALWAYS_SHOWN
     assert bs.DISPLAY_SCORE_FLOOR == app_module.BREAKOUT_SCORE_FLOOR

@@ -17,8 +17,8 @@ includes those bars.
 
 Usage::
 
-    python src/finance_vibe/breakout_scanner.py weekly
-    python src/finance_vibe/breakout_scanner.py daily
+    python -m finance_vibe.scanners.breakout weekly
+    python -m finance_vibe.scanners.breakout daily
 """
 
 from __future__ import annotations
@@ -32,7 +32,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from finance_vibe import config, indicators, raw_data
+from finance_vibe import config, indicators
+from finance_vibe.data import raw
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -40,8 +41,7 @@ logger = logging.getLogger(__name__)
 # =========================
 # MODE AND PATHS (set by set_mode(); the module imports as weekly)
 # =========================
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-ACTIVE_TICKERS_PATH = os.path.join(BASE_DIR, "data", "active_tickers.csv")
+ACTIVE_TICKERS_PATH = config.TICKER_LIST_PATH
 mode: str
 _data_mode: str
 RAW_DATA_DIR: str
@@ -52,8 +52,8 @@ def set_mode(new_mode: str) -> str:
     """Select the scan mode and its raw/log paths; unknown modes fall back to weekly."""
     global mode, _data_mode, RAW_DATA_DIR, LOG_DIR
     _data_mode, mode = config.resolve_pipeline_mode(new_mode)
-    RAW_DATA_DIR = os.path.join(BASE_DIR, "data", "raw", _data_mode)
-    LOG_DIR = os.path.join(config.PROJECT_ROOT, "data", "logs", mode)
+    RAW_DATA_DIR = config.TIMEFRAME_PROFILES[_data_mode]["raw_dir"]
+    LOG_DIR = config.TIMEFRAME_PROFILES[mode]["logs_dir"]
     return mode
 
 
@@ -1205,8 +1205,8 @@ def scan_files(
 
         path = os.path.join(raw_dir, file)
         try:
-            raw = raw_data.load_raw(path, weekly=(native_tf == "weekly"), as_of=as_of)
-            features = engine.extract(raw, symbol, scan_mode)
+            bars = raw.load_raw(path, weekly=(native_tf == "weekly"), as_of=as_of)
+            features = engine.extract(bars, symbol, scan_mode)
             results.append(scorer.evaluate(features))
         except OSError as exc:
             logger.warning("Failed to read %s: %s", path, exc)
@@ -1248,7 +1248,7 @@ def run_scanner(as_of: str | None = None) -> pd.DataFrame:
         logger.warning("Target raw directory empty or non-existent: %s", RAW_DATA_DIR)
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
 
-    raw_files = [os.path.basename(f.path) for f in raw_data.raw_files(RAW_DATA_DIR)]
+    raw_files = [os.path.basename(f.path) for f in raw.raw_files(RAW_DATA_DIR)]
     logger.info("Found %s raw data files in target silo", len(raw_files))
 
     results, rejection_counts = scan_files(
@@ -1288,7 +1288,7 @@ def run_scanner(as_of: str | None = None) -> pd.DataFrame:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI: ``breakout_scanner.py [weekly|daily] [--as-of YYYY-MM-DD]``."""
+    """CLI: ``python -m finance_vibe.scanners.breakout [weekly|daily] [--as-of YYYY-MM-DD]``."""
     args = sys.argv[1:] if argv is None else argv
     cli_mode = args[0].lower() if args and not args[0].startswith("-") else "weekly"
     if cli_mode not in ("weekly", "daily"):

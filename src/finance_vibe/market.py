@@ -7,8 +7,9 @@ import os
 
 import pandas as pd
 
-from finance_vibe import config, raw_data
+from finance_vibe import config
 from finance_vibe.config import AsOf
+from finance_vibe.data import raw
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def load_benchmark_frame(benchmark: str, data_mode: str) -> pd.DataFrame | None:
     if not path:
         return None
     try:
-        df = raw_data.load_raw(path)
+        df = raw.load_raw(path)
         if df.empty:
             raise ValueError("empty csv")
     except (OSError, ValueError, KeyError) as exc:

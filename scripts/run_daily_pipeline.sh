@@ -92,20 +92,20 @@ fi
 status=0
 {
     echo "=== daily pipeline start ($attempt attempt) $(TZ=America/New_York date -Is) ==="
-    # timeout runs inside the container so it kills run_vibe.py and its stage
+    # timeout runs inside the container so it kills the pipeline and its stage
     # subprocesses (its whole process group), not just the docker client.
-    docker exec "$CONTAINER" timeout "$RUN_TIMEOUT" python src/finance_vibe/run_vibe.py --mode daily || status=$?
+    docker exec "$CONTAINER" timeout "$RUN_TIMEOUT" python -m finance_vibe.pipeline --mode daily || status=$?
     echo "=== daily pipeline end $(TZ=America/New_York date -Is) exit=$status ==="
 } >> "$log" 2>&1
 
 if [[ "$status" -eq 124 ]]; then
     alert "daily pipeline TIMED OUT after $RUN_TIMEOUT" \
-          "run_vibe.py --mode daily was stopped after $RUN_TIMEOUT ($attempt attempt)."
+          "pipeline --mode daily was stopped after $RUN_TIMEOUT ($attempt attempt)."
     exit "$status"
 fi
 if [[ "$status" -ne 0 ]]; then
     alert "daily pipeline FAILED (exit $status)" \
-          "run_vibe.py --mode daily exited with status $status ($attempt attempt)."
+          "pipeline --mode daily exited with status $status ($attempt attempt)."
     exit "$status"
 fi
 
@@ -116,7 +116,7 @@ if [[ "$check" -ne 0 ]]; then
         echo "$(date -Is) health check failed; will retry at ${RETRY_HOUR_ET}:30 ET" >> "$log"
     else
         alert "daily pipeline finished but its outputs look wrong" \
-              "run_vibe.py exited 0, but the post-run health check failed ($attempt attempt; details at the end of the log)."
+              "The pipeline exited 0, but the post-run health check failed ($attempt attempt; details at the end of the log)."
     fi
     exit 3
 fi

@@ -7,7 +7,7 @@ import dataclasses
 import pandas as pd
 import pytest
 
-from finance_vibe import breakout_scanner as bs
+from finance_vibe.scanners import breakout as bs
 
 # ---------------------------------------------------------------------------
 # Failed Breakout: judged against the level that was actually broken

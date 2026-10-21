@@ -12,18 +12,15 @@ import pandas as pd
 import yfinance as yf
 from flask import Flask, abort, render_template, request
 
+from finance_vibe import config
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-LOGS_BASE_DIR = os.path.join(BASE_DIR, "data", "logs")
+WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # One log silo per mode; both scanners write dated CSVs into it.
-LOG_DIRS = {
-    "weekly": os.path.join(LOGS_BASE_DIR, "weekly"),
-    "daily": os.path.join(LOGS_BASE_DIR, "daily"),
-}
+LOG_DIRS = {mode: profile["logs_dir"] for mode, profile in config.TIMEFRAME_PROFILES.items()}
 COBRA_PREFIX = "coiled_cobra_setups_"
 BREAKOUT_PREFIX = "breakout_setups_"
 _DATED_CSV = re.compile(r"^(?P<prefix>.+_)(?P<date>\d{4}-\d{2}-\d{2})\.csv$")
@@ -45,7 +42,7 @@ COBRA_DISPLAY_COLUMNS = [
     "RSI",
 ]
 
-# Table columns mirror breakout_scanner.DISPLAY_COLUMNS (states first; the
+# Table columns mirror scanners.breakout.DISPLAY_COLUMNS (states first; the
 # 100-pt score is secondary). Defined locally so the UI doesn't import the
 # scanner and its indicator stack.
 BREAKOUT_DISPLAY_COLUMNS = [
@@ -66,7 +63,7 @@ BREAKOUT_DISPLAY_COLUMNS = [
     "Compression",
 ]
 
-# Mirrors breakout_scanner's display rule and status order (tests/test_breakout_dashboard.py
+# Mirrors scanners.breakout's display rule and status order (tests/test_dashboard.py
 # checks they agree): event statuses always show; DEVELOPING needs a readiness floor; WATCH
 # is only listed via its status chip or "All".
 BREAKOUT_TRIGGERED = "BREAKOUT_TRIGGERED"
@@ -91,8 +88,8 @@ _live_price_cache: dict[str, tuple[float, float]] = {}
 
 app = Flask(
     __name__,
-    template_folder=os.path.join(BASE_DIR, "templates"),
-    static_folder=os.path.join(os.path.dirname(__file__), "static"),
+    template_folder=os.path.join(WEB_DIR, "templates"),
+    static_folder=os.path.join(WEB_DIR, "static"),
 )
 
 

@@ -10,9 +10,9 @@ from pathlib import Path
 
 import pytest
 
-from finance_vibe import breakout_scanner as bs
-from finance_vibe import coiled_cobra as cc
 from finance_vibe import config
+from finance_vibe.scanners import breakout as bs
+from finance_vibe.scanners import coiled_cobra as cc
 
 DOCS = Path(__file__).resolve().parents[1] / "docs"
 COBRA = (DOCS / "handbook" / "coiled_cobra_rubric.md").read_text(encoding="utf-8")

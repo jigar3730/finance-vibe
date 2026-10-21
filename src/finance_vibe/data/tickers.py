@@ -1,10 +1,18 @@
+"""Ticker universe: static manifest + config baseline, topped up from Yahoo screeners.
+
+Writes ``data/active_tickers.csv`` (one ``Ticker`` column, at most
+``config.ACTIVE_TICKER_CAP`` rows). If screener discovery fails, the baseline
+alone is saved so the pipeline is never blocked.
+"""
+
+from __future__ import annotations
+
 import logging
 import os
 
 import pandas as pd
 from yahooquery import Screener
 
-# --- 1. PACKAGE IMPORT ---
 from finance_vibe import config
 from finance_vibe.log import setup_logging
 
@@ -18,11 +26,12 @@ def _normalize_symbols(symbols) -> list[str]:
     return [t.upper().strip() for t in symbols if t and "^" not in str(t) and "." not in str(t)]
 
 
-def refresh_active_tickers():
+def refresh_active_tickers() -> None:
+    """Build and save the active ticker list (manifest/static first, then screeners)."""
     logger.info("--- STEP 1: Discovering Tickers (Manifest + Active) ---")
-    cap = int(getattr(config, "ACTIVE_TICKER_CAP", 1000))
-    screener_ids = list(getattr(config, "SCREENER_IDS", ["most_actives", "day_gainers"]))
-    screener_count = int(getattr(config, "SCREENER_COUNT", 250))
+    cap = config.ACTIVE_TICKER_CAP
+    screener_ids = list(config.SCREENER_IDS)
+    screener_count = config.SCREENER_COUNT
 
     # 1. Load the Static Manifest
     static_tickers = []
@@ -97,7 +106,7 @@ def refresh_active_tickers():
 
 
 def main(argv: list[str] | None = None) -> int:
-    """CLI: ``ticker_provider.py`` (takes no arguments)."""
+    """CLI: ``python -m finance_vibe.data.tickers`` (takes no arguments)."""
     refresh_active_tickers()
     return 0
 

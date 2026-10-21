@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Golden-output harness: prove a change leaves pipeline outputs unchanged.
 
-Replays ``run_vibe.py --as-of`` for weekly and daily against a *frozen* copy of
+Replays ``python -m finance_vibe.pipeline --as-of`` for weekly and daily against a *frozen* copy of
 the raw data, in a throwaway workspace, and diffs every CSV the stages write
 against a stored baseline. No network, and live ``data/`` is never written.
 
@@ -104,7 +104,8 @@ def _run_pipeline(
         for mode in MODES:
             cmd = [
                 sys.executable,
-                str(ws / "src" / "finance_vibe" / "run_vibe.py"),
+                "-m",
+                "finance_vibe.pipeline",
                 "--mode",
                 mode,
                 "--as-of",
@@ -158,8 +159,8 @@ def _run_pipeline(
 
 def _scorecard(mode: str, as_of: str, out_csv: str) -> int:
     """Score every raw ticker with include_rejects=True (mirrors run_scanner's loading)."""
-    from finance_vibe import coiled_cobra as cc
     from finance_vibe import config
+    from finance_vibe.scanners import coiled_cobra as cc
 
     cc.apply_timeframe(mode)  # calibration constants and RAW_DATA_DIR
     weekly = mode == "weekly"
@@ -341,9 +342,7 @@ def main(argv: list[str] | None = None) -> int:
     c.add_argument(
         "--keep", action="store_true", help="Keep current outputs in <golden-dir>/last_compare"
     )
-    c.add_argument(
-        "--in-process", action="store_true", help="Run the pipeline with run_vibe --in-process"
-    )
+    c.add_argument("--in-process", action="store_true", help="Run the pipeline with --in-process")
     c.set_defaults(func=cmd_compare)
 
     args = p.parse_args(argv)
