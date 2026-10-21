@@ -96,11 +96,6 @@ def get_raw_path(ticker: str, cfg: dict[str, Any]) -> str:
 # Coiled Cobra backtest defaults (offline validation; not part of run_vibe.py)
 BACKTEST_ENTRY_VALID_BARS = 4
 BACKTEST_MAX_HOLD_BARS = 12
-# Realistic execution assumptions for the scaled-out swing simulator.
-# Adverse per-fill slippage applied to entries and market (stop) exits.
-BACKTEST_SLIPPAGE_PCT = 0.0005
-# Fraction of the position taken off at the first (1R) target.
-BACKTEST_PARTIAL_FRACTION = 0.5
 
 # Swing geometry profiles (fallback levels when a setup has no usable Fib 78.6%;
 # weekly = swing leg, daily = tighter targets)

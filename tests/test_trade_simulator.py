@@ -1,11 +1,8 @@
 """Tests for trade_simulator's generic OHLC-bar trade simulation helpers."""
 
 import pandas as pd
-import pytest
 
 from finance_vibe.trade_simulator import (
-    passes_macro_gate,
-    simulate_scaled_trade,
     simulate_trade,
 )
 
@@ -22,16 +19,6 @@ def _bars(rows):
             "Close": [r[3] for r in rows],
         }
     )
-
-
-def test_passes_macro_gate_long():
-    assert passes_macro_gate("SETUP_LONG", 7, 7, -2) is True
-    assert passes_macro_gate("SETUP_LONG", 5, 7, -2) is False
-
-
-def test_passes_macro_gate_short():
-    assert passes_macro_gate("SETUP_SHORT", -2, 7, -2) is True
-    assert passes_macro_gate("SETUP_SHORT", 0, 7, -2) is False
 
 
 def test_simulate_trade_long_stopped():
@@ -108,168 +95,3 @@ def test_simulate_trade_short_r_multiple():
     assert outcome == "target1"
     assert exit_price == 96.0
     assert r_mult == 1.0
-
-
-# ---------------------------------------------------------------------------
-# simulate_scaled_trade: 50% at 1R, breakeven runner to 2R
-# ---------------------------------------------------------------------------
-
-
-def _run_scaled(rows, is_long, **kw):
-    df = _bars(rows)
-    return simulate_scaled_trade(
-        df,
-        start_idx=1,
-        is_long=is_long,
-        entry=kw.get("entry", 100.0),
-        stop=kw.get("stop", 96.0),
-        target1=kw.get("target1", 104.0),
-        target2=kw.get("target2", 108.0),
-        entry_valid_bars=kw.get("entry_valid_bars", 4),
-        max_hold_bars=kw.get("max_hold_bars", 10),
-        slippage_pct=kw.get("slippage_pct", 0.0),
-        partial_fraction=kw.get("partial_fraction", 0.5),
-    )
-
-
-def test_scaled_partial_then_2r_runner():
-    # fill bar, then 1R bar (partial), then 2R bar (runner) — blended +1.5R.
-    res = _run_scaled(
-        [
-            (101, 102, 100, 101),  # fill at 100
-            (102, 105, 101, 104),  # hits 1R (104); BE at 100 not touched
-            (106, 109, 105, 108),
-        ],  # runner hits 2R (108)
-        is_long=True,
-    )
-    assert res["outcome"] == "partial_t2"
-    assert res["partial_r"] == pytest.approx(1.0)
-    assert res["runner_r"] == pytest.approx(2.0)
-    assert res["blended_r"] == pytest.approx(1.5)
-    assert res["stop_moved_be"] is True
-
-
-def test_scaled_partial_then_breakeven_runner():
-    # partial at 1R, runner falls back to breakeven — blended +0.5R.
-    res = _run_scaled(
-        [
-            (101, 102, 100, 101),  # fill at 100
-            (102, 105, 101, 104),  # hits 1R -> partial, BE=100
-            (101, 103, 99, 100),
-        ],  # runner taps BE (100)
-        is_long=True,
-    )
-    assert res["outcome"] == "partial_be"
-    assert res["partial_r"] == pytest.approx(1.0)
-    assert res["runner_r"] == pytest.approx(0.0)
-    assert res["blended_r"] == pytest.approx(0.5)
-
-
-def test_scaled_full_stop_before_partial():
-    res = _run_scaled(
-        [
-            (101, 102, 100, 101),  # fill at 100
-            (99, 101, 95, 96),
-        ],  # stop 96 hit before any target
-        is_long=True,
-    )
-    assert res["outcome"] == "stopped_full"
-    assert res["blended_r"] == pytest.approx(-1.0)
-
-
-def test_scaled_gap_through_stop_is_worse_than_1r():
-    # Bar opens below the stop -> filled at the (worse) open, loss > 1R.
-    res = _run_scaled(
-        [
-            (101, 102, 100, 101),  # fill at 100
-            (94, 95, 93, 94),
-        ],  # gap down through 96 stop; open 94
-        is_long=True,
-    )
-    assert res["outcome"] == "stopped_full"
-    assert res["blended_r"] == pytest.approx((94 - 100) / 4)  # -1.5R
-    assert res["blended_r"] < -1.0
-
-
-def test_scaled_slippage_worsens_stop_loss():
-    res = _run_scaled(
-        [(101, 102, 100, 101), (99, 101, 95, 96)],
-        is_long=True,
-        slippage_pct=0.01,
-    )
-    # Entry filled higher and stop exit filled lower than planned -> worse than -1R.
-    assert res["blended_r"] < -1.0
-
-
-def test_scaled_same_bar_stop_and_target_is_pessimistic():
-    # One bar touches both the stop and 1R target -> assume stop first.
-    res = _run_scaled(
-        [(101, 102, 100, 101), (99, 105, 95, 100)],  # High 105 >= 104 AND Low 95 <= 96
-        is_long=True,
-    )
-    assert res["outcome"] == "stopped_full"
-    assert res["blended_r"] == pytest.approx(-1.0)
-
-
-def test_trailing_stop_ignores_same_bar_high_full_exit_mode():
-    # Default no-partials mode: a wide bar must not ratchet the trailing stop
-    # with its own high before the low is checked (intrabar lookahead).
-    res = _run_scaled(
-        [(101, 102, 100, 101), (99, 105, 95, 100)],
-        is_long=True,
-        partial_fraction=0.0,
-    )
-    assert res["outcome"] == "stopped_full"
-    assert res["blended_r"] == pytest.approx(-1.0)
-
-
-def test_short_trailing_stop_ignores_same_bar_low():
-    res = _run_scaled(
-        [
-            (99, 100, 98, 99),  # fill at 100
-            (101, 105, 95, 100),
-        ],  # Low 95 would pull a same-bar trail to 103
-        is_long=False,
-        entry=100.0,
-        stop=104.0,
-        target1=96.0,
-        target2=92.0,
-        partial_fraction=0.0,
-    )
-    assert res["outcome"] == "stopped_full"
-    assert res["blended_r"] == pytest.approx(-1.0)
-
-
-def test_scaled_no_fill_when_entry_not_reached():
-    res = _run_scaled(
-        [(102, 103, 101, 102), (103, 104, 102, 103)],
-        is_long=True,
-    )
-    assert res["outcome"] == "no_fill"
-    assert res["blended_r"] is None
-
-
-def test_scaled_short_partial_then_2r_runner():
-    res = _run_scaled(
-        [
-            (99, 100, 98, 99),  # fill at 100 (High >= 100)
-            (98, 99, 95, 96),  # hits 1R (96); BE 100 not touched (High 99)
-            (94, 95, 91, 92),
-        ],  # runner hits 2R (92)
-        is_long=False,
-        entry=100.0,
-        stop=104.0,
-        target1=96.0,
-        target2=92.0,
-    )
-    assert res["outcome"] == "partial_t2"
-    assert res["blended_r"] == pytest.approx(1.5)
-
-
-def test_scaled_tracks_mae_mfe():
-    res = _run_scaled(
-        [(101, 102, 100, 101), (102, 105, 101, 104), (106, 109, 105, 108)],
-        is_long=True,
-    )
-    assert res["mfe_r"] >= res["blended_r"]
-    assert res["mae_r"] <= 0.0

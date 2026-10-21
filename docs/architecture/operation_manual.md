@@ -268,11 +268,8 @@ python src/finance_vibe/trade_plan_helper.py weekly
 
 ### `src/finance_vibe/trade_simulator.py` (library, not a script)
 
-Generic OHLC-bar trade simulation primitives (`simulate_trade`,
-`simulate_scaled_trade`, `passes_macro_gate`) extracted from the former
-`pipeline_backtest.py` (swing-specific walk-forward harness, removed
-alongside `swing_scanner.py`). `coiled_cobra_backtest.py` is the only
-walk-forward backtest tool now; it imports `simulate_trade` from here.
+Generic OHLC-bar trade simulation (`simulate_trade`). `coiled_cobra_backtest.py`
+is the only walk-forward backtest tool; it imports `simulate_trade` from here.
 
 ### `src/finance_vibe/coiled_cobra_backtest.py` (Coiled Cobra historical)
 
@@ -317,8 +314,6 @@ Research harnesses (read-only, never write served artifacts):
 ```bash
 python -m finance_vibe.coiled_cobra_ml_walkforward [--csv PATH]       # ML rank vs Score, expanding folds
 python -m finance_vibe.coiled_cobra_ml_experiment --csv PATH           # pre-registered, lockbox-gated
-python -m finance_vibe.coiled_cobra_leader_experiment                  # Leader-Expansion vs Coiled Cobra
-python -m finance_vibe.breakout_experiment                             # Breakout scanner states/score vs random
 ```
 
 Full specification: **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)**; leader experiment
@@ -401,8 +396,6 @@ which setups qualify.
 | `coiled_cobra_backtest_trades_<date>.csv` | Coiled Cobra walk-forward trades (ML source) |
 | `coiled_cobra_{xgb_model.json,lgb_model.txt,ml_model_metadata.json}` | ML artifacts (manual ML run) |
 | `coiled_cobra_ml_feature_importance.png` | ML feature-importance chart (manual ML run) |
-| `leader_experiment_*` | Leader experiment bars / runs / analysis (manual run) |
-| `breakout_experiment_*` | Breakout experiment bars / analysis (manual run) |
 
 ## Notes
 

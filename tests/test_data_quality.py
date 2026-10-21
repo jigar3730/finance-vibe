@@ -363,24 +363,6 @@ def _bench_frame(closes, start="2023-01-01"):
     return df
 
 
-def test_market_regime_causal_lookup():
-    from finance_vibe.analysis_engine import market_regime_ok
-
-    # Decline then recovery. A causal (no-lookahead) lookup sees only past bars,
-    # so mid-decline is unfavorable even though the series later recovers.
-    closes = list(np.linspace(200, 120, 90)) + list(np.linspace(120, 260, 90))
-    f = _bench_frame(closes)
-    assert market_regime_ok(f, f["Date"].iloc[80]) is False
-    assert market_regime_ok(f, f["Date"].iloc[-1]) is True
-
-
-def test_market_regime_rejects_downtrend():
-    from finance_vibe.analysis_engine import market_regime_ok
-
-    down = _bench_frame(list(np.linspace(200, 100, 160)))
-    assert market_regime_ok(down, down["Date"].iloc[-1]) is False
-
-
 def test_relative_strength_positive_and_negative():
     from finance_vibe.analysis_engine import relative_strength
 

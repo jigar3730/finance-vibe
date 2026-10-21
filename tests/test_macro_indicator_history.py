@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from finance_vibe import breakout_scanner as bs
 from finance_vibe import coiled_cobra as cc
 from finance_vibe import indicators
 
@@ -67,23 +66,3 @@ def test_atr_flat_epsilon_switch():
     assert auto.equals(indicators.atr(h, lo, c, 14, flat_epsilon=True))
     off = indicators.atr(h, lo, c, 14, flat_epsilon=False)
     assert off is not None and not auto.equals(off)
-
-
-def test_display_mask_matches_row_predicate():
-    df = pd.DataFrame(
-        {
-            "Status": [
-                bs.STATUS_PRE,
-                bs.STATUS_WATCH,
-                bs.STATUS_WATCH,
-                bs.STATUS_DEV,
-                bs.STATUS_DEV,
-                "OTHER",
-                None,
-                bs.STATUS_CONFIRMED,
-            ],
-            "Breakout Readiness": [10, 55, 54.9, 50, np.nan, 99, 99, None],
-        }
-    )
-    want = [bs._is_display_candidate(r) for r in df.to_dict("records")]
-    assert bs._display_mask(df).tolist() == want

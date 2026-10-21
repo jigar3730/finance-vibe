@@ -249,7 +249,7 @@ python -m pytest tests/ -q   # full suite
 | Slippage model | Flat adverse %; not volume- or volatility-scaled |
 | Universe drift | Defaults to today’s `active_tickers.csv`, not the historical membership |
 | Survivorship | Ingested list is current; delisted names are missing |
-| Simulator | `simulate_trade` exits fully at the first stop/target with no slippage. `simulate_scaled_trade` (50% scale-out, slippage) exists in `trade_simulator.py` but no live tool uses it |
+| Simulator | `simulate_trade` exits fully at the first stop/target, with no slippage and no scale-out |
 | Adjusted prices | Raw data is split/dividend-adjusted, so historical levels are not the quotes seen at the time |
 | Lookahead | Design goal is causal windows; always verify new filters use `Date <= as_of` |
 
@@ -306,159 +306,9 @@ PY
 | `analysis_engine.py` | Vibe Score + `load_benchmark_frame` / `relative_strength` / `check_coiled_cobra_market_gate` |
 | `coiled_cobra.py` | `evaluate_coiled_cobra()` (shared by live scan, backtest, experiments) |
 | `trade_planner.py` | `calculate_stock_levels` (Cobra Fib path; legacy swing fallback) |
-| `trade_simulator.py` | `simulate_trade`, `simulate_scaled_trade`, `passes_macro_gate` |
+| `trade_simulator.py` | `simulate_trade` |
 | `coiled_cobra_backtest.py` | Cobra signal backfill + walk-forward trade simulation |
 | `coiled_cobra_ml_training.py` | XGBoost/LightGBM baseline on `Forward_Return_2w` |
 | `coiled_cobra_ml_walkforward.py` / `coiled_cobra_ml_experiment.py` | ML-vs-Score research harnesses |
-| `coiled_cobra_leader_experiment.py` | Leader-Expansion vs Coiled Cobra walk-forward |
 | `tests/test_trade_simulator.py` | Fill, gap, slippage, scale-out, macro-gate contracts |
 | `tests/test_coiled_cobra_backtest.py` | Cobra planner + backtest smoke tests |
-| `tests/test_leader_experiment.py` | Leader experiment protocol tests |
-
----
-
-## Leader-Expansion vs Coiled Cobra experiment (research only)
-
-`coiled_cobra_leader_experiment.py` is a pre-registered walk-forward comparison that never
-touches the live scanner or its thresholds. Motivation: a review of tickers with monster runs
-(PLTR, HOOD, ASTS, MU, MRVL, COIN, MSTR, STX, ...) showed the coil rubric mostly missed them --
-`vol_contraction` scored 0 through most of those runs (Gates C/D fail) and several runs began
-before the 160-bar history floor. The experiment asks whether a separate **leader** rule (Gate A
-+ Gate B + strong RS, no coil requirement) catches them without giving back edge, and whether
-simply loosening the existing gates (`R1_relaxed_gates`) does better.
-
-```bash
-docker exec -it finance_vibe bash
-cd /app && export PYTHONPATH=/app/src
-python -m finance_vibe.coiled_cobra_leader_experiment                     # whole raw dir (~20 min on 4 cores)
-python -m finance_vibe.coiled_cobra_leader_experiment --tickers MU,MSTR --out-dir /tmp/lx   # smoke test
-python -m finance_vibe.coiled_cobra_leader_experiment --from-bars <bars.csv.gz> --runs <runs.csv>   # re-analyse
-```
-
-Outputs (in `data/logs/weekly/`, or `--out-dir`): `leader_experiment_bars_<date>.csv.gz` (every
-scoreable bar with its gate profile, variant flags, forward stats and both exit outcomes),
-`leader_experiment_runs_<date>.csv` (monster runs), `leader_experiment_<date>.json` (analysis).
-Names deliberately avoid `coiled_cobra_backtest_trades_*`, which the ML training script globs.
-
-Protocol (fixed in the module docstring and constants before results were read):
-
-| Element | Definition |
-| ------- | ---------- |
-| Variants | `B0_baseline` (deployed rubric), `R1_relaxed_gates` (Gate A close>slow EMA & rising, Gate C structure-only, score >= 60), `L1`-`L4` leader rules, `C0_random` control |
-| Discovery vs holdout | The tickers the leader rules were derived from are reported but **never** used for qualification; decisions use the rest of the universe |
-| Episodes | Consecutive weekly flags per ticker collapse to one entry (first bar) |
-| Exits | `planner` = deployed Fib-78.6% entry, 2R/3R via `calculate_stock_levels` + `simulate_trade`; `trail` = next-open entry, 2.5 ATR stop, 3 ATR chandelier off the highest close, 52-bar time exit. **Primary outcome = trail R** |
-| Periods | `dev` -> `lockbox` (52 wks ending 52 wks before the last bar) -> `live` (censored, reported only) |
-| Qualification | Q0 >= 100 episodes; Q1 week-cluster bootstrap CI of mean trail-R > 0; Q2 monster capture (>= 100% still left) >= baseline + 15 pts; Q3 share with a >= 25% drawdown inside 26 wks <= baseline + 10 pts; Q4 paired mean-R difference vs `C0_random` CI > 0 |
-| Lockbox | The single best qualifier is evaluated **once**; pass = mean R > 0 and cluster t > 1.645. If nothing qualifies it stays unspent |
-
-`C0_random` is the bar to beat, not a "no edge" check: long-only entries in a rising market with
-a trailing exit earn positive R by themselves, so a variant only counts if it beats the control.
-Tests: `tests/test_leader_experiment.py`.
-
-
----
-
-## Breakout Readiness experiment (research only)
-
-`breakout_experiment.py` is a pre-registered walk-forward test of `breakout_scanner.py`. It
-never changes the live scanner. Question: do any of the scanner's states, or its 100-point
-readiness score, predict forward trade outcomes better than random entries?
-
-```bash
-docker exec -it finance_vibe bash
-cd /app && export PYTHONPATH=/app/src
-python -m finance_vibe.breakout_experiment                                  # whole weekly raw dir (~40 min on 4 cores)
-python -m finance_vibe.breakout_experiment --tickers AAPL,MU --out-dir /tmp/bx   # smoke test
-python -m finance_vibe.breakout_experiment --from-bars <bars.csv.gz>        # re-analyse
-```
-
-Outputs (in `data/logs/weekly/`, or `--out-dir`): `breakout_experiment_bars_<date>.csv.gz`
-(every scoreable bar with status, scores, variant flags, forward stats and trail outcome) and
-`breakout_experiment_<date>.json` (analysis).
-
-Protocol (fixed in the module docstring and constants before results were read). It reuses
-the leader experiment's exits, periods, deduplication and statistics:
-
-| Element | Definition |
-| ------- | ---------- |
-| Signals | Every weekly bar from the scanner's 80-bar floor onward is re-scanned with the live `FeatureEngine` + `ScoringEngine` on data cut at that bar (identical to an `--as-of` run) |
-| Variants | `BK_PRE`, `BK_CONFIRMED`, `BK_PRE_OR_CONF`, `BK_DISPLAY` (dashboard candidate rule minus FAILED), `BK_READY70` (readiness ≥ 70, any non-failed status); `BK_FAILED` is a negative check and never qualifies; `C0_random` is the control |
-| Exit | `trail` only: next-open entry, 2.5 ATR stop, 3 ATR chandelier, 52-bar time exit. There is no planner exit because breakout rows have no Fib levels |
-| Periods | `dev` → `lockbox` (52 weeks ending 52 weeks before the last bar) → `live` (censored, reported only) |
-| Qualification (dev, all tickers) | Q0 ≥ 100 episodes; Q1 cluster-bootstrap CI of mean trail-R > 0; Q2 paired mean-R difference vs `C0_random` CI > 0; Q3 share of episodes with a ≥ 25% drawdown inside 26 weeks ≤ control + 10 pts |
-| Lockbox | The best qualifier (highest Q2 lower bound) is evaluated **once**. It passes if its difference vs random is > 0 and its mean R > 0 with cluster t > 1.645. If nothing qualifies, the lockbox stays unspent |
-| Report only | Weekly cross-sectional rank IC of readiness and each pillar score vs the 13-week return; forward outcomes per status; Coiled Cobra `B0_baseline` on shared ticker-weeks, from the newest `leader_experiment_bars_*.csv.gz` |
-
-Tests: `tests/test_breakout_experiment.py` (variant boundaries, no-lookahead check, match with
-the live scanner on cut data, IC math, protocol plumbing).
-
-### Result (2026-10-01 run, last bar 2026-09-07, 259 tickers, 97,463 scoreable bars)
-
-**No variant qualified, so the lockbox stays unspent.** Every breakout variant earns positive
-trail-R, as random long entries do in this sample, but none beats `C0_random` (Q2):
-
-| Variant (dev) | Episodes | Mean trail-R [95% CI] | vs random [95% CI] |
-| ------------- | -------: | --------------------- | ------------------ |
-| `BK_PRE` | 366 | 0.29 [0.14, 0.43] | −0.11 [−0.28, 0.05] |
-| `BK_CONFIRMED` | 876 | 0.38 [0.20, 0.62] | −0.01 [−0.20, 0.22] |
-| `BK_PRE_OR_CONF` | 1,219 | 0.36 [0.22, 0.53] | −0.03 [−0.19, 0.14] |
-| `BK_DISPLAY` | 5,242 | 0.33 [0.24, 0.43] | −0.06 [−0.16, 0.03] |
-| `BK_READY70` | 2,042 | 0.27 [0.17, 0.37] | **−0.13 [−0.23, −0.02]** (worse than random) |
-| `BK_FAILED` (negative check) | 3,863 | 0.33 [0.22, 0.45] | — |
-| `C0_random` | 3,297 | 0.39 [0.31, 0.48] | — |
-
-Report-only findings:
-
-- **Readiness score has no cross-sectional signal.** Mean weekly rank IC vs the 13-week return
-  is −0.012 [−0.028, 0.002]. The Volume (−0.026), Momentum (−0.015) and Compression (−0.014)
-  pillar ICs are slightly *negative*, with CIs below 0. Trend is the only positive pillar (+0.011,
-  CI spans 0).
-- **The status ladder is not ordered.** `PRE_BREAKOUT`, the headline status, has the weakest
-  13-week mean return (+2% vs +6% for `WATCH`). `FAILED_BREAKOUT` does not underperform (this run predates the 2026-10-08
-  failed-breakout fix, under which most `FAILED_BREAKOUT` rows were breakouts still holding
-  the broken level).
-  `BREAKOUT_CONFIRMED` has the most upside (+9%, 15% doubled within 26w) but also the most
-  ≥ 25% drawdowns (35%), which matches its random-like R.
-- On shared ticker-weeks, Coiled Cobra `B0_baseline` (0.22R) is also below random (0.48R) under
-  this trail exit, which agrees with the 2026-09-19 leader experiment.
-
-Conclusion: the breakout scanner's states and score add nothing over random entries on weekly
-data. Do not use them for ranking or entries, and do not tune their weights from this data,
-since there is no signal to tune toward.
-
----
-
-## Coiled Cobra vs random entries (paired test, 2026-10-01)
-
-The leader experiment never tested the deployed rubric itself against its random control. This
-follow-up does, using the saved `leader_experiment_bars_2026-09-19.csv.gz` with no new
-backtest. The rule was set before the numbers were read: Cobra has an edge only if the paired
-(same-week) difference in mean R vs `C0_random` has a 95% week-cluster bootstrap CI above 0 on
-`dev`, **and** that is confirmed on the `lockbox` year.
-
-Method: deduplicated `B0_baseline` and `C0_random` episodes (`dedup_episodes`), filled trades
-only, compared with `paired_diff` (2,000 draws). The primary exit is Cobra's own planner
-geometry (`pl_r`: Fib 78.6% limit entry, structural stop, 2R/3R via `calculate_stock_levels` +
-`simulate_trade`). The trail exit (`tr_r`) is shown for reference. Rows are holdout tickers, and
-including the 11 discovery tickers changes nothing material.
-
-| Period | Exit | Cobra mean R [95% CI] | Random mean R | Cobra − random [95% CI] |
-| ------ | ---- | --------------------- | ------------- | ----------------------- |
-| dev | planner | +0.27 [+0.15, +0.40] (n 793) | −0.01 (n 1,987) | **+0.29 [+0.14, +0.42]** |
-| lockbox | planner | +0.03 [−0.21, +0.29] (n 179) | +0.01 (n 532) | **+0.02 [−0.22, +0.26]** |
-| dev | trail | +0.21 (n 969) | +0.48 (n 2,349) | −0.27 [−0.41, −0.12] |
-| lockbox | trail | +0.06 (n 220) | +0.44 (n 624) | −0.38 [−0.59, −0.16] |
-
-Planner-exit detail (dev): fill rate 82% vs 83%; win rate 41% vs 32%; Cobra reaches T1 26% of
-the time vs 18% for random, and stops out 46% vs 56%.
-
-**Result: no confirmed edge.** On its own exit, Cobra clearly beat random on the development
-years, mainly by hitting the first target more often rather than by skipping entries. In the
-held-out year the difference fell to about zero. Under the trail exit, Cobra trails random in
-both periods: random's trail profit is the market's uptrend, which Cobra's 3R target cap
-cuts off.
-
-**The lockbox is now spent.** The 52 weeks ending 52 weeks before 2026-09-19 have been looked
-at and are no longer a clean holdout. Any further claim of a Cobra edge must come from signals
-dated after the 2026-09 data end, judged by the same paired rule.

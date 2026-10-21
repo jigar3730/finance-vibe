@@ -170,7 +170,8 @@ def test_untriggered_catch_all_is_still_watch():
 
 
 def test_triggered_rows_always_display_and_sort_after_confirmed():
-    assert bs._is_display_candidate({"Status": bs.STATUS_TRIGGERED, "Breakout Readiness": 0})
+    trig = pd.DataFrame({"Status": [bs.STATUS_TRIGGERED], "Breakout Readiness": [0]})
+    assert bs._display_mask(trig).all()
     df = pd.DataFrame(
         {
             "Status": [bs.STATUS_WATCH, bs.STATUS_FAILED, bs.STATUS_TRIGGERED, bs.STATUS_CONFIRMED],

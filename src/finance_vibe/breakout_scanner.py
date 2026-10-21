@@ -253,12 +253,6 @@ def _safe_bool(value) -> bool | None:
     return bool(value)
 
 
-def _last(series: pd.Series | None, digits: int | None = None) -> float | None:
-    if series is None or len(series) == 0:
-        return None
-    return _safe_float(series.iloc[-1], digits)
-
-
 def _ta_col(frame: pd.DataFrame | None, *prefixes: str) -> pd.Series | None:
     """Pick the first pandas_ta column whose name starts with any prefix."""
     if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
@@ -1146,19 +1140,8 @@ def _format_table(df: pd.DataFrame) -> str:
         return df.to_string(index=False)
 
 
-def _is_display_candidate(row: dict) -> bool:
-    status = row.get("Status")
-    if status in CANDIDATE_STATUSES:
-        return True
-    floor = DISPLAY_SCORE_FLOOR.get(status) if isinstance(status, str) else None
-    if floor is None:
-        return False
-    score = row.get("Breakout Readiness")
-    return score is not None and score >= floor
-
-
 def _display_mask(df: pd.DataFrame) -> pd.Series:
-    """Vectorized ``_is_display_candidate`` over a scan frame."""
+    """Display rule: candidate statuses always, WATCH / DEVELOPING at or above their floor."""
     status = df["Status"]
     floor = status.map(DISPLAY_SCORE_FLOOR)
     score = pd.to_numeric(df["Breakout Readiness"], errors="coerce")
@@ -1186,19 +1169,6 @@ def _sort_candidates(df: pd.DataFrame) -> pd.DataFrame:
 # =========================
 # PUBLIC API
 # =========================
-
-
-def evaluate_ticker(
-    df: pd.DataFrame,
-    symbol: str,
-    scan_mode: str | None = None,
-    native_tf: str | None = None,
-) -> dict:
-    """Feature extraction then scoring for a single OHLCV frame (last bar)."""
-    scan_mode = scan_mode or mode
-    native_tf = native_tf or _native_timeframe(_data_mode)
-    features = FeatureEngine(native_tf).extract(df, symbol, scan_mode)
-    return ScoringEngine().evaluate(features)
 
 
 def _rejection_key(reason: str) -> str:

@@ -275,27 +275,6 @@ def check_coiled_cobra_market_gate(
     return True
 
 
-def market_regime_ok(benchmark_df: pd.DataFrame, as_of: AsOf | None) -> bool:
-    """True when the benchmark is in an uptrend as of *as_of* (causal lookup).
-
-    Requires close above EMA50 and EMA100 with a rising EMA50.
-    """
-    if benchmark_df is None or benchmark_df.empty:
-        return False
-    as_of_ts = pd.to_datetime(as_of) if as_of is not None else None
-    sub = benchmark_df if as_of_ts is None else benchmark_df[benchmark_df["Date"] <= as_of_ts]
-    if sub.empty:
-        return False
-    last = sub.iloc[-1]
-    if pd.isna(last["EMA50"]) or pd.isna(last["EMA100"]):
-        return False
-    return bool(
-        last["Close"] > last["EMA50"]
-        and last["Close"] > last["EMA100"]
-        and bool(last["EMA50_rising"])
-    )
-
-
 def relative_strength(
     stock_df: pd.DataFrame,
     benchmark_df: pd.DataFrame,
