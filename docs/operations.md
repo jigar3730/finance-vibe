@@ -149,13 +149,39 @@ dashboard and the next scheduled run pick it up.
 
 | Route | Contents |
 | ----- | -------- |
-| `/` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
+| `/` | Top setups: the best 3 of both scanners per mode, with key levels and an action plan |
+| `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
 | `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, live price vs Close |
 | `/breakout/<mode>/<date>` | Breakout scan: KPIs, status chips, highlights (or `?show=all` / `?status=`), failed breakouts collapsed |
 
 Live prices come from `yfinance` `fast_info`, fetched 16 at a time and cached for 60
 seconds. A Coiled Cobra row whose live price is more than 5% above its close is
 highlighted.
+
+### Top setups (`/`, `web/playbook.py`)
+
+For each mode it reads the newest run and ranks both scanners together:
+
+- **Pool:** every Coiled Cobra setup, plus breakout rows that are `PRE_BREAKOUT`,
+  `BREAKOUT_CONFIRMED` or `BREAKOUT_TRIGGERED`. Tickers whose breakout status is
+  `FAILED_BREAKOUT` are excluded.
+- **Rank score:** the Cobra Score; or, for breakout-only rows, the Breakout Readiness
+  plus a status bonus (confirmed +20, pre-breakout +15, triggered +10). A Cobra setup
+  that is also a breakout event gets the higher of the two, +10.
+- **Levels** come from the ticker's breakout row (every scanned ticker has one):
+  - **Trigger:** `Resistance`. A close above it with RVOL20 ≥ 1.5 and above SMA20
+    confirms, which is the scanner's own rule.
+  - **Stop:** the higher of `Support` and the Cobra swing low (if below the trigger),
+    minus 0.25 × ATR.
+  - **Targets:** 2R and 3R above the trigger.
+  - **Wide stop:** flagged when the risk is above 8% of the trigger.
+- **Status**, from the live price (else the close):
+  - `WAITING`: below the trigger.
+  - `TRIGGERED`: within 1 ATR above it.
+  - `EXTENDED`: more than 1 ATR above it; don't chase.
+  - `INVALIDATED`: below the stop.
+
+The rules are mechanical and unvalidated: a plan to review, not advice.
 
 ## Maintenance
 

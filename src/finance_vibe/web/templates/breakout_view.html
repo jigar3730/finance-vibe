@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Breakout Scan - {{ date }} ({{ mode }}){% endblock %}
 {% block content %}
-    <a class="back" href="{{ url_for('index') }}">← Back to runs</a>
+    <a class="back" href="{{ url_for('runs') }}">← Back to runs</a>
     <h1>🎯 Breakout Scan</h1>
     <div class="meta">Mode: <strong>{{ mode|upper }}</strong> | Run Date: <strong>{{ date }}</strong> | Source File: <code>{{ file_name }}</code></div>
 

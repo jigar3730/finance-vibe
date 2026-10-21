@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import os
-import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -14,6 +13,13 @@ from flask import Flask, abort, render_template, request
 
 from finance_vibe import config
 from finance_vibe.log import setup_logging
+from finance_vibe.web import playbook
+from finance_vibe.web.playbook import (
+    BREAKOUT_PREFIX,
+    COBRA_PREFIX,
+    read_scan,
+    relabel_triggered_watch,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,9 +27,6 @@ WEB_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # One log silo per mode; both scanners write dated CSVs into it.
 LOG_DIRS = {mode: profile["logs_dir"] for mode, profile in config.TIMEFRAME_PROFILES.items()}
-COBRA_PREFIX = "coiled_cobra_setups_"
-BREAKOUT_PREFIX = "breakout_setups_"
-_DATED_CSV = re.compile(r"^(?P<prefix>.+_)(?P<date>\d{4}-\d{2}-\d{2})\.csv$")
 
 COBRA_DISPLAY_COLUMNS = [
     "Symbol",
@@ -93,6 +96,13 @@ app = Flask(
 )
 
 
+@app.template_filter("num")
+def _num_filter(value: object, digits: int = 2) -> str:
+    """Format a number for display; blanks and NaN become an em dash."""
+    v = pd.to_numeric(value, errors="coerce")  # type: ignore[call-overload]
+    return "—" if pd.isna(v) else f"{float(v):,.{digits}f}"
+
+
 # ---------------------------------------------------------------------------
 # Run discovery and file resolution
 # ---------------------------------------------------------------------------
@@ -102,12 +112,7 @@ def _list_runs() -> dict[str, list[dict[str, object]]]:
     """Run dates per mode, newest first, flagging which scanners wrote a CSV that day."""
     runs: dict[str, list[dict[str, object]]] = {}
     for mode, folder in LOG_DIRS.items():
-        dates: dict[str, set[str]] = {}
-        if os.path.isdir(folder):
-            for name in os.listdir(folder):
-                m = _DATED_CSV.match(name)
-                if m and m["prefix"] in (COBRA_PREFIX, BREAKOUT_PREFIX):
-                    dates.setdefault(m["date"], set()).add(m["prefix"])
+        dates = playbook.run_dates(folder)
         runs[mode] = [
             {"date": d, "cobra": COBRA_PREFIX in p, "breakout": BREAKOUT_PREFIX in p}
             for d, p in sorted(dates.items(), reverse=True)
@@ -126,12 +131,6 @@ def _resolve_csv(mode: str, prefix: str, date: str) -> str:
     if not os.path.exists(path):
         abort(404, f"No scan found for {mode} on {date}.")
     return path
-
-
-def _read_scan(path: str) -> pd.DataFrame:
-    df = pd.read_csv(path)
-    df.columns = df.columns.str.strip()
-    return df
 
 
 # ---------------------------------------------------------------------------
@@ -269,19 +268,6 @@ def _breakout_status_mix(df: pd.DataFrame) -> list[dict]:
     return [{"status": s, "count": int(counts[s])} for s in ordered]
 
 
-def _relabel_triggered_watch(df: pd.DataFrame) -> pd.DataFrame:
-    """Scans before 2026-10-20 filed triggered-but-unconfirmed rows under WATCH.
-
-    The scanner's ``Breakout Triggered`` flag identifies them (a triggered row only
-    reaches WATCH via that rule), so older CSVs get the same BREAKOUT_TRIGGERED status.
-    """
-    if "Status" not in df.columns or "Breakout Triggered" not in df.columns:
-        return df
-    triggered = df["Breakout Triggered"].astype(str).str.strip().str.lower() == "true"
-    df.loc[(df["Status"] == "WATCH") & triggered, "Status"] = BREAKOUT_TRIGGERED
-    return df
-
-
 def _breakout_display_mask(df: pd.DataFrame) -> pd.Series:
     """Scanner display rule: event statuses always, DEVELOPING above a floor, never WATCH."""
     if "Status" not in df.columns:
@@ -317,10 +303,34 @@ def _sort_breakout_rows(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
+TOP_N = 3
+
+
 @app.route("/")
 def index() -> str:
+    """Top setups: the best 3 of both scanners per mode, with key levels and a plan."""
+    latest = {}
+    for mode, folder in LOG_DIRS.items():
+        date, cobra, breakout = playbook.load_latest(folder)
+        latest[mode] = (date, playbook.top_setups(cobra, breakout, TOP_N))
+    symbols = [s for _, top in latest.values() if not top.empty for s in top["Symbol"]]
+    live = _fetch_live_prices(list(dict.fromkeys(symbols)))
+
+    sections = []
+    for mode, (date, top) in latest.items():
+        cards = []
+        for _, row in top.iterrows():
+            price = live.get(row["Symbol"])
+            plan = playbook.action_plan(row, price if isinstance(price, float) else None)
+            cards.append({"symbol": row["Symbol"], "row": row.to_dict(), "plan": plan})
+        sections.append({"mode": mode, "date": date, "cards": cards})
+    return render_template("top.html", sections=sections, top_n=TOP_N)
+
+
+@app.route("/runs")
+def runs() -> str:
     """List run dates per mode with links to each scanner's page."""
-    return render_template("index.html", runs=_list_runs())
+    return render_template("runs.html", runs=_list_runs())
 
 
 @app.route("/cobra/<mode>/<date>")
@@ -328,7 +338,7 @@ def cobra_view(mode: str, date: str) -> str | tuple[str, int]:
     """Render one Coiled Cobra setups CSV, Score-ordered, with live quotes."""
     path = _resolve_csv(mode, COBRA_PREFIX, date)
     try:
-        df = _read_scan(path)
+        df = read_scan(path)
         cols = [c for c in COBRA_DISPLAY_COLUMNS if c in df.columns] or list(df.columns)
         table_df = df[cols]
         if "Score" in table_df.columns:
@@ -358,7 +368,7 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
     """
     path = _resolve_csv(mode, BREAKOUT_PREFIX, date)
     try:
-        df = _relabel_triggered_watch(_read_scan(path))
+        df = relabel_triggered_watch(read_scan(path))
         kpis = _breakout_kpis(df)
         status_mix = _breakout_status_mix(df)
 

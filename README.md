@@ -18,7 +18,7 @@ uv run python -m finance_vibe.pipeline          # weekly: refresh tickers + data
 uv run python -m finance_vibe.pipeline --mode daily
 uv run python -m finance_vibe.pipeline --reuse-raw          # keep raw data; scanners only
 uv run python -m finance_vibe.pipeline --as-of 2025-11-07   # replay a past date
-uv run python -m finance_vibe.web.app           # dashboard at http://127.0.0.1:5000
+uv run python -m finance_vibe.web.app           # dashboard: top setups + run pages at http://127.0.0.1:5000
 uv run pytest -q
 ```
 
@@ -54,7 +54,7 @@ src/finance_vibe/
   pipeline.py         orchestrator (python -m finance_vibe.pipeline)
   data/               tickers.py, ingest.py, daily_ingest.py, raw.py, ticker_manifest.csv
   scanners/           coiled_cobra.py, breakout.py
-  web/                app.py, templates/, static/
+  web/                app.py, playbook.py (top setups + levels), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers
 tests/                pytest suite
 docs/                 scanner specs and operations

@@ -17,7 +17,7 @@ dashboard. It produces *signals* for review, not trades.
 - `src/finance_vibe/data/` — `tickers`, `ingest` (Yahoo download, both modes),
   `daily_ingest`, `raw` (the raw CSV loader)
 - `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout`
-- `src/finance_vibe/web/` — Flask app, `templates/`, `static/`
+- `src/finance_vibe/web/` — Flask app, `playbook.py` (Top Setups ranking and levels), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
 - `data/` — gitignored. `data/raw/{weekly|daily}/`, `data/logs/{weekly|daily}/`, `data/active_tickers.csv`
@@ -77,8 +77,9 @@ If a doc disagrees with `pipeline.py` or `config.py`, the code wins.
   `SETUP_ROW_COLUMNS`. Reject malformed input loudly rather than mis-scoring.
   Read raw files only through `data.raw.load_raw` (contract, date cleanup,
   float64 prices and the as-of cut in one place), never a bare `read_csv`.
-- **Signals, not advice.** Keep scanner output informational; don't add trade
-  levels, options metadata or position sizing without being asked.
+- **Signals, not advice.** Keep scanner output informational. The dashboard's
+  Top Setups page (`web/playbook.py`) shows rule-based trigger / stop / 2R-3R
+  levels; don't add options metadata or position sizing without being asked.
 
 ## Coding standards
 

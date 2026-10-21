@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Coiled Cobra - {{ date }} ({{ mode }}){% endblock %}
 {% block content %}
-    <a class="back" href="{{ url_for('index') }}">← Back to runs</a>
+    <a class="back" href="{{ url_for('runs') }}">← Back to runs</a>
     <h1>🐍 Coiled Cobra Setups</h1>
     <div class="meta">Mode: <strong>{{ mode|upper }}</strong> | Run Date: <strong>{{ date }}</strong> | Source File: <code>{{ file_name }}</code></div>
     <div class="meta" style="margin-top: 4px;">Showing <strong>{{ row_count }}</strong> setup(s), highest Score first.</div>

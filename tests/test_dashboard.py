@@ -54,6 +54,7 @@ def breakout_logs(tmp_path, monkeypatch):
 def test_routes_registered():
     rules = {rule.rule: rule.endpoint for rule in app.url_map.iter_rules()}
     assert rules.get("/") == "index"
+    assert rules.get("/runs") == "runs"
     assert rules.get("/cobra/<mode>/<date>") == "cobra_view"
     assert rules.get("/breakout/<mode>/<date>") == "breakout_view"
 
@@ -62,7 +63,7 @@ def test_index_links_each_scanner_that_ran(client, breakout_logs, tmp_path):
     pd.DataFrame([{"Symbol": "AAA", "Score": 90, "Close": 1.0}]).to_csv(
         tmp_path / "daily" / "coiled_cobra_setups_2026-09-05.csv", index=False
     )
-    body = client.get("/").get_data(as_text=True)
+    body = client.get("/runs").get_data(as_text=True)
     assert "/breakout/daily/2026-09-04" in body and "/cobra/daily/2026-09-04" not in body
     assert "/cobra/daily/2026-09-05" in body and "/breakout/daily/2026-09-05" not in body
     assert body.index("2026-09-05") < body.index("2026-09-04")  # newest first
@@ -231,6 +232,7 @@ def test_dashboard_display_rule_mirrors_scanner():
 
     assert bs.CANDIDATE_STATUSES == app_module.BREAKOUT_ALWAYS_SHOWN
     assert bs.DISPLAY_SCORE_FLOOR == app_module.BREAKOUT_SCORE_FLOOR
+    assert bs.RVOL_CONFIRM == app_module.playbook.RVOL_CONFIRM
     rank = bs._sort_candidates(
         pd.DataFrame(
             {
@@ -241,3 +243,30 @@ def test_dashboard_display_rule_mirrors_scanner():
         )
     )
     assert list(rank["Status"]) == app_module.BREAKOUT_STATUS_ORDER
+
+
+def test_top_setups_page_shows_cards_per_mode(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        app_module, "LOG_DIRS", {"weekly": str(tmp_path / "w"), "daily": str(tmp_path / "d")}
+    )
+    monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {s: "N/A" for s in syms})
+    (tmp_path / "d").mkdir()
+    levels = {"Close": 48.68, "Resistance": 50.31, "Support": 44.62, "ATR": 1.7, "MTF": "ALIGNED"}
+    pd.DataFrame(
+        [
+            {"Symbol": "VRNS", "Status": "WATCH", "Breakout Readiness": 72, **levels},
+            {"Symbol": "MMM", "Status": "BREAKOUT_CONFIRMED", "Breakout Readiness": 62, **levels},
+            {"Symbol": "DHR", "Status": "FAILED_BREAKOUT", "Breakout Readiness": 28, **levels},
+        ]
+    ).to_csv(tmp_path / "d" / "breakout_setups_2026-10-20.csv", index=False)
+    pd.DataFrame(
+        [{"Symbol": "VRNS", "Score": 85, "Grade": "A - Watch", "Swing Low": 45.65}]
+    ).to_csv(tmp_path / "d" / "coiled_cobra_setups_2026-10-20.csv", index=False)
+
+    body = client.get("/").get_data(as_text=True)
+    assert "run 2026-10-20" in body
+    assert body.index("VRNS") < body.index("MMM")  # Cobra 85 ranks above 62 + 20
+    assert "DHR" not in body  # failed breakouts are excluded
+    assert "50.31" in body and "45.23" in body  # trigger and stop
+    assert "status-waiting" in body and "wide stop" in body
+    assert "No weekly setups" in body
