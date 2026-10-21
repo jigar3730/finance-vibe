@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # Run the weekly Finance Vibe pipeline inside the finance_vibe container.
 #
-# Scheduled from the host crontab for Fridays 18:00 America/New_York. The host
-# clock is UTC, so cron fires at both 22:00 and 23:00 UTC on Fridays and this
-# script exits unless it is the 18:00 hour in New York (EDT vs EST):
+# Scheduled from the host crontab for Fridays 18:00 America/New_York. This
+# script exits unless it is the 18:00 hour in New York, so the cron line only
+# has to cover that hour in the host's clock:
 #
-#   0 22,23 * * 5 /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
+#   0 18 * * 5 .../run_weekly_pipeline.sh           # host clock America/New_York
+#   0 22,23 * * 5 .../run_weekly_pipeline.sh        # host clock UTC (EDT and EST)
 #
 # Usage:
 #   scripts/run_weekly_pipeline.sh            # scheduled run (checks the ET hour)

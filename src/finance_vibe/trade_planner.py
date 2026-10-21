@@ -74,8 +74,6 @@ _PLAN_EXPORT_COLUMNS = [
     "Checks Met",
     "RVOL",
     "Market Gate",
-    "ML_Pred_Return",
-    "ML_Rank",
     "Notes",
 ]
 
@@ -298,8 +296,6 @@ def generate_trade_plan(
                 "RVOL": row.get("RVOL", None),
                 "Market Gate": row.get("Market Gate", None),
                 # Offline-model ranking signal (soft; null when no model ran)
-                "ML_Pred_Return": row.get("ML_Pred_Return", None),
-                "ML_Rank": row.get("ML_Rank", None),
                 "Notes": row.get("Notes", None),
             }
         )

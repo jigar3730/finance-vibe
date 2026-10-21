@@ -16,7 +16,6 @@ DOCS_ROOT = os.path.abspath(os.path.join(BASE_DIR, "docs"))
 DOC_SECTIONS = (
     ("Handbook", "handbook"),
     ("Architecture", "architecture"),
-    ("Labs", "labs"),
 )
 
 MD_EXTENSIONS = ("fenced_code", "codehilite", "tables", "toc", "attr_list")
@@ -54,7 +53,7 @@ def _is_under_docs(path: str) -> bool:
 def resolve_doc_file(doc_path: str | None) -> str:
     """Map a URL path to a markdown file under docs/, or abort 403/404.
 
-    Accepts ``README.md``, a section folder (``labs`` → ``labs/README.md``),
+    Accepts ``README.md``, a folder (``handbook`` → ``handbook/README.md``),
     or a path without the ``.md`` suffix.
     """
     if not doc_path or doc_path in (".", "/"):
@@ -103,7 +102,7 @@ def _first_heading(path: str, fallback: str) -> str:
 
 
 def build_sidebar_nav(active_rel: str) -> list[dict[str, Any]]:
-    """Build Handbook / Architecture / Labs sidebar links from the filesystem."""
+    """Build Handbook / Architecture sidebar links from the filesystem."""
     sections: list[dict[str, Any]] = [
         {
             "title": "Catalog",

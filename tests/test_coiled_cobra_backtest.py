@@ -66,11 +66,6 @@ def test_coiled_cobra_backtest_ticker_records_trade(tmp_path, monkeypatch):
                 "Grade": "A - Coil Ready",
                 "Checks Met": "5/6",
                 "Source": "coiled_cobra",
-                "Pct_From_EMA20": 0.02,
-                "Pct_From_EMA50": 0.05,
-                "Pct_From_Fib618": 0.01,
-                "Pct_From_Fib786": 0.04,
-                "ATR_Pct": 0.04,
             }
         return None
 
@@ -128,11 +123,6 @@ def _bench_backtest(tmp_path, monkeypatch, bench_close):
             "Tier": "Watchlist",
             "Checks Met": "5/6",
             "Source": "coiled_cobra",
-            "Pct_From_EMA20": 0.01,
-            "Pct_From_EMA50": 0.04,
-            "Pct_From_Fib618": 0.02,
-            "Pct_From_Fib786": 0.03,
-            "ATR_Pct": 0.02,
             "RS 63d": 0.11,
             "BBWidth Pctile": 12.5,
             "Part_vol_contraction": 25,

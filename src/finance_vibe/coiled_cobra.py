@@ -86,7 +86,7 @@ class Timeframe:
 # Mode-derived module constants, (re)set by apply_timeframe(). Trend-template
 # EMAs are prefixed TT_ to keep them distinct from the bar-count
 # EMA10/20/50/100 columns, which stay native-bar-length (used for
-# Pct_From_EMA20/50 ML features, output columns, etc.) and are NOT week-scaled.
+# output columns) and are NOT week-scaled.
 TIMEFRAME: Timeframe
 mode: str  # scanner/planner Mode column = signal profile
 _data_mode: str
@@ -193,7 +193,7 @@ def add_macro_indicators(df: pd.DataFrame, lookback: int | None = None) -> pd.Da
 
     # Rubric v4.0 trend-template EMAs (Gate A + Structure pillar) -- distinct
     # from the bar-count EMA10/20/50/100 above, which stay untouched since
-    # they drive Pct_From_EMA20/50 ML features and other output columns.
+    # they drive output columns.
     out["TT_EMA_S1"] = indicators.ema(out["Close"], length=TT_EMA_S1)
     out["TT_EMA_S2"] = indicators.ema(out["Close"], length=TT_EMA_S2)
     out["TT_EMA_FAST"] = indicators.ema(out["Close"], length=TT_EMA_FAST)
@@ -752,8 +752,7 @@ def run_scanner(as_of: str | None = None) -> None:
     """Scan the active universe; ``as_of`` (YYYY-MM-DD) replays a past date.
 
     With ``as_of`` every bar not complete on that date is dropped (ticker and
-    benchmark frames alike), the archive is stamped with ``as_of``, and ML
-    ranking is skipped (a model trained later would leak the future).
+    benchmark frames alike) and the archive is stamped with ``as_of``.
     """
     logger.info(f"--- STEP 5: Scanning Coil Setups [{mode.upper()} MODE] ---")
     os.makedirs(LOG_DIR, exist_ok=True)
@@ -873,16 +872,6 @@ def run_scanner(as_of: str | None = None) -> None:
                     "MACD": round(float(latest["MACD"]), 2),
                     "MACD Signal": round(float(latest["MACD_Signal"]), 2),
                     "RS 63d": setup.get("RS 63d"),
-                    # Pre-signal ML features (parity with backtest / training).
-                    "Pct_From_EMA20": round((close_v - ema20_v) / ema20_v, 4) if ema20_v else None,
-                    "Pct_From_EMA50": round((close_v - ema50_v) / ema50_v, 4) if ema50_v else None,
-                    "Pct_From_Fib618": round((close_v - fib618_v) / fib618_v, 4)
-                    if fib618_v
-                    else None,
-                    "Pct_From_Fib786": round((close_v - fib786_v) / fib786_v, 4)
-                    if fib786_v
-                    else None,
-                    "ATR_Pct": round(atr_v / close_v, 4) if close_v else None,
                     "RVOL": setup.get("RVOL"),
                     "Market Gate": setup.get("Market Gate"),
                     "Regime OK": setup.get("Market Gate"),
@@ -898,27 +887,8 @@ def run_scanner(as_of: str | None = None) -> None:
     out_path = os.path.join(LOG_DIR, f"coiled_cobra_setups_{today}.csv")
     df_out = pd.DataFrame(results).reindex(columns=config.SETUP_ROW_COLUMNS)
 
-    if results and as_of:
-        logger.info("ML ranking skipped for an as-of replay; ranking by Score.")
+    if results:
         df_out = df_out.sort_values(by="Score", ascending=False)
-        print("\n" + df_out.to_markdown(index=False) + "\n")
-    elif results:
-        # Attach offline-model ranks (soft signal). Falls back to Score sort
-        # when no model artifact is available or features are unusable.
-        try:
-            from finance_vibe.ml_ranker import ML_PRED_COL, attach_ml_ranks
-
-            df_out = attach_ml_ranks(df_out, mode)
-            if df_out[ML_PRED_COL].notna().any():
-                logger.info("ML ranks attached to scan results.")
-            else:
-                logger.info("ML ranking inactive (disabled or no valid model); ranking by Score.")
-                df_out = df_out.sort_values(by="Score", ascending=False)
-        except Exception as e:  # optional ranker; any model/artifact failure falls back to Score
-            logger.warning(f"ML ranking skipped ({e}); ranking by Score.", exc_info=True)
-            df_out = df_out.sort_values(by="Score", ascending=False)
-
-        df_out = df_out.reindex(columns=config.SETUP_ROW_COLUMNS)
         print("\n" + df_out.to_markdown(index=False) + "\n")
     else:
         logger.warning("No high-confluence Coiled Cobra coil setups detected across watchlists.")

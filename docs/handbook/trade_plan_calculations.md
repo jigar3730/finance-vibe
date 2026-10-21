@@ -3,9 +3,9 @@
 **Code of record:** `config.get_swing_params` / `config.compute_swing_levels` /
 `trade_planner.calculate_stock_levels` / `trade_plan_helper.py`.
 
-The planner merges **today's** `swing_setups_<date>.csv` and
-`coiled_cobra_setups_<date>.csv` from `config.get_log_dir(mode)` and writes
-`trade_plan_<date>.csv`. Row `Mode` is authoritative for swing geometry.
+The planner reads **today's** `coiled_cobra_setups_<date>.csv` from
+`config.get_log_dir(mode)` and writes `trade_plan_<date>.csv`. Row `Mode` is
+authoritative for the swing-geometry fallback.
 
 ```bash
 python src/finance_vibe/trade_planner.py weekly
@@ -20,10 +20,8 @@ python src/finance_vibe/trade_plan_helper.py weekly
 ```mermaid
 graph TD
     A([Raw OHLCV])
-    A -->|swing_scanner.py| B[Quality swing rows]
     A -->|coiled_cobra.py| C[Coil rows]
-    B --> D[trade_planner.py]
-    C --> D
+    C --> D[trade_planner.py]
     D -->|trade_plan_helper.py| E[Guardrails + EV rank]
 ```
 
@@ -44,7 +42,9 @@ graph TD
 
 ---
 
-## 1. Quality-swing path (`compute_swing_levels`)
+## 1. Swing-geometry fallback (`compute_swing_levels`)
+
+Used when a Coiled Cobra row has no usable `Fib 78.6%` (and for any non-Cobra row).
 
 ### Entry
 
@@ -69,8 +69,7 @@ risk / ATR is outside that band. No shipped profile sets them.
 | `daily` | Entry ± **0.85×ATR** | Entry ± **1.6×ATR** |
 
 `use_r_targets` (targets at `t1_r` / `t2_r` × risk) is an opt-in option that no
-shipped profile enables; it was used only by the `high_beta` profile, removed
-on 2026-10-08.
+shipped profile enables.
 
 ---
 
@@ -111,7 +110,7 @@ After direction-aware R:R:
 | Gate | Rule |
 | ---- | ---- |
 | Risk | drop if `Risk Per Share / Close > 0.05` |
-| Checklist | drop Coiled Cobra rows with `Checks Met` ratio below `MIN_CHECKS_MET/N_SCORED_PILLARS` (mirrors coiled_cobra's own Gate D breadth threshold, currently `4/6`; swing rows with a blank check pass) |
+| Checklist | drop Coiled Cobra rows with `Checks Met` ratio below `MIN_CHECKS_MET/N_SCORED_PILLARS` (mirrors coiled_cobra's own Gate D breadth threshold, currently `4/6`; rows with a blank check pass) |
 | T1 R:R | drop if `R:R T1 < 2.0` |
 
 Survivors are ranked:
@@ -119,7 +118,6 @@ Survivors are ranked:
 - `Expected Value = R:R T2 × Score`
 - `Priority` = that EV × **1.25** propensity when `Source` is cobra **or** risk ≤ 3% of Close
 - Every Coiled Cobra plan has `R:R T1 = 2.0` and `R:R T2 = 3.0` by construction, so `Priority` orders rows exactly by `Score`; the 1.25 propensity is the same for every cobra row and does not affect order. Ties break on Expected Value.
-- **ML override (off by default):** only if `config.ML_RANKING_ENABLED` is `True` **and every surviving row has** an `ML_Pred_Return`: `Priority = R:R T2 × max(ML_Pred_Return, 0) × propensity` (ties → Score). Otherwise — flag off, column empty, or incomplete coverage — ranking is by Score, and the helper prints why if predictions were ignored. The flag is off because the v4.0 walk-forward found no out-of-sample edge for ML over Score.
 
 The helper prefers `trade_plan_{today}.csv`, then falls back to the newest
 dated `trade_plan_*.csv` in the mode log dir.

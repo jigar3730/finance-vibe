@@ -2,7 +2,7 @@
 
 This document describes the **implemented** scoring rules in [`analysis_engine.py`](../../src/finance_vibe/analysis_engine.py). The score ranks macro tradability on a **−10 to +10** integer scale. It favors trend structure and pullback timing over raw momentum.
 
-For tactical entry rules (EMA pullbacks), see [`swing_scanner.py`](../../src/finance_vibe/swing_scanner.py) and [`swing_setup.md`](swing_setup.md).
+For the tactical coil scorecard, see [`coiled_cobra_rubric.md`](coiled_cobra_rubric.md).
 
 ---
 
@@ -11,9 +11,8 @@ For tactical entry rules (EMA pullbacks), see [`swing_scanner.py`](../../src/fin
 | | |
 | --- | --- |
 | Module | `src/finance_vibe/analysis_engine.py` |
-| Live pipeline | **Not** in `run_vibe.py` (step is commented out) |
-| Used by | `swing_scanner._soft_vibe_gate` (daily) and `pipeline_backtest.py` |
-| Manual run | Writes `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv` |
+| Live pipeline | Step 4 of `run_vibe.py`; informational (no stage filters on the Vibe Score) |
+| Output | `data/logs/{mode}/vibe_report_<YYYY-MM-DD>.csv` |
 | Input | All CSV files in `data/raw/{weekly\|daily}/` |
 
 ```bash
@@ -172,8 +171,6 @@ feat = build_features(df)
 score = score_last_row(feat.iloc[-1])
 ```
 
-Used by `pipeline_backtest.py` for walk-forward macro gating.
-
 ---
 
 ## Design intent
@@ -181,22 +178,4 @@ Used by `pipeline_backtest.py` for walk-forward macro gating.
 - Penalize **overextension** (RSI cap, distance from SMA20, CCI > 200).
 - Reward **pullbacks into trend** (timing band near SMA20).
 - Use action labels that imply **position sizing**, not binary conviction.
-- Keep macro (SMA-based) separate from tactical (EMA-based swing scanner).
-
----
-
-## Backtest macro gate (offline only)
-
-The live pipeline does **not** filter swing setups by Vibe Score. The offline backtest in `pipeline_backtest.py` adds this gate:
-
-| Setup | Required score | Default threshold | Action band alignment |
-| ----- | -------------- | ----------------- | --------------------- |
-| `SETUP_LONG` | ≥ threshold | `BACKTEST_LONG_MIN_SCORE` = **7** | STARTER POSITION or higher |
-| `SETUP_SHORT` | ≤ threshold | `BACKTEST_SHORT_MAX_SCORE` = **−2** | REDUCE / HEDGE or lower |
-
-Override via CLI: `--long-min-score`, `--short-max-score`.
-
-See [`config.py`](../../src/finance_vibe/config.py) for `BACKTEST_*` constants.
-
-Quant / ML mapping of this score vs the Coiled Cobra feature set:
-[`QUANT_ML_MANUAL.md`](QUANT_ML_MANUAL.md).
+- Keep macro (SMA-based) separate from tactical (EMA-based Coiled Cobra).

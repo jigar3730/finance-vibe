@@ -8,21 +8,21 @@ detail lives in `docs/`.
 Finance Vibe is a Python pipeline for **coil → expansion stock signals**: build a
 ticker universe, ingest OHLCV from Yahoo, score Coiled Cobra setups, and attach
 informational entry / stop / target context. It produces *signals*, not trade
-or options positions. It is also a quant/ML lab (see `docs/labs/`).
+or options positions.
 
 ## Layout
 
 - `src/finance_vibe/` — all application code (package `finance_vibe`)
 - `templates/`, `src/finance_vibe/static/` — Flask UI
 - `tests/` — pytest suite (imports `from finance_vibe import ...`)
-- `docs/handbook/` — theory and rubrics; `docs/architecture/` — pipeline, ops, ML; `docs/labs/` — experiments
+- `docs/handbook/` — scoring rubrics and calculations; `docs/architecture/` — pipeline, ops, backtests, scanners
 - `data/` — gitignored. `data/raw/{weekly|daily}/`, `data/logs/{weekly|daily}/`, `data/active_tickers.csv`
-- `notebooks/` — exploration only, not part of the pipeline
+- `scripts/` — cron runners, output health checks, test/lint/golden helpers
 
 ## Commands
 
 ```bash
-uv sync                                    # deps from uv.lock + editable install (ml, dev groups by default)
+uv sync                                    # deps from uv.lock + editable install (dev group by default)
 uv lock                                    # after editing pyproject.toml deps; commit uv.lock
 # without uv: pip install -r requirements.txt && export PYTHONPATH=src
 # commands below assume the .venv is active (or prefix with `uv run`)
@@ -63,8 +63,8 @@ architecture docs are stale (e.g. `project_resurrection_prompt.md` and
 - **Never run the full pipeline casually.** Without `--reuse-raw` it deletes
   `data/raw/{mode}/` and re-downloads hundreds of tickers from Yahoo. For
   experiments use `--reuse-raw` or call a single stage.
-- **No lookahead.** Anything touching `--as-of`, backtests, backfills or ML
-  features must only use bars completed on/before the as-of date. Weekly
+- **No lookahead.** Anything touching `--as-of`, backtests or backfills
+  must only use bars completed on/before the as-of date. Weekly
   as-of on a non-Friday excludes the week in progress. `tests/test_as_of.py`
   guards this; keep it green.
 - **Config lives in `config.py`.** Thresholds, profiles (`TIMEFRAME_PROFILES`,
@@ -73,14 +73,9 @@ architecture docs are stale (e.g. `project_resurrection_prompt.md` and
 - **Rubric versioning.** If you change Coiled Cobra gate/pillar logic or
   thresholds in a way that changes `Score` or which setups qualify, bump
   `config.RUBRIC_VERSION` and update `docs/handbook/coiled_cobra_rubric.md`.
-  Training data, model artifacts and inference refuse to mix vintages.
   Breakout scanner state/status/score changes update
   `docs/architecture/breakout_scanner.md`. `tests/test_rubric_docs_sync.py`
   fails when a quoted threshold in either doc drifts from the code.
-- **ML ranking stays off.** `ML_RANKING_ENABLED = False` because walk-forward
-  found no out-of-sample edge over raw Score. Don't flip it without the
-  paired ML-minus-Score IC interval excluding 0 (see
-  `docs/architecture/coiled_cobra_ml.md`).
 - **Data contracts.** Raw CSVs are named `<TICKER>_<period>_<interval>.csv`
   and must satisfy `REQUIRED_OHLCV`; setup rows must match
   `SETUP_ROW_COLUMNS`. Reject malformed input loudly rather than mis-scoring.
@@ -110,7 +105,7 @@ architecture docs are stale (e.g. `project_resurrection_prompt.md` and
   data-contract boundaries. Broad catches only in per-ticker scan loops, and
   log them with the traceback.
 - Don't add heavy dependencies (polars, duckdb, async frameworks) without a
-  measured need. See `MODERNIZATION_PLAN.md` for the phased roadmap.
+  measured need.
 - ruff (lint + format, config in `pyproject.toml`) and mypy must stay clean.
   mypy is strict for `config`, `analysis_engine`, `coiled_cobra`,
   `trade_planner`; widen that list one module at a time. Prefer a targeted

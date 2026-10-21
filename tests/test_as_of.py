@@ -186,15 +186,8 @@ def cobra_env(tmp_path, monkeypatch):
     return {"raw": raw, "logs": logs, "seen": seen}
 
 
-def test_cobra_as_of_uses_only_complete_bars_and_stamps_the_archive(cobra_env, monkeypatch):
+def test_cobra_as_of_uses_only_complete_bars_and_stamps_the_archive(cobra_env):
     dates = _write_weekly_csv(cobra_env["raw"] / "TEST_10y_1wk.csv")
-
-    def no_ml(*a, **k):
-        raise AssertionError("ML ranking must be skipped on an as-of replay")
-
-    import finance_vibe.ml_ranker as ml
-
-    monkeypatch.setattr(ml, "attach_ml_ranks", no_ml)
 
     as_of = (dates[100] + pd.Timedelta(days=4)).date().isoformat()  # Friday of bar 100's week
     cc.run_scanner(as_of=as_of)

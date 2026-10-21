@@ -369,7 +369,7 @@ columns exactly `config.SETUP_ROW_COLUMNS`. The scorecard fields are:
 
 The per-pillar `Parts` and `BBWidth Pctile` are **not** in the live CSV; the
 backtest archives keep them (`Part_*`, `BBWidth Pctile`). Rows are sorted by
-`Score`, descending (ML ranking is off, `ML_RANKING_ENABLED = False`). Ties
+`Score`, descending. Ties
 have no guaranteed order.
 
 **Recommended pipeline:** run this weekly scorecard to produce the

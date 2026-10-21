@@ -108,11 +108,6 @@ def detect_cobra_setup_at_bar(
         "Swing Low": round(local_swing_low(window), 2),
         "Fib 61.8%": round(fib_618, 2) if fib_618 is not None else None,
         "Fib 78.6%": round(fib_786, 2) if fib_786 is not None else None,
-        "Pct_From_EMA20": round((close - ema20) / ema20, 4),
-        "Pct_From_EMA50": round((close - ema50) / ema50, 4),
-        "Pct_From_Fib618": round((close - fib_618) / fib_618, 4) if fib_618 is not None else None,
-        "Pct_From_Fib786": round((close - fib_786) / fib_786, 4) if fib_786 is not None else None,
-        "ATR_Pct": round(atr / close, 4),
         "Score": setup["Score"],
         "Grade": setup["Grade"],
         "Tier": setup.get("Tier"),
@@ -305,12 +300,6 @@ def backtest_ticker(
         forward_return_26w = _forward_return(26)
 
         r_multiple = round(r_mult, 2) if r_mult is not None else None
-        if outcome == "no_fill":
-            target_label = None
-        elif outcome in ("target1", "target2"):
-            target_label = 1
-        else:
-            target_label = 0
 
         trades.append(
             {
@@ -321,11 +310,6 @@ def backtest_ticker(
                 "Setup Type": setup_row["Setup Type"],
                 "Score": setup_row["Score"],
                 "Grade": setup_row["Grade"],
-                "Pct_From_EMA20": setup_row["Pct_From_EMA20"],
-                "Pct_From_EMA50": setup_row["Pct_From_EMA50"],
-                "Pct_From_Fib618": setup_row["Pct_From_Fib618"],
-                "Pct_From_Fib786": setup_row["Pct_From_Fib786"],
-                "ATR_Pct": setup_row["ATR_Pct"],
                 "RVOL": setup_row.get("RVOL"),
                 "Market Gate": setup_row.get("Market Gate"),
                 "Tier": setup_row.get("Tier"),
@@ -346,8 +330,6 @@ def backtest_ticker(
                 else exit_date,
                 "Exit Price": round(exit_price, 2) if exit_price is not None else None,
                 "R Multiple": r_multiple,
-                "Target_Label": target_label,
-                "Target_R_Mult": r_multiple,
                 "Forward_Return_2w": forward_return_2w,
                 "Excess_Return_2w": excess_return_2w,
                 "Forward_Return_5w": forward_return_5w,

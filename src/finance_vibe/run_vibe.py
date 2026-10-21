@@ -157,9 +157,7 @@ def run_workflow(argv: list[str] | None = None) -> None:
         logger.info(f"⏪ AS-OF replay: {as_of} (bars completed on/before this date only)")
         if mode == "weekly" and date.fromisoformat(as_of).weekday() != 4:
             logger.info("   Note: as-of is not a Friday, so the week in progress is excluded.")
-        logger.info(
-            "   Uses today's ticker list and split/dividend-adjusted prices; ML ranking is skipped."
-        )
+        logger.info("   Uses today's ticker list and split/dividend-adjusted prices.")
     if args.in_process:
         logger.info("🧪 In-process mode: stages run as function calls in this interpreter.")
 

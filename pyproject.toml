@@ -22,13 +22,6 @@ finance-vibe = "finance_vibe.run_vibe:run_workflow"
 finance-vibe-app = "finance_vibe.app:main"
 
 [dependency-groups]
-# ML lab + gated ranking paths (ML_RANKING_ENABLED = False).
-ml = [
-    "xgboost>=3.4.1,<4",
-    "lightgbm>=4.7.0,<5",
-    "scikit-learn>=1.9.1,<2",
-    "matplotlib>=3.11.2,<4",
-]
 dev = [
     "pytest>=9.1.1",
 ]
@@ -49,8 +42,8 @@ build-backend = "hatchling.build"
 packages = ["src/finance_vibe"]
 
 [tool.uv]
-# Tests import the ML modules, so a plain `uv sync` installs both groups.
-default-groups = ["dev", "ml"]
+# A plain `uv sync` installs pytest too (scripts/test_in_container.sh runs it in the image).
+default-groups = ["dev"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -87,11 +80,7 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 # Untyped third-party packages.
-module = [
-    "yfinance.*", "yahooquery.*",
-    "xgboost.*", "lightgbm.*", "sklearn.*", "markdown.*", "pygments.*",
-    "matplotlib.*",  # in the ml group, which the lint venv does not install
-]
+module = ["yfinance.*", "yahooquery.*", "markdown.*", "pygments.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

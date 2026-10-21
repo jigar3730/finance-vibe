@@ -10,11 +10,11 @@
 #             sometimes publishes the daily close hours late; on 2026-10-07 it was
 #             still blank at 21:00 ET).
 #
-# The host clock is UTC, so cron fires at the UTC hours covering both slots in
-# EDT and EST, and this script exits unless it is 18:xx or 22:xx on a weekday in
-# New York:
+# This script exits unless it is 18:xx or 22:xx on a weekday in New York, so the
+# cron line only has to cover those slots in the host's clock:
 #
-#   30 22,23,2,3 * * * /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
+#   30 18,22 * * 1-5 .../run_daily_pipeline.sh      # host clock America/New_York
+#   30 22,23,2,3 * * * .../run_daily_pipeline.sh    # host clock UTC (EDT and EST)
 #
 # Weekends are skipped (no new daily bars). Market holidays still run; the health
 # check then expects the previous session's bar.

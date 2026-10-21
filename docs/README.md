@@ -1,33 +1,20 @@
 # Finance Vibe documentation
 
-This tree is the reference manual and lab environment for the Finance Vibe
-pipeline: macro scoring, Coiled Cobra coil scoring (primary signal engine),
-breakout-readiness research scan, walk-forward backtests, and the offline
-GBDT ranking baseline.
+Reference manual for the Finance Vibe pipeline: macro scoring, Coiled Cobra
+coil scoring (primary signal engine), the descriptive breakout-readiness scan,
+and walk-forward backtests.
 
 Project overview and run commands stay in the root [`README.md`](../README.md).
 
-## How to use this catalog
-
-| If you want to… | Start here |
-| ---------------- | ---------- |
-| Understand *why* an indicator or target is constructed | [`handbook/QUANT_ML_MANUAL.md`](handbook/QUANT_ML_MANUAL.md) |
-| Look up the exact scoring rule that shipped | Handbook rubrics below |
-| Operate, backtest, or train the ML baseline | Architecture guides below |
-| Run a structured experiment | [`labs/README.md`](labs/README.md) |
-
 ---
 
-## Handbook — concepts and finance reference
+## Handbook — scoring rules and calculations
 
 | File | Contents |
 | ---- | -------- |
-| [`handbook/QUANT_ML_MANUAL.md`](handbook/QUANT_ML_MANUAL.md) | Feature engineering, targets, GBDTs, validation, SHAP / Optuna — mapped to this repo |
 | [`handbook/scoring_logic.md`](handbook/scoring_logic.md) | Macro Vibe Score (−10 to +10) specification |
-| [`handbook/ta_interpretation.md`](handbook/ta_interpretation.md) | How to read SMA / RSI / CCI / MACD output |
-| [`handbook/swing_setup.md`](handbook/swing_setup.md) | Quality-swing long/short rules and geometry (historical — `swing_scanner.py` decommissioned) |
 | [`handbook/coiled_cobra_rubric.md`](handbook/coiled_cobra_rubric.md) | Coil → expansion 100-point scorecard |
-| [`handbook/trade_plan_calculations.md`](handbook/trade_plan_calculations.md) | Live entry / stop / target math (swing + Cobra + helper) |
+| [`handbook/trade_plan_calculations.md`](handbook/trade_plan_calculations.md) | Live entry / stop / target math and helper ranking |
 
 ---
 
@@ -35,36 +22,9 @@ Project overview and run commands stay in the root [`README.md`](../README.md).
 
 | File | Contents |
 | ---- | -------- |
-| [`architecture/operation_manual.md`](architecture/operation_manual.md) | SOP, environment, troubleshooting |
-| [`architecture/breakout_scanner.md`](architecture/breakout_scanner.md) | Breakout readiness scanner: states, status rules, 100-pt score |
-| [`architecture/backtest_and_backfill.md`](architecture/backtest_and_backfill.md) | Data backfill, signal archives, Cobra walk-forward sims, leader + breakout experiments |
-| [`architecture/coiled_cobra_ml.md`](architecture/coiled_cobra_ml.md) | ML baseline, walk-forward, pre-registered experiment |
-| [`architecture/trade_planner_worklog.md`](architecture/trade_planner_worklog.md) | Planner/helper reference + historical work log |
-| [`architecture/code_review.md`](architecture/code_review.md) | Historical architecture review (2026-07-12 snapshot) |
-| [`architecture/planned_enhancements.md`](architecture/planned_enhancements.md) | LEAPS / IV-rank critique (historical — options output removed) |
-| [`architecture/project_resurrection_prompt.md`](architecture/project_resurrection_prompt.md) | Session context prompt for future work |
-
----
-
-## Labs — hands-on experiments
-
-Seven guided experiments live in [`labs/`](labs/). Index and prerequisites:
-[`labs/README.md`](labs/README.md).
-
-| Lab | File |
-| --- | ---- |
-| 01 Indicator sensitivity | [`labs/01_indicator_sensitivity.md`](labs/01_indicator_sensitivity.md) |
-| 02 Target horizon shift | [`labs/02_target_horizon_shift.md`](labs/02_target_horizon_shift.md) |
-| 03 GBDT showdown | [`labs/03_gbdt_showdown.md`](labs/03_gbdt_showdown.md) |
-| 04 Leakage & validation | [`labs/04_validation_integrity.md`](labs/04_validation_integrity.md) |
-| 05 Optuna HPO | [`labs/05_hyperparameter_optuna.md`](labs/05_hyperparameter_optuna.md) |
-| 06 SHAP explainability | [`labs/06_shap_explainability.md`](labs/06_shap_explainability.md) |
-| 07 Market regime shifts | [`labs/07_regime_shifts.md`](labs/07_regime_shifts.md) |
-
-`catboost`, `optuna`, and `shap` are **lab-optional**. They are not in
-`requirements.txt`. Each lab that needs one of them includes an install line
-and a fallback that uses only the current stack (`xgboost`, `lightgbm`,
-`scikit-learn`, `matplotlib`).
+| [`architecture/operation_manual.md`](architecture/operation_manual.md) | SOP, scheduling, environment, troubleshooting |
+| [`architecture/breakout_scanner.md`](architecture/breakout_scanner.md) | Breakout readiness scanner: states, status rules, 100-pt score, dashboard |
+| [`architecture/backtest_and_backfill.md`](architecture/backtest_and_backfill.md) | Data backfill, signal archives, Cobra walk-forward simulation |
 
 ---
 
@@ -74,14 +34,13 @@ and a fallback that uses only the current stack (`xgboost`, `lightgbm`,
 | ------- | ------ |
 | Orchestrator (`--mode`, `--reuse-raw`, `--as-of`) | `src/finance_vibe/run_vibe.py` |
 | Config, modes, as-of cut, rubric version | `src/finance_vibe/config.py` |
-| Universe + ingest | `src/finance_vibe/ticker_provider.py`, `src/finance_vibe/data_ingestor.py` |
+| Universe + ingest | `src/finance_vibe/ticker_provider.py`, `src/finance_vibe/data_ingestor.py`, `src/finance_vibe/daily_ingest.py` |
+| Raw OHLCV loading | `src/finance_vibe/raw_data.py` |
+| Indicators | `src/finance_vibe/indicators.py` |
 | Macro score | `src/finance_vibe/analysis_engine.py` |
 | Coiled Cobra rubric (primary signal engine) | `src/finance_vibe/coiled_cobra.py` |
-| Breakout readiness (research scan) | `src/finance_vibe/breakout_scanner.py` |
+| Breakout readiness (descriptive scan) | `src/finance_vibe/breakout_scanner.py` |
 | Signal levels + ranking | `src/finance_vibe/trade_planner.py`, `src/finance_vibe/trade_plan_helper.py` |
 | Cobra backtest + forward returns | `src/finance_vibe/coiled_cobra_backtest.py` |
 | Generic trade simulator | `src/finance_vibe/trade_simulator.py` |
-| GBDT trainer | `src/finance_vibe/coiled_cobra_ml_training.py` |
-| Soft ML ranking | `src/finance_vibe/ml_ranker.py` |
-| Research harnesses | `coiled_cobra_ml_walkforward.py`, `coiled_cobra_ml_experiment.py`, `coiled_cobra_leader_experiment.py`, `breakout_experiment.py` |
 | Dashboard + docs UI | `src/finance_vibe/app.py`, `src/finance_vibe/docs_routes.py` |

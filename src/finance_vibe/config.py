@@ -35,20 +35,12 @@ TIMEFRAME_PROFILES = {
 DEFAULT_MODE = "weekly"
 
 # Coiled Cobra rubric version. Stamped onto every backtest/backfill CSV
-# (``Rubric_Version`` column) and every ML model's metadata so training data,
-# model artifacts, and runtime inference can refuse to mix rubric vintages.
+# (``Rubric_Version`` column) so results from different rubric vintages are
+# never mixed.
 # Bump whenever gate/pillar logic or thresholds change in a way that alters
 # ``Score`` or which setups qualify (e.g. Gate D 5/6 -> 4/6).
 RUBRIC_VERSION = "4.0"
 RUBRIC_VERSION_COL = "Rubric_Version"
-
-# Master switch for ML-driven ranking (scanner sort, ML_Pred_Return columns,
-# and trade_plan_helper's Priority). OFF: the v4.0 walk-forward evaluation
-# (coiled_cobra_ml_walkforward, see docs/architecture/coiled_cobra_ml.md) found
-# no out-of-sample edge for the ML ranker over raw Score, so ranking stays on
-# Score even if a valid model artifact appears. Enable only after the paired
-# ML-minus-Score IC confidence interval excludes 0 in ML's favour.
-ML_RANKING_ENABLED = False
 
 
 def get_mode_config(mode: str | None = None) -> dict[str, Any]:
@@ -445,16 +437,7 @@ SETUP_ROW_COLUMNS = [
     "Fib Score",
     "MACD",
     "MACD Signal",
-    # Pre-signal ML features (parity with coiled_cobra_ml_training FEATURE_COLS)
-    "Pct_From_EMA20",
-    "Pct_From_EMA50",
-    "Pct_From_Fib618",
-    "Pct_From_Fib786",
-    "ATR_Pct",
-    # Offline-model ranking outputs (soft signal; null when no model available)
-    "ML_Pred_Return",
-    "ML_Rank",
-    # Coiled Cobra v3 attribution (not in FEATURE_COLS / ML inference)
+    # Coiled Cobra v3 attribution
     "RVOL",
     "Market Gate",
 ]

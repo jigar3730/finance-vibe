@@ -30,10 +30,8 @@ def test_docs_index_renders_catalog(client):
     response = client.get("/docs/")
     assert response.status_code == 200
     body = response.get_data(as_text=True)
-    assert "Docs &amp; Labs" in body
     assert "Handbook" in body
     assert "Architecture" in body
-    assert "Labs" in body
     assert "Finance Vibe documentation" in body
 
 
@@ -46,10 +44,11 @@ def test_docs_file_route_renders_markdown(client):
     assert "<table>" in body
 
 
-def test_docs_directory_falls_back_to_readme(client):
-    response = client.get("/docs/labs")
-    assert response.status_code == 200
-    assert "Hands-on labs" in response.get_data(as_text=True)
+def test_docs_directory_falls_back_to_readme(tmp_path, monkeypatch):
+    (tmp_path / "section").mkdir()
+    (tmp_path / "section" / "README.md").write_text("# Section index\n")
+    monkeypatch.setattr(docs_routes, "DOCS_ROOT", str(tmp_path))
+    assert docs_routes.resolve_doc_file("section") == str(tmp_path / "section" / "README.md")
 
 
 def test_docs_missing_file_is_404(client):

@@ -54,8 +54,6 @@ CLEAN_EXPORT_COLUMNS = [
     "Risk Per Share",
     "R:R T1",
     "R:R T2",
-    "ML_Pred_Return",
-    "ML_Rank",
     "Expected Value",
     "Priority",
     "ATR",
@@ -197,29 +195,13 @@ def _num_col(df: pd.DataFrame, name: str) -> pd.Series:
     return pd.Series(np.nan, index=df.index, dtype="float64")
 
 
-def ml_priority_active(df: pd.DataFrame) -> bool:
-    """True when ``ML_Pred_Return`` should drive ``Priority``.
-
-    Requires ``config.ML_RANKING_ENABLED`` AND a prediction on every row.
-    ML values (~0.05) and Score-based EV (~300) are on different scales, so a
-    partially covered frame would push every unpredicted row -- possibly the
-    highest-Score setup, e.g. one with a NaN feature -- below all predicted
-    ones. Incomplete coverage therefore falls back to Score for the whole frame.
-    """
-    if not config.ML_RANKING_ENABLED or df.empty or "ML_Pred_Return" not in df.columns:
-        return False
-    return bool(_num_col(df, "ML_Pred_Return").notna().all())
-
-
 def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
     """Rank survivors by expected value with a tight-coil propensity boost.
 
     ``Expected Value = R:R T2 × Score`` is always computed for transparency.
     ``Priority`` is ``Expected Value × propensity`` (raw-Score ranking, since
-    R:R T2 is 3.0 for every Coiled Cobra plan) unless :func:`ml_priority_active`
-    -- ML enabled and every row predicted -- in which case it is
-    ``R:R T2 × max(ML_Pred_Return, 0) × propensity``. Ties (e.g. all-negative
-    predictions clipped to 0) are broken by Expected Value, i.e. by Score.
+    R:R T2 is 3.0 for every Coiled Cobra plan). Ties are broken by Expected
+    Value.
     """
     out = df.copy()
     rr2 = _num_col(out, "R:R T2").fillna(0.0)
@@ -236,12 +218,7 @@ def rank_by_expected_value(df: pd.DataFrame) -> pd.DataFrame:
     is_coil = source.isin(["coiled_cobra", "cobra"])
     propensity = np.where(is_coil | tight_risk, TIGHT_COIL_PROPENSITY, 1.0)
 
-    if ml_priority_active(out):
-        # ML-driven expected value: reward per unit risk scaled by predicted alpha.
-        ml_pred = _num_col(out, "ML_Pred_Return")
-        out["Priority"] = (rr2 * ml_pred.clip(lower=0) * propensity).round(4)
-    else:
-        out["Priority"] = (out["Expected Value"] * propensity).round(2)
+    out["Priority"] = (out["Expected Value"] * propensity).round(2)
 
     return out.sort_values(
         ["Priority", "Expected Value"], ascending=False, kind="mergesort"
@@ -336,20 +313,7 @@ def process_trade_plan(
 
     if not df.empty:
         df = rank_by_expected_value(df)
-        if ml_priority_active(df):
-            logger.info("📊 Ranked survivors by ML predicted return × R:R T2 with coil propensity.")
-        else:
-            logger.info(
-                "📊 Ranked survivors by Expected Value (R:R T2 × Score) with coil propensity."
-            )
-            n_pred = int(_num_col(df, "ML_Pred_Return").notna().sum())
-            if n_pred:  # silent when the ML column is simply empty (current state)
-                reason = (
-                    "ML ranking is disabled (config.ML_RANKING_ENABLED)"
-                    if not config.ML_RANKING_ENABLED
-                    else f"predictions are incomplete ({n_pred}/{len(df)} rows)"
-                )
-                logger.info(f"   ℹ️ Ignoring {n_pred} ML prediction(s): {reason}.")
+        logger.info("📊 Ranked survivors by Expected Value (R:R T2 × Score) with coil propensity.")
 
     # Select essential columns for the cleaned file (only those that exist).
     # Both LEAPS/Options label variants are listed so mode-specific columns

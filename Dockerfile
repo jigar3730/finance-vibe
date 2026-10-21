@@ -18,16 +18,14 @@ ENV PATH="/app/.venv/bin:$PATH"
 
 WORKDIR /app
 
-# libgomp1: OpenMP runtime for lightgbm/xgboost. No compiler needed: every
-# locked dependency ships a wheel.
+# No compiler needed: every locked dependency ships a wheel.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
-    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv /uv /usr/local/bin/uv
 
-# Dependencies first (cached layer), exactly as locked. Default groups = ml + dev;
+# Dependencies first (cached layer), exactly as locked. Default group = dev;
 # dev (pytest) stays because scripts/test_in_container.sh runs tests in this image.
 COPY pyproject.toml uv.lock .python-version README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \

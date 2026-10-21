@@ -10,25 +10,17 @@ This manual describes how to operate the Finance Vibe pipeline: data ingestion, 
 
 ## Environment
 
-- Python 3.10+
-- Install from repo root:
+- Python 3.12 (the Docker image) or 3.13
+- Install from repo root with `uv sync` (or `pip install -r requirements.txt` and `export PYTHONPATH=src`)
 
-```bash
-python -m pip install -r requirements.txt
-```
-
-Core packages: `pandas`, `numpy`, `yfinance`, `yahooquery`, `Flask`. Technical indicators are in-house (`finance_vibe/indicators.py`, pandas-ta-compatible; pandas-ta was dropped in 2026-10).
-
-ML baseline extras (in `requirements.txt`): `xgboost`, `lightgbm`, `scikit-learn`, `matplotlib`.
-
-Compatible with the dev container or any standard Python environment with `PYTHONPATH=./src`.
+Core packages: `pandas`, `numpy`, `yfinance`, `yahooquery`, `Flask`. Technical indicators are in-house (`finance_vibe/indicators.py`).
 
 ## Directory layout
 
 | Path | Contents |
 | ---- | -------- |
 | `src/finance_vibe/` | Pipeline source |
-| `docs/` | Handbook, architecture, and labs ([catalog](../README.md)) |
+| `docs/` | Handbook and architecture docs ([catalog](../README.md)) |
 | `data/active_tickers.csv` | Ticker universe |
 | `data/raw/weekly/` | Weekly OHLCV CSVs (`*_10y_1wk.csv`) |
 | `data/raw/daily/` | Daily OHLCV CSVs (`*_5y_1d.csv`) |
@@ -54,12 +46,14 @@ The weekly pipeline runs automatically on **Fridays at 18:00 America/New_York**
 through the host crontab (user `jigar`):
 
 ```cron
+# host clock America/New_York (mediabox)
+0 18 * * 5 /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
+# host clock UTC: fire at both UTC hours that can be 18:00 ET
 0 22,23 * * 5 /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
 ```
 
-The host clock is UTC, so cron fires at both 22:00 and 23:00 UTC.
 `scripts/run_weekly_pipeline.sh` exits unless it is the 18:00 hour in New York,
-so the run stays at 6 PM through EDT and EST. It runs
+so the run stays at 6 PM through EDT and EST whatever the host clock. It runs
 `run_vibe.py --mode weekly` inside the `finance_vibe` container, holds a lock so
 runs cannot overlap, and writes one log per run to `~/.local/state/finance-vibe/`.
 Use `scripts/run_weekly_pipeline.sh --now` for a manual run.
@@ -100,11 +94,13 @@ The daily pipeline (Coiled Cobra and the breakout scanner on daily bars) runs ev
 trading day, **Monday–Friday at 18:30 America/New_York**, with a **22:30 ET retry**:
 
 ```cron
+# host clock America/New_York (mediabox)
+30 18,22 * * 1-5 /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
+# host clock UTC: the UTC hours that cover both slots in EDT and EST
 30 22,23,2,3 * * * /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
 ```
 
-Cron fires at the UTC hours that cover both slots in EDT and EST. The script runs
-only at 18:xx or 22:xx New York time on a weekday. Weekends have no new daily bars and
+The script runs only at 18:xx or 22:xx New York time on a weekday. Weekends have no new daily bars and
 are skipped. Market holidays still run, and the health check then expects the previous
 session's bar.
 
@@ -145,7 +141,6 @@ so the dashboard shows the replayed week like any other run.
   on their own date. Benchmarks (QQQ/SPY) are cut the same way.
 - **Strict trade-plan lookup.** The helper does not fall back to the newest plan on an
   as-of run; it needs the plan for exactly that date.
-- **ML ranking is skipped** (a model trained later would leak the future); ranking is by Score.
 - **Limits.** It uses *today's* `active_tickers.csv` (not the historical universe) and
   *today's* split/dividend-adjusted prices, so entry/stop/target levels are in adjusted
   prices, not the quotes seen at the time. Names with under 160 weekly bars as of that
@@ -175,9 +170,7 @@ for gating — it imports `load_benchmark_frame` / `relative_strength` /
 `check_coiled_cobra_market_gate` from the same module for its own RS and
 market-gate pillars, which is a separate (trend + relative-strength) check.
 
-Coiled Cobra is the project's single tactical signal engine (the former
-`swing_scanner.py`, which duplicated indicator logic Coiled Cobra already
-covered, has been decommissioned). The pipeline produces ranked *signals*,
+Coiled Cobra is the project's single tactical signal engine. The pipeline produces ranked *signals*,
 not options trade plans: `trade_planner.py`/`trade_plan_helper.py` add
 stock-level context and an Expected-Value ranking, not LEAPS/options strike
 metadata.
@@ -196,8 +189,7 @@ python src/finance_vibe/trade_plan_helper.py weekly
 ```
 
 `data_ingestor.py` and `analysis_engine.py` take a data timeframe (`weekly` or
-`daily`), and so do the signal stages. The `high_beta` profile was removed on
-2026-10-08; `--mode high_beta` is no longer accepted.
+`daily`), and so do the signal stages.
 
 ## Script reference
 
@@ -263,7 +255,7 @@ python src/finance_vibe/trade_plan_helper.py weekly
 - Adds Risk Per Share and direction-aware R:R
 - Drops risk > 5% of Close, cobra checklist below coiled_cobra's own Gate D
   breadth floor (`MIN_CHECKS_MET/N_SCORED_PILLARS`, currently 4/6), or R:R T1 < 2.0
-- Ranks survivors by Expected Value (`R:R T2 × Score`) with a 1.25 coil propensity (`ML_Pred_Return` is used only when `config.ML_RANKING_ENABLED` is on and every row has a prediction)
+- Ranks survivors by Expected Value (`R:R T2 × Score`) with a 1.25 coil propensity
 - Writes `trade_plan_clean_<date>.csv`
 
 ### `src/finance_vibe/trade_simulator.py` (library, not a script)
@@ -290,35 +282,6 @@ Notes:
 - `trade_planner.py` recognizes `Source` == `coiled_cobra` so Coiled Cobra setups use Fib 78.6% entry logic.
 - Details and recipes: **[`backtest_and_backfill.md`](backtest_and_backfill.md)**.
 
-### `src/finance_vibe/coiled_cobra_ml_training.py` (offline ML)
-
-Trains XGBoost + LightGBM regressors to predict `Forward_Return_2w` from Coiled Cobra backtest exports.
-
-- Input: `data/logs/weekly/coiled_cobra_backtest_trades_<date>.csv` (from `--backtest`)
-- Features: 6 pre-signal columns (`Score`, EMA/Fib distances, `ATR_Pct`); `Grade` excluded
-- Split: rolling 26-week test / 26-week val / rest train on `Signal Date` (no random K-fold)
-- `MODEL_PARAMS`: `max_depth=4`, `learning_rate=0.01`, `n_estimators=400`, `subsample=0.8`, `colsample_bytree=0.8`
-- Objectives: XGBoost `reg:absoluteerror`, LightGBM `regression_l1`; `sample_weight=ATR_Pct`
-- Output: artifacts (`xgb`/`lgb` + metadata JSON) + PNG; `ml_ranker.py` attaches soft ranks on live scans
-
-```bash
-python src/finance_vibe/coiled_cobra_ml_training.py \
-  --csv data/logs/weekly/coiled_cobra_backtest_trades_YYYY-MM-DD.csv
-```
-
-Not part of the default pipeline. ML ranking in the helper is off by default
-(`config.ML_RANKING_ENABLED = False`) and skipped on `--as-of` runs.
-
-Research harnesses (read-only, never write served artifacts):
-
-```bash
-python -m finance_vibe.coiled_cobra_ml_walkforward [--csv PATH]       # ML rank vs Score, expanding folds
-python -m finance_vibe.coiled_cobra_ml_experiment --csv PATH           # pre-registered, lockbox-gated
-```
-
-Full specification: **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)**; leader experiment
-protocol: **[`backtest_and_backfill.md`](backtest_and_backfill.md)**.
-
 ## UI dashboard
 
 ```bash
@@ -332,7 +295,7 @@ Docker (`docker compose up -d`) runs the dashboard by default on port 5000, with
 | ----- | -------- |
 | `/` , `/view/<mode>/<date>` | Trade plans (`trade_plan_clean_*` / `trade_plan_*`) for `weekly` and `daily` |
 | `/breakout`, `/breakout/<mode>/<date>` | Breakout scan: KPIs, status mix, candidates, live price vs Close (`weekly`, `daily`) |
-| `/docs/` | Rendered handbook / architecture / labs markdown (`docs_routes.py`) |
+| `/docs/` | Rendered handbook / architecture markdown (`docs_routes.py`) |
 
 ## Data maintenance
 
@@ -353,7 +316,6 @@ python src/finance_vibe/run_vibe.py
 | Empty plan on an `--as-of` run | The helper needs the plan for exactly that date; run the full replay, not the helper alone |
 | `trade_plan_helper` file not found | Run the planner first; helper prefers today’s file then falls back to the newest dated plan |
 | Macro report missing tickers | Check ingest logs; file needs ≥ 60 rows |
-| ML script cannot find trades CSV | Run `coiled_cobra_backtest.py weekly --backtest`; pass `--csv`; see **[`coiled_cobra_ml.md`](coiled_cobra_ml.md)** |
 
 ## Extending the project
 
@@ -389,13 +351,11 @@ which setups qualify.
 | `ingest_errors_<date>.csv` | Ingestion failures (pipeline step 2) |
 | `vibe_report_<date>.csv` | Macro (pipeline step 3) |
 | `coiled_cobra_setups_<date>.csv` | Signal (weekly/daily) |
-| `breakout_setups_<date>.csv` | Breakout readiness research scan |
+| `breakout_setups_<date>.csv` | Breakout readiness scan (descriptive) |
 | `trade_plan_<date>.csv` | Signal + stock-level context |
 | `trade_plan_clean_<date>.csv` | Signal (guardrailed + ranked) |
 | `coiled_cobra_backfill_<date>.csv` | Historical Cobra signal archive (manual run) |
-| `coiled_cobra_backtest_trades_<date>.csv` | Coiled Cobra walk-forward trades (ML source) |
-| `coiled_cobra_{xgb_model.json,lgb_model.txt,ml_model_metadata.json}` | ML artifacts (manual ML run) |
-| `coiled_cobra_ml_feature_importance.png` | ML feature-importance chart (manual ML run) |
+| `coiled_cobra_backtest_trades_<date>.csv` | Coiled Cobra walk-forward trades (manual run) |
 
 ## Notes
 
