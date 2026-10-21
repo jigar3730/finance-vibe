@@ -117,6 +117,19 @@ def weekly_bar_is_complete(bar_date, now=None) -> bool:
     return today > week_end or (today == week_end and now.hour >= WEEK_FINAL_HOUR_ET)
 
 
+def drop_incomplete_weeks(df: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
+    """Drop every Date-indexed weekly row whose week has not closed yet.
+
+    yfinance can return more than one trailing row for the week in progress
+    (the Monday-dated weekly bar plus a separate row dated today), so checking
+    only the last row lets a partial week through.
+    """
+    if df.empty:
+        return df
+    complete = [weekly_bar_is_complete(d, now=now) for d in df.index]
+    return df.loc[complete]
+
+
 def _ticker_frame(batch, ticker: str):
     """Extract one ticker's OHLCV frame from a batch keyed by ticker.
 
@@ -190,12 +203,10 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
                     df.columns = df.columns.get_level_values(0)
 
                 # --- 4. DATA CLEANING ---
-                # Drop the last weekly candle only while its week is still trading.
-                # (Weekly bars are Monday-dated; the old "not a Friday" check
-                # dropped every final bar, so even a Saturday run lost the
-                # just-completed week.)
-                if INTERVAL == "1wk" and len(df) > 0 and not weekly_bar_is_complete(df.index[-1]):
-                    df = df.iloc[:-1]
+                # Keep only weeks that have closed (Monday-dated bars; complete
+                # after that Friday's close).
+                if INTERVAL == "1wk":
+                    df = drop_incomplete_weeks(df)
 
                 # --- 4b. VALIDATE OHLCV CONTRACT (reject, never save partial) ---
                 clean = config.validate_and_clean_ohlcv(df, require_volume=True)

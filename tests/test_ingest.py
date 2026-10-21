@@ -58,3 +58,13 @@ def test_batch_download_rejects_zero_retries(monkeypatch):
     monkeypatch.setattr(di.yf, "download", lambda *a, **k: pytest.fail("must not download"))
     with pytest.raises(ValueError, match="retries"):
         di._download_batch(["AAPL"], "5y", "1wk", retries=0)
+
+
+def test_drop_incomplete_weeks_removes_every_trailing_partial_row():
+    # yfinance mid-week: the in-progress Monday bar plus a separate row for today.
+    idx = pd.to_datetime(["2026-10-05", "2026-10-12", "2026-10-19", "2026-10-20"])
+    df = pd.DataFrame({"Close": [1.0, 2.0, 3.0, 3.1]}, index=idx)
+    tuesday = datetime(2026, 10, 20, 22, 0, tzinfo=ET)
+    assert list(di.drop_incomplete_weeks(df, now=tuesday)["Close"]) == [1.0, 2.0]
+    friday_close = datetime(2026, 10, 23, 17, 0, tzinfo=ET)
+    assert len(di.drop_incomplete_weeks(df, now=friday_close)) == 4

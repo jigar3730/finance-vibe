@@ -59,7 +59,8 @@ python -m finance_vibe.scanners.breakout weekly
 - **`data.ingest`** downloads every active ticker with `yfinance` per
   `TIMEFRAME_PROFILES`, split/dividend-adjusted (`auto_adjust=True`), in batches with
   retry and backoff. It drops the current weekly candle while its week is still
-  trading (complete from Friday 17:00 ET, `ingest.weekly_bar_is_complete`) and logs
+  trading (complete from Friday 17:00 ET, `ingest.drop_incomplete_weeks` drops every
+  trailing row of the week in progress) and logs
   per-ticker failures to `ingest_errors_<date>.csv`.
 - **`data.daily_ingest`** runs `ingest.ingest_market_data("daily")`, then drops
   today's bar from every daily CSV while the session is still trading (final from
