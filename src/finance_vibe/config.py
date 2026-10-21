@@ -93,10 +93,7 @@ def get_raw_path(ticker: str, cfg: dict[str, Any]) -> str:
     return os.path.join(cfg["raw_dir"], _get_raw_filename(ticker, cfg))
 
 
-# Pipeline backtest defaults (offline validation; not part of run_vibe.py)
-BACKTEST_LONG_MIN_SCORE = 7
-BACKTEST_SHORT_MAX_SCORE = -2
-BACKTEST_WARMUP_BARS = 60
+# Coiled Cobra backtest defaults (offline validation; not part of run_vibe.py)
 BACKTEST_ENTRY_VALID_BARS = 4
 BACKTEST_MAX_HOLD_BARS = 12
 # Realistic execution assumptions for the scaled-out swing simulator.
@@ -105,29 +102,14 @@ BACKTEST_SLIPPAGE_PCT = 0.0005
 # Fraction of the position taken off at the first (1R) target.
 BACKTEST_PARTIAL_FRACTION = 0.5
 
-# Default benchmark for relative-strength / market-regime gating.
-BENCHMARK_TICKER = "QQQ"
-
-# Quality swing profiles (weekly = swing leg; daily = tighter T1 / wider stop / soft vibe)
+# Swing geometry profiles (fallback levels when a setup has no usable Fib 78.6%;
+# weekly = swing leg, daily = tighter targets)
 _SWING_WEEKLY = {
     "entry_atr": 0.25,
     "stop_buffer_atr": 0.25,
     "stop_atr_cap": 1.5,  # dual-constraint vol floor: entry − 1.5×ATR
     "t1_atr": 1.25,
     "t2_atr": 2.25,
-    "prox_pct": 0.015,
-    "prox_atr": None,
-    "rsi_min_long": 45,
-    "rsi_max_long": 55,
-    "rsi_min_short": 50,
-    "rsi_max_short": 60,
-    "structure_bars": 10,  # local consolidation lookback (sessions)
-    "vibe_min": None,  # no soft vibe gate on weekly
-    "cooldown_bars": 4,
-    "entry_valid_bars": 4,
-    "max_hold_bars": 12,
-    "confirm_slack_atr": 0.0,
-    "require_ema_stack": False,
 }
 
 # Tuned on 5y daily QQQ/SPY/IWM: ~75% WR, +0.19 avg R vs weekly-like −0.33
@@ -137,19 +119,6 @@ _SWING_DAILY = {
     "stop_atr_cap": 1.5,
     "t1_atr": 0.85,
     "t2_atr": 1.6,
-    "prox_pct": 0.02,
-    "prox_atr": None,  # fixed % proximity when None
-    "rsi_min_long": 40,
-    "rsi_max_long": 55,
-    "rsi_min_short": 50,
-    "rsi_max_short": 60,
-    "structure_bars": 10,  # local consolidation lookback (sessions)
-    "vibe_min": 5,  # soft macro gate inside scanner
-    "cooldown_bars": 8,
-    "entry_valid_bars": 6,
-    "max_hold_bars": 20,
-    "confirm_slack_atr": 0.0,
-    "require_ema_stack": False,
 }
 
 SWING_PROFILES = {
@@ -160,23 +129,11 @@ SWING_PROFILES = {
 # Optional keys applied to every profile so callers can read them uniformly.
 # Existing weekly/daily behavior is preserved because these defaults are inert.
 _SWING_DEFAULTS = {
-    "prox_atr": None,
-    "confirm_slack_atr": 0.0,
-    "require_ema_stack": False,
-    "long_only": False,
-    "short_max_vibe": None,  # directional short soft-gate; None disables shorts under a vibe profile
-    "structure_slack_atr": None,  # None -> legacy percentage structure tolerance
     "min_risk_atr": None,
     "max_risk_atr": None,  # None -> cap stop via stop_atr_cap (legacy)
     "use_r_targets": False,
     "t1_r": 1.0,
     "t2_r": 2.0,
-    "partial_fraction": BACKTEST_PARTIAL_FRACTION,
-    "benchmark": None,
-    "require_market_regime": False,
-    "require_relative_strength": False,
-    "rs_lookback": 63,
-    "rs_ratio_ma_bars": 20,
 }
 
 

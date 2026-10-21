@@ -743,47 +743,6 @@ def evaluate_coiled_cobra(
     return result
 
 
-def evaluate_as_of(
-    df: pd.DataFrame,
-    as_of: AsOf,
-    benchmark_df: pd.DataFrame | None = None,
-    *,
-    spy_df: pd.DataFrame | None = None,
-    include_rejects: bool = True,
-) -> dict[str, Any] | None:
-    """Score the last bar on or before *as_of* (causal). Used by benchmarks."""
-    if df.empty or "Date" not in df.columns:
-        return None
-    work = df.copy()
-    work["Date"] = pd.to_datetime(work["Date"])
-    cutoff = pd.to_datetime(as_of)
-    work = work[work["Date"] <= cutoff]
-    if len(work) < MIN_BARS_FULL_SCORE:
-        return None
-    try:
-        work = add_macro_indicators(work)
-    except Exception:  # per-ticker/date in backtests; too hot to log above DEBUG
-        logger.debug("add_macro_indicators failed as of %s", as_of, exc_info=True)
-        return None
-    bench = None
-    if benchmark_df is not None:
-        bench = benchmark_df.copy()
-        bench["Date"] = pd.to_datetime(bench["Date"])
-        bench = bench[bench["Date"] <= cutoff]
-    spy_cut = None
-    if spy_df is not None:
-        spy_cut = spy_df.copy()
-        spy_cut["Date"] = pd.to_datetime(spy_cut["Date"])
-        spy_cut = spy_cut[spy_cut["Date"] <= cutoff]
-    return evaluate_coiled_cobra(
-        work,
-        bench,
-        spy_df=spy_cut,
-        qqq_df=bench,
-        include_rejects=include_rejects,
-    )
-
-
 # =========================
 # SCANNER CORE
 # =========================

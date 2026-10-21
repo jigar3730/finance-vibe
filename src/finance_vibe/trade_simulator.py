@@ -85,10 +85,6 @@ def simulate_trade(
     return "expired", df.iloc[last_idx]["Date"], exit_price, r_mult
 
 
-def _fmt_date(value):
-    return value.strftime("%Y-%m-%d") if value is not None and hasattr(value, "strftime") else value
-
-
 def _stop_exit_price(
     is_long: bool, stop: float, open_px: float | None, slippage_pct: float
 ) -> float:

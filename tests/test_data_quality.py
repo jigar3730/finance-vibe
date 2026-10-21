@@ -191,8 +191,6 @@ def test_daily_swing_params_tighter_than_weekly():
     d = config.get_swing_params("daily")
     assert d["t1_atr"] < w["t1_atr"]
     assert d["stop_atr_cap"] >= w["stop_atr_cap"]
-    assert d["vibe_min"] == 5
-    assert d["cooldown_bars"] > w["cooldown_bars"]
 
 
 # Opt-in swing options (R targets, risk-band rejection, ATR proximity, ...)

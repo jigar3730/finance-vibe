@@ -492,7 +492,6 @@ def add_indicators(
     atr = out["ATR"].replace(0, np.nan)
     out["Distance Resistance ATR"] = (out["Resistance"] - close) / atr
     out["Extension ATR"] = (close - out["SMA20"]) / atr
-    out["Range20 / ATR"] = out["Range20"] / atr
 
     out["RSI Slope"] = out["RSI"].diff(SLOPE_RSI_BARS)
     out["MACD Hist Slope"] = out["MACD_Hist"].diff(SLOPE_MACD_BARS)
@@ -600,7 +599,6 @@ class BreakoutFeatures:
     macd_hist_slope: float | None
     distance_resistance_atr: float | None
     extension_atr: float | None
-    range20_atr: float | None
     daily_trend_bull: bool | None
     weekly_trend_bull: bool | None
     monthly_trend_bull: bool | None
@@ -738,7 +736,6 @@ class FeatureEngine:
             macd_hist_slope=_safe_float(last.get("MACD Hist Slope"), 6),
             distance_resistance_atr=_safe_float(last.get("Distance Resistance ATR"), 4),
             extension_atr=_safe_float(last.get("Extension ATR"), 4),
-            range20_atr=_safe_float(last.get("Range20 / ATR"), 4),
             daily_trend_bull=_trend_bull(daily) if daily is not None else None,
             weekly_trend_bull=_trend_bull(weekly) if weekly is not None else None,
             monthly_trend_bull=_trend_bull(monthly, require_sma50=False)

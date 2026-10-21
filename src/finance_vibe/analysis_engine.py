@@ -239,37 +239,6 @@ def load_benchmark_frame(benchmark: str, data_mode: str) -> pd.DataFrame | None:
     return df
 
 
-def _index_above_ema21_or_sma50(
-    frame: pd.DataFrame | None, as_of: AsOf | None = None
-) -> bool | None:
-    """Causal check: index close is above its 21-bar EMA or 50-bar SMA.
-
-    Returns None when the frame is missing or the latest as-of bar has no
-    usable EMA21/SMA50 yet (insufficient history).
-    """
-    if frame is None or frame.empty:
-        return None
-    as_of_ts = pd.to_datetime(as_of) if as_of is not None else None
-    sub = frame if as_of_ts is None else frame[frame["Date"] <= as_of_ts]
-    if sub.empty:
-        return None
-    last = sub.iloc[-1]
-    close = last.get("Close")
-    if close is None or pd.isna(close):
-        return None
-    close_f = float(close)
-    checks: list[bool] = []
-    ema21 = last.get("EMA21")
-    if ema21 is not None and pd.notna(ema21):
-        checks.append(close_f > float(ema21))
-    sma50 = last.get("SMA50")
-    if sma50 is not None and pd.notna(sma50):
-        checks.append(close_f > float(sma50))
-    if not checks:
-        return None
-    return any(checks)
-
-
 def check_coiled_cobra_market_gate(
     *,
     spy_df: pd.DataFrame | None = None,
