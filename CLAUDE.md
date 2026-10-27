@@ -20,7 +20,8 @@ dashboard. It produces *signals* for review, not trades.
   every bar's breakout states/status/score, same rules as the scan)
 - `src/finance_vibe/research/` — research only (RESEARCH.md): `universe` (point-in-time
   membership, `config.RESEARCH_*`), `events` (§3 E1/E2/E3, `history_panel`), `labels` (§4–§5
-  forward labels + random/SPY benchmarks, holdout sealed). Not used by the pipeline.
+  forward labels + random/SPY benchmarks, holdout sealed), `stats` + `insample` (§7 scorecard).
+  Not used by the pipeline.
 - `src/finance_vibe/web/` — Flask app, `playbook.py` (Top Setups ranking, Market tab bias, long/short levels), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
