@@ -96,6 +96,14 @@ RESEARCH_MIN_CLOSE = 5.0
 # Unverified, kept on their price/volume profile: SKYD, INIO, FPS.
 # Review again whenever the manifest or screener adds symbols.
 RESEARCH_EXCLUDED_SYMBOLS = frozenset({"SPY", "QQQ", "IWM", "SCHD", "SCHG", "IBIT", "GDX"})
+# Forward labels (finance_vibe.research.labels, RESEARCH.md §4-§7). Signal dates
+# after RESEARCH_IN_SAMPLE_END are the sealed holdout: labelling one raises.
+RESEARCH_IN_SAMPLE_START = "2022-01-01"
+RESEARCH_IN_SAMPLE_END = "2026-03-31"
+RESEARCH_HORIZON = 10
+RESEARCH_RANDOM_DRAWS = 20
+RESEARCH_SEED = 20261027
+RESEARCH_BENCHMARK = "SPY"
 
 
 def _get_raw_filename(ticker: str, cfg: dict[str, Any]) -> str:

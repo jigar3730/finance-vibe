@@ -36,7 +36,6 @@ from finance_vibe import config
 from finance_vibe.log import setup_logging
 from finance_vibe.research import events as ev
 from finance_vibe.research import universe as uv
-from finance_vibe.scanners import breakout as bs
 
 logger = logging.getLogger(__name__)
 
@@ -61,22 +60,6 @@ def _git_rev() -> str:
 
 def _md(df: pd.DataFrame) -> str:
     return df.to_markdown(floatfmt="g")
-
-
-def history_panel(bars: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict[str, str]]:
-    frames, skipped = [], {}
-    for symbol, b in bars.items():
-        try:
-            hist = bs.scan_history(b, symbol, "daily", "daily")
-        except ValueError as exc:
-            skipped[symbol] = str(exc)
-            continue
-        except Exception:  # per ticker: one bad file must not stop the report
-            logger.exception("scan_history failed for %s", symbol)
-            skipped[symbol] = "execution_error"
-            continue
-        frames.append(hist[["Date", "Symbol", "Status", "Breakout Readiness"]])
-    return pd.concat(frames, ignore_index=True), skipped
 
 
 def survival_table(events: pd.DataFrame) -> pd.DataFrame:
@@ -146,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
     members.to_csv(out_dir / f"universe_membership_{args.stamp}.csv.gz", index=False)
     logger.info("membership: %s rows", len(members))
 
-    history, skipped = history_panel(bars)
+    history, skipped = ev.history_panel(bars)
     events = ev.first_bar_events(history)
     events = events.merge(members, on=["Date", "Symbol"], how="left", validate="one_to_one")
     events["in_universe"] = events["in_universe"].fillna(False).astype(bool)

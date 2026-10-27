@@ -11,11 +11,15 @@ history row never counts (its previous state is unknown).
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
+
 import numpy as np
 import pandas as pd
 
 from finance_vibe.scanners import breakout as bs
 
+logger = logging.getLogger(__name__)
 E1, E2, E3 = "E1", "E2", "E3"
 EVENT_STATUS = {E1: bs.STATUS_PRE, E2: bs.STATUS_TRIGGERED, E3: bs.STATUS_CONFIRMED}
 _BREAKOUT = [bs.STATUS_TRIGGERED, bs.STATUS_CONFIRMED]
@@ -45,3 +49,23 @@ def first_bar_events(history: pd.DataFrame) -> pd.DataFrame:
     out = h.loc[keep].copy()
     out.insert(2, "Event", event[keep])
     return out.reset_index(drop=True)
+
+
+HISTORY_COLUMNS = ["Date", "Symbol", "Status", "Breakout Readiness", "Rubric Version"]
+
+
+def history_panel(bars: Mapping[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict[str, str]]:
+    """Daily ``scan_history`` for every ticker, stacked; plus skipped tickers and why."""
+    frames, skipped = [], {}
+    for symbol, b in bars.items():
+        try:
+            hist = bs.scan_history(b, symbol, "daily", "daily")
+        except ValueError as exc:
+            skipped[symbol] = str(exc)
+            continue
+        except Exception:  # per ticker: one bad file must not stop the panel
+            logger.exception("scan_history failed for %s", symbol)
+            skipped[symbol] = "execution_error"
+            continue
+        frames.append(hist[HISTORY_COLUMNS])
+    return pd.concat(frames, ignore_index=True), skipped
