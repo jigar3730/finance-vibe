@@ -71,6 +71,27 @@ SCREENER_COUNT = 250
 BASE_DIR = os.path.join(PROJECT_ROOT, "data")
 TICKER_LIST_PATH = os.path.join(BASE_DIR, "active_tickers.csv")
 
+# =====================================================================
+# RESEARCH UNIVERSE (finance_vibe.research only; scanners and dashboard ignore it)
+# =====================================================================
+# Point-in-time membership at date t uses only bars on or before t: a ticker is
+# in the universe if it is not excluded, has >= RESEARCH_MIN_HISTORY_BARS
+# sessions of listing history, closes >= RESEARCH_MIN_CLOSE, and ranks in the
+# top RESEARCH_UNIVERSE_TOP_N by trailing RESEARCH_DV_WINDOW-bar median
+# Close x Volume. Changing a value after results exist is a RESEARCH.md variant.
+RESEARCH_DIR = os.path.join(BASE_DIR, "research")
+RESEARCH_UNIVERSE_TOP_N = 200
+RESEARCH_DV_WINDOW = 20
+RESEARCH_MIN_HISTORY_BARS = 252
+RESEARCH_MIN_CLOSE = 5.0
+# Funds and ETPs in the raw pool, reviewed by hand on 2026-10-26 (no quote type is
+# stored offline): STATIC_TICKERS plus GDX. Reviewed and kept as companies: SPCX
+# (2026 mega-cap IPO), PURR / MSTR / BMNR / ASST (crypto-treasury corporations),
+# ARCC (BDC), BULL (SPAC history before 2025), ADRs, preferreds, REITs, ET (MLP).
+# Unverified, kept on their price/volume profile: SKYD, INIO, FPS.
+# Review again whenever the manifest or screener adds symbols.
+RESEARCH_EXCLUDED_SYMBOLS = frozenset({"SPY", "QQQ", "IWM", "SCHD", "SCHG", "IBIT", "GDX"})
+
 
 def _get_raw_filename(ticker: str, cfg: dict[str, Any]) -> str:
     """Build a standardized raw CSV name, e.g. ``AAPL_10y_1wk.csv``."""
