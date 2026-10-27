@@ -91,7 +91,33 @@ Everything else is **exploratory** and cannot be called a finding without its ow
 
 ## 9. Results
 
-(empty until frozen and run)
+### In-sample, daily (run once on 2026-10-27)
+
+Analysis code `f24a4d5` (committed before the run); labels `70e30f2`, breakout rubric v1.0,
+snapshot `data/research/snapshots/2026-10-27/`. Full report with every column:
+`data/research/insample_2026-10-27/report.md`. Signal dates 2022-02-23 → 2026-03-31,
+in-universe events only. **Survivorship is reduced, not removed** (no delisted names, §8.4).
+
+| Signal | Count | Dates | % up | Mean R10 | Mean − SPY | Mean − random | p vs SPY | p vs random | p (Holm) | Result |
+|--------|------:|------:|-----:|---------:|-----------:|--------------:|---------:|------------:|---------:|--------|
+| PRE_BREAKOUT | 927 | 383 | 51.1% | +0.24% | −0.30% | −0.43% | 0.497 | 0.662 | 1.000 | **FAIL** |
+| TRIGGERED | 7,468 | 896 | 53.0% | +0.50% | −0.02% | −0.15% | 0.722 | 0.858 | 1.000 | **FAIL** |
+| CONFIRMED | 2,372 | 761 | 54.3% | +1.36% | +0.83% | +0.69% | 0.238 | 0.195 | 0.713 | **FAIL** |
+
+- PRE_BREAKOUT follow-through (TRIGGERED/CONFIRMED within 10 sessions): 61.1% vs 39.5% for
+  its random draws. Reported, not a pass criterion.
+- Means are per event; the §7 test is on per-date means (each signal date weighted equally),
+  which is why PRE_BREAKOUT's t vs SPY is +0.01 while its per-event mean is −0.30%.
+- **Decision (§7): no signal passes in-sample. The holdout is not run and stays unopened.
+  All three signals are dropped, not tuned.**
+
+By signal year (descriptive, not a pass criterion): no year carries a result. PRE_BREAKOUT
+2023 (503 of 927 events) has mean − random −0.49% (unadjusted p 0.92). The best single
+cell is CONFIRMED 2024 (mean − random +1.45%, unadjusted p 0.052), and that is one of 15
+cells, uncorrected.
+
+Robustness only (42 events and 555 draws flagged `split_suspect` excluded): same picture.
+p (Holm) is 1.000 / 1.000 / 0.992 for PRE_BREAKOUT / TRIGGERED / CONFIRMED, all FAIL.
 
 ## 10. Variant log
 
@@ -103,3 +129,6 @@ Every run: date, commit, what changed, which hypotheses, result. Includes failed
 | 2026-10-27 | simplification commit | Simplified to 3 signals, 10-day horizon, changed before any forward returns computed. Dropped H1–H6, Readiness score, gap split, Top Setups, ATR units, MFE/MAE, HIT, R5/R20, costs, B2 and the bootstrap; added SPY as a benchmark. | E1–E3 | — |
 | 2026-10-27 | simplification commit | Scope note: locked Goal added; failed signals are dropped, not tuned (§7). Daily test unchanged; weekly gets its own pre-registered addendum before any weekly returns. | — | — |
 | 2026-10-27 | 70e30f2 | Blind label run (fix #2), breakout rubric v1.0: `data/research/labels_2026-10-27/` from snapshot `data/research/snapshots/2026-10-27/` (545 raw files hashed in `manifest.json`). In-sample, in-universe events only (max signal date 2026-03-31): E1 927, E2 7468, E3 2372; 20 draws each (none short). DQ: 0 missing next open / short window / session gap / SPY missing; 42 events and 555 draws flagged `split_suspect` (one-bar moves ≥ 40%, kept). Labels only, no results computed. | E1–E3 | — |
+| 2026-10-27 | f24a4d5 | In-sample analysis run once (§4–§7 as frozen) on `labels_2026-10-27`. No threshold, horizon or definition changed. | E1–E3 | All FAIL in-sample (p Holm 1.000 / 1.000 / 0.713). Holdout not opened. Signals dropped. |
+| 2026-10-27 | — | **Exploratory, not a finding:** PRE_BREAKOUT anticipates the scanner's own state change (61% vs 40% reach TRIGGERED/CONFIRMED in 10 sessions), but that does not show up in returns. Any test built on this needs its own pre-registration and a fresh holdout; the 2026-04 → holdout cannot be used to pick it. | — | — |
+| 2026-10-27 | — | **Exploratory, not a finding:** CONFIRMED has the largest per-event excess (+0.69% vs random) but heavy-tailed noise (t 0.86). A new hypothesis (e.g. a longer horizon or another universe) would be a new pre-registered test, not a re-run of this one. | — | — |
