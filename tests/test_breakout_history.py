@@ -235,22 +235,24 @@ def _near_pre_breakout(rng: np.random.Generator) -> bs.BreakoutFeatures:
     return dataclasses.replace(feat, **overrides)
 
 
+def _random_cases(n: int, seed: int) -> list[bs.BreakoutFeatures]:
+    rng = np.random.default_rng(seed)
+    return [_random_features(rng) if i % 3 else _near_pre_breakout(rng) for i in range(n)]
+
+
 def test_vectorized_rules_match_reference():
-    rng = np.random.default_rng(20261026)
-    statuses = set()
-    for i in range(6000):
-        feat = _random_features(rng) if i % 3 else _near_pre_breakout(rng)
+    """All cases in one frame through the vectorized rules, row by row vs the reference."""
+    cases = _random_cases(6000, 20261026)
+    feats = pd.DataFrame([dataclasses.asdict(f) for f in cases])
+    states = bs.classify_states_frame(feats)
+    status = bs.classify_status_frame(feats, states)
+    scores = bs.score_readiness_frame(feats, states)
+    for i, feat in enumerate(cases):
         want_states = ref.classify_states(feat)
-        states = bs.classify_states(feat)
-        assert states == want_states, (i, feat)
-        status = bs.classify_status(feat, states)
-        assert status == ref.classify_status(feat, want_states), (i, feat)
-        scores = bs.score_readiness(feat, states)
-        assert scores == ref.score_readiness(feat, want_states), (i, feat)
-        assert all(type(v) is int for v in scores.values()), scores
-        assert type(status) is str and all(type(v) is str for v in states.values())
-        statuses.add(status)
-    assert statuses == {
+        assert states.iloc[i].to_dict() == want_states, (i, feat)
+        assert status.iloc[i] == ref.classify_status(feat, want_states), (i, feat)
+        assert scores.iloc[i].to_dict() == ref.score_readiness(feat, want_states), (i, feat)
+    assert set(status) == {
         bs.STATUS_PRE,
         bs.STATUS_WATCH,
         bs.STATUS_DEV,
@@ -258,6 +260,20 @@ def test_vectorized_rules_match_reference():
         bs.STATUS_TRIGGERED,
         bs.STATUS_FAILED,
     }  # every branch exercised
+
+
+def test_per_row_wrappers_match_reference():
+    """The scalar API (1-row frames from a dataclass): same values, plain str/int types."""
+    for i, feat in enumerate(_random_cases(300, 7)):
+        want_states = ref.classify_states(feat)
+        states = bs.classify_states(feat)
+        assert states == want_states, (i, feat)
+        status = bs.classify_status(feat, states)
+        assert status == ref.classify_status(feat, want_states), (i, feat)
+        scores = bs.score_readiness(feat, states)
+        assert scores == ref.score_readiness(feat, want_states), (i, feat)
+        assert type(status) is str and all(type(v) is str for v in states.values())
+        assert all(type(v) is int for v in scores.values()), scores
 
 
 # ---------------------------------------------------------------------------
