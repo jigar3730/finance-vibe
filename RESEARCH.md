@@ -190,3 +190,4 @@ not less. This is stated, and the rule is not changed for it. (The daily 10-sess
 windows overlap the same way.)
 
 **Survivorship.** As §8.4: reduced, not removed.
+| 2026-10-27 | d29350e | Weekly blind label run (§11), breakout rubric v1.0: `data/research/labels_weekly_2026-10-27/` from the same snapshot `snapshots/2026-10-27/` (weekly files). In-sample, in-universe: E1 464, E2 3682, E3 718 over 389 signal weeks (2018-05-07 → week of 2026-03-23, known 03-27); 20 draws each (none short). DQ: 0 missing next open / short window / gap / SPY missing; 49 events and 952 draws `split_suspect` (kept). scan_history skipped BMNR, CRCL, FIG (< 80 weekly bars). Labels only, no results computed. | W-E1–W-E3 | — |
