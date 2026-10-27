@@ -1,7 +1,8 @@
 # RESEARCH.md — breakout scanner validation plan
 
-Status: DRAFT — freeze before any forward return is computed.
-Frozen on: ____ (commit hash: ____)
+Status: FROZEN — no forward return was computed before the freeze.
+Frozen on: 2026-10-27 (commit hash: the commit that sets this line;
+`git log -S"Status: FROZEN" --format=%H -- RESEARCH.md`)
 
 Rule: nothing in this file changes after it is frozen except the "Results" and
 "Variant log" sections. A changed hypothesis is a new hypothesis, logged as exploratory.
@@ -37,7 +38,8 @@ A ticker's first history row never counts as an event (unknown previous state).
   - R5, R10, R20: close-to-entry return after 5/10/20 sessions, in ATR units and in %.
   - MFE20 / MAE20: max favourable / adverse excursion over 20 sessions, in ATR.
   - HIT: +2 ATR touched before −1 ATR within 20 sessions (same-bar touch of both = loss).
-- Costs: subtract 0.10% round trip (plus ½ spread proxy for price < $10: extra 0.20%).
+- Costs: subtract 0.10% round trip from every trade, plus an extra 0.20% (½ spread proxy)
+  when price < $10.
 - Primary label: **R10 in ATR units, net of costs.** Others are secondary.
 
 ## 5. Baselines
@@ -67,9 +69,10 @@ Everything else is **exploratory** and cannot be called a finding without its ow
 
 - Standard errors clustered by signal date (events on one day are correlated);
   confirm with a weekly block bootstrap (2,000 draws).
-- Multiple testing: Holm correction across H1–H6 at α = 0.05.
-- Economic bar: a hypothesis "passes" only if excess R10 ≥ +0.15 ATR net of costs **and**
-  it is significant after Holm.
+- Multiple testing: Holm correction across H1–H6 at α = 0.05. H6 (Top Setups) stays in
+  the family.
+- Economic bar: a hypothesis "passes" only if mean excess R10 ≥ +0.15 ATR per trade, net
+  of costs, **and** it is significant after Holm.
 - Report every hypothesis, pass or fail. No tuning thresholds on in-sample results.
 - In-sample: 2022-01-01 → 2026-03-31. **Holdout: 2026-04-01 onward — not opened until
   in-sample results are written below.** The holdout is run exactly once, only for
@@ -91,3 +94,7 @@ Everything else is **exploratory** and cannot be called a finding without its ow
 ## 10. Variant log
 
 Every run: date, commit, what changed, which hypotheses, result. Includes failed and abandoned runs.
+
+| Date | Commit | Change | Hypotheses | Result |
+|------|--------|--------|------------|--------|
+| 2026-10-27 | freeze commit | Freeze completion, formatting only: loose holdout / costs / pass-bar / H6 notes folded into §4 and §7 with no change in meaning; status set to FROZEN. No forward returns computed yet. | — | — |
