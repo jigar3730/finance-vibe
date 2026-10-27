@@ -12,7 +12,14 @@ For a signal on bar t (known at t's close):
 
 Labels are pure shifts of the ticker's own bars, so row t reads only bars
 t+1 ... t+horizon. Every signal and draw date must be in-sample
-(:func:`check_in_sample`): the holdout stays sealed. Rows with data problems
+(:func:`check_in_sample`): the holdout stays sealed.
+
+Weekly mode (RESEARCH.md §11, ``weekly=True``) runs on weekly bars with
+``horizon = config.RESEARCH_WEEKLY_HORIZON`` (4). The label columns keep their
+daily names in memory; files written for weekly runs rename them with
+:data:`WEEKLY_NAMES` (``R4W``, ``SPY_R4W``, ``REACH4W``). A weekly bar is dated
+Monday but known at the week's close, so the seal is applied to
+:func:`known_date` (Monday + 4 days), not to the bar date. Rows with data problems
 are flagged (:data:`DQ_COLUMNS`), never dropped. This module computes no
 averages, rates or excess returns; analysis is a separate, later step.
 """
@@ -36,26 +43,53 @@ LABEL_COLUMNS = ["entry_date", "entry_open", "exit_date", "exit_close", "fwd_bar
 # ratio (3:2 and up) is one. spy_missing: SPY has no bar on the entry or exit date.
 DQ_COLUMNS = ["no_next_open", "short_window", "session_gap", "split_suspect", "spy_missing"]
 SPLIT_JUMP = 1.4
+WEEKLY_NAMES = {"R10": "R4W", "SPY_R10": "SPY_R4W", "REACH10": "REACH4W"}
 _BREAKOUT = [bs.STATUS_TRIGGERED, bs.STATUS_CONFIRMED]
 
 
-def check_in_sample(
-    dates: Iterable[pd.Timestamp] | pd.Series, *, start: str | None = None, end: str | None = None
-) -> None:
-    """Raise ``ValueError`` if any date is outside the in-sample signal window.
+def known_date(dates: Iterable[pd.Timestamp] | pd.Series, *, weekly: bool = False) -> pd.Series:
+    """When a bar's signal is known: the bar date (daily) or that week's Friday (weekly).
 
-    Defaults: ``config.RESEARCH_IN_SAMPLE_START`` .. ``RESEARCH_IN_SAMPLE_END``.
+    Same week-end rule as :func:`config.cut_to_as_of`.
+    """
+    d = pd.to_datetime(pd.Series(list(dates), dtype="datetime64[ns]"))
+    if not weekly:
+        return d
+    d = d.dt.normalize()
+    return d - pd.to_timedelta(d.dt.weekday, unit="D") + pd.Timedelta(days=4)
+
+
+def check_in_sample(
+    dates: Iterable[pd.Timestamp] | pd.Series,
+    *,
+    weekly: bool = False,
+    start: str | None = None,
+    end: str | None = None,
+) -> None:
+    """Raise ``ValueError`` if any signal is known outside the in-sample window.
+
+    Defaults: ``config.RESEARCH_IN_SAMPLE_START`` (``RESEARCH_WEEKLY_IN_SAMPLE_START``
+    when ``weekly``) .. ``RESEARCH_IN_SAMPLE_END``, applied to :func:`known_date`.
     A real raise, not ``assert``, so ``python -O`` cannot skip the holdout seal.
     """
-    lo = pd.Timestamp(start or config.RESEARCH_IN_SAMPLE_START)
+    default_start = (
+        config.RESEARCH_WEEKLY_IN_SAMPLE_START if weekly else config.RESEARCH_IN_SAMPLE_START
+    )
+    lo = pd.Timestamp(start or default_start)
     hi = pd.Timestamp(end or config.RESEARCH_IN_SAMPLE_END)
-    d = pd.to_datetime(pd.Series(list(dates), dtype="datetime64[ns]"))
+    d = known_date(dates, weekly=weekly)
     if d.isna().any():
         raise ValueError("check_in_sample: missing signal date")
     if len(d) and d.max() > hi:
-        raise ValueError(f"holdout is sealed: signal date {d.max().date()} > {hi.date()}")
+        raise ValueError(f"holdout is sealed: signal known {d.max().date()} > {hi.date()}")
     if len(d) and d.min() < lo:
-        raise ValueError(f"signal date {d.min().date()} is before the in-sample start {lo.date()}")
+        raise ValueError(f"signal known {d.min().date()} is before the in-sample start {lo.date()}")
+
+
+def _horizon(horizon: int | None, weekly: bool) -> int:
+    if horizon is not None:
+        return horizon
+    return config.RESEARCH_WEEKLY_HORIZON if weekly else config.RESEARCH_HORIZON
 
 
 def _forward_any(flag: pd.Series, horizon: int) -> pd.Series:
@@ -94,7 +128,12 @@ def reach_frame(history: pd.DataFrame, horizon: int | None = None) -> pd.DataFra
 
 
 def draw_random(
-    events: pd.DataFrame, members: pd.DataFrame, n: int | None = None, seed: int | None = None
+    events: pd.DataFrame,
+    members: pd.DataFrame,
+    n: int | None = None,
+    seed: int | None = None,
+    *,
+    weekly: bool = False,
 ) -> pd.DataFrame:
     """``n`` date-matched universe members per event: one row per draw.
 
@@ -105,7 +144,7 @@ def draw_random(
     """
     n = config.RESEARCH_RANDOM_DRAWS if n is None else n
     seed = config.RESEARCH_SEED if seed is None else seed
-    check_in_sample(events["Date"])
+    check_in_sample(events["Date"], weekly=weekly)
     pool = members.loc[members["in_universe"], ["Date", "Symbol"]]
     by_date = {d: np.sort(g["Symbol"].to_numpy()) for d, g in pool.groupby("Date", sort=False)}
     rows: list[tuple[object, ...]] = []
@@ -125,14 +164,16 @@ def labels_at(
     spy: pd.DataFrame,
     history: pd.DataFrame | None = None,
     horizon: int | None = None,
+    *,
+    weekly: bool = False,
 ) -> pd.DataFrame:
     """Labels, SPY return, REACH10 and DQ flags for (Symbol, Date) ``keys``.
 
     ``keys`` must be in-sample. A key with no bars for its symbol, or no bar on
     its date, gets NaN labels and ``no_next_open``.
     """
-    h = config.RESEARCH_HORIZON if horizon is None else horizon
-    check_in_sample(keys["Date"])
+    h = _horizon(horizon, weekly)
+    check_in_sample(keys["Date"], weekly=weekly)
     k = keys[["Symbol", "Date"]].drop_duplicates()
     frames = [
         forward_frame(bars[s], h).assign(Symbol=s)
@@ -178,6 +219,7 @@ def build_labels(
     n: int | None = None,
     seed: int | None = None,
     horizon: int | None = None,
+    weekly: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """(event labels, draw labels) for in-universe, in-sample E1/E2/E3 ``events``.
 
@@ -187,7 +229,7 @@ def build_labels(
     """
     n = config.RESEARCH_RANDOM_DRAWS if n is None else n
     benchmark = benchmark or config.RESEARCH_BENCHMARK
-    check_in_sample(events["Date"])
+    check_in_sample(events["Date"], weekly=weekly)
     if events.duplicated(["Symbol", "Date"]).any():
         raise ValueError("build_labels: duplicate (Symbol, Date) events")
     mem = members.loc[members["in_universe"], ["Date", "Symbol"]].assign(_m=True)
@@ -197,9 +239,9 @@ def build_labels(
     if benchmark not in bars:
         raise ValueError(f"build_labels: no bars for benchmark {benchmark}")
 
-    draws = draw_random(events, members, n=n, seed=seed)
+    draws = draw_random(events, members, n=n, seed=seed, weekly=weekly)
     keys = pd.concat([events[["Symbol", "Date"]], draws[["Symbol", "Date"]]], ignore_index=True)
-    lab = labels_at(keys, bars, bars[benchmark], history, horizon)
+    lab = labels_at(keys, bars, bars[benchmark], history, _horizon(horizon, weekly), weekly=weekly)
     version = config.BREAKOUT_RUBRIC_VERSION
 
     ev_out = events[["Symbol", "Date", "Event"]].merge(lab, on=["Symbol", "Date"], how="left")

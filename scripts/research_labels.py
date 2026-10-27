@@ -11,6 +11,12 @@
    ``manifest.json`` (commit, rubric version, research config, file hashes,
    row counts, data-quality counts).
 
+``--mode weekly`` (RESEARCH.md §11) labels weekly ``scan_history`` events from
+the snapshot's ``weekly/`` files instead: weekly universe (52-bar history,
+4-bar median dollar volume), 4-week horizon, seal on the week-end date, label
+columns renamed ``R4W`` / ``SPY_R4W`` / ``REACH4W``, output
+``labels_weekly_<stamp>/``. Reuse the daily run's snapshot with ``--snapshot``.
+
 **Blind:** prints row counts and data-quality counts only. No mean, rate, hit
 rate or excess return is computed here.
 
@@ -90,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--weekly-dir", default=config.TIMEFRAME_PROFILES["weekly"]["raw_dir"])
     parser.add_argument("--out-dir", default=config.RESEARCH_DIR)
     parser.add_argument("--stamp", default=date.today().isoformat())
+    parser.add_argument("--mode", choices=["daily", "weekly"], default="daily")
     parser.add_argument(
         "--snapshot", help="reuse this existing snapshot dir (with daily/ and weekly/)"
     )
@@ -102,7 +109,8 @@ def main(argv: list[str] | None = None) -> int:
     commit = args.commit or _git_rev()
     started = time.perf_counter()
     out_dir = Path(args.out_dir)
-    run_dir = out_dir / f"labels_{args.stamp}"
+    weekly = args.mode == "weekly"
+    run_dir = out_dir / (f"labels_weekly_{args.stamp}" if weekly else f"labels_{args.stamp}")
     run_dir.mkdir(parents=True, exist_ok=False)
 
     if args.snapshot:
@@ -113,23 +121,36 @@ def main(argv: list[str] | None = None) -> int:
         hashes = snapshot(Path(args.raw_dir), Path(args.weekly_dir), snap)
     logger.info("snapshot %s: %s files hashed", snap, len(hashes))
 
-    bars = uv.load_daily_bars(str(snap / "daily"))
-    daily_first = {s: b["Date"].min() for s, b in bars.items()}
-    weekly = uv.load_weekly_dates(str(snap / "weekly"), set(bars))
-    members = uv.build_membership(uv.panel_from_bars(bars), uv.prior_sessions(daily_first, weekly))
-    history, skipped = ev.history_panel(bars)
+    if weekly:
+        # Weekly bars are the history: no daily-window prior (RESEARCH.md §11).
+        bars = uv.load_daily_bars(str(snap / "weekly"))
+        members = uv.build_membership(
+            uv.panel_from_bars(bars),
+            window=config.RESEARCH_WEEKLY_DV_WINDOW,
+            min_bars=config.RESEARCH_WEEKLY_MIN_HISTORY_BARS,
+        )
+        start = pd.Timestamp(config.RESEARCH_WEEKLY_IN_SAMPLE_START)
+    else:
+        bars = uv.load_daily_bars(str(snap / "daily"))
+        daily_first = {s: b["Date"].min() for s, b in bars.items()}
+        weekly_dates = uv.load_weekly_dates(str(snap / "weekly"), set(bars))
+        prior = uv.prior_sessions(daily_first, weekly_dates)
+        members = uv.build_membership(uv.panel_from_bars(bars), prior)
+        start = pd.Timestamp(config.RESEARCH_IN_SAMPLE_START)
+    history, skipped = ev.history_panel(bars, args.mode)
     events = ev.first_bar_events(history)
     events = events.merge(members, on=["Date", "Symbol"], how="left", validate="one_to_one")
     all_events = len(events)
     end = pd.Timestamp(config.RESEARCH_IN_SAMPLE_END)
-    start = pd.Timestamp(config.RESEARCH_IN_SAMPLE_START)
-    in_window = events["Date"].between(start, end)
-    in_universe = events["in_universe"].fillna(False).astype(bool)
+    known = lb.known_date(events["Date"], weekly=weekly).to_numpy()
+    in_window = (known >= start) & (known <= end)
+    in_universe = events["in_universe"].fillna(False).astype(bool).to_numpy()
     events = events.loc[in_window & in_universe, ["Symbol", "Date", "Event"]]
 
-    ev_labels, dr_labels = lb.build_labels(events, members, bars, history)
-    ev_labels.to_csv(run_dir / "events.csv.gz", index=False)
-    dr_labels.to_csv(run_dir / "draws.csv.gz", index=False)
+    ev_labels, dr_labels = lb.build_labels(events, members, bars, history, weekly=weekly)
+    names = lb.WEEKLY_NAMES if weekly else {}
+    ev_labels.rename(columns=names).to_csv(run_dir / "events.csv.gz", index=False)
+    dr_labels.rename(columns=names).to_csv(run_dir / "draws.csv.gz", index=False)
 
     rows = {
         "events_all_dates_all_members": all_events,
@@ -144,6 +165,9 @@ def main(argv: list[str] | None = None) -> int:
     }
     manifest = {
         "stamp": args.stamp,
+        "mode": args.mode,
+        "horizon_bars": config.RESEARCH_WEEKLY_HORIZON if weekly else config.RESEARCH_HORIZON,
+        "label_columns": {k: names.get(k, k) for k in ("R10", "SPY_R10", "REACH10")},
         "commit": commit,
         "breakout_rubric_version": config.BREAKOUT_RUBRIC_VERSION,
         "research_config": {
@@ -154,6 +178,8 @@ def main(argv: list[str] | None = None) -> int:
         "split_jump": lb.SPLIT_JUMP,
         "snapshot": str(snap),
         "max_event_date": str(ev_labels["Date"].max().date()),
+        "max_signal_known": str(lb.known_date(ev_labels["Date"], weekly=weekly).max().date()),
+        "min_event_date": str(ev_labels["Date"].min().date()),
         "scan_history_skipped": skipped,
         "rows": rows,
         "data_quality": dq,

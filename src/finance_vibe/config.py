@@ -104,6 +104,12 @@ RESEARCH_HORIZON = 10
 RESEARCH_RANDOM_DRAWS = 20
 RESEARCH_SEED = 20261027
 RESEARCH_BENCHMARK = "SPY"
+# Weekly addendum (RESEARCH.md §11): weekly bars, same seal on the week-end date.
+# The in-sample start is "first available" (before the 2016-10 weekly files begin).
+RESEARCH_WEEKLY_IN_SAMPLE_START = "2016-01-01"
+RESEARCH_WEEKLY_HORIZON = 4
+RESEARCH_WEEKLY_MIN_HISTORY_BARS = 52
+RESEARCH_WEEKLY_DV_WINDOW = 4
 
 
 def _get_raw_filename(ticker: str, cfg: dict[str, Any]) -> str:

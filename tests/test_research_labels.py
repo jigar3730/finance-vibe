@@ -288,3 +288,65 @@ def test_build_labels_rejects_non_members():
     members.loc[members["Symbol"].eq("T00") & members["Date"].eq(DAYS[T]), "in_universe"] = False
     with pytest.raises(ValueError, match="universe member"):
         lb.build_labels(_events(bars), members, bars, _history(bars))
+
+
+# ---------------------------------------------------------------------------
+# Weekly addendum (RESEARCH.md §11)
+# ---------------------------------------------------------------------------
+
+WEEKS = pd.date_range("2018-01-01", periods=200, freq="W-MON")
+
+
+def _weekly_universe(n: int = 25) -> dict[str, pd.DataFrame]:
+    return {f"T{i:02d}": _bars(i, WEEKS) for i in range(n)} | {"SPY": _bars(999, WEEKS)}
+
+
+def test_weekly_signal_is_known_at_the_week_end():
+    got = lb.known_date(pd.to_datetime(["2026-03-23", "2026-03-25", "2026-03-30"]), weekly=True)
+    assert list(got) == list(pd.to_datetime(["2026-03-27", "2026-03-27", "2026-04-03"]))
+    daily = lb.known_date(pd.to_datetime(["2026-03-30"]))
+    assert daily.iloc[0] == pd.Timestamp("2026-03-30")
+
+
+def test_weekly_seal_is_on_the_week_end_date():
+    lb.check_in_sample([pd.Timestamp("2026-03-23")], weekly=True)  # closes 03-27
+    with pytest.raises(ValueError, match="holdout is sealed"):
+        lb.check_in_sample([pd.Timestamp("2026-03-30")], weekly=True)  # closes 04-03
+    lb.check_in_sample([pd.Timestamp("2026-03-30")])  # a daily bar that day is in-sample
+
+
+def test_weekly_in_sample_starts_at_the_first_available_bar():
+    lb.check_in_sample([pd.Timestamp("2018-05-07")], weekly=True)
+    with pytest.raises(ValueError, match="before the in-sample start"):
+        lb.check_in_sample([pd.Timestamp("2018-05-07")])
+
+
+def test_weekly_labels_use_four_week_horizon_and_next_week_open():
+    bars = _weekly_universe()
+    t = 100
+    event = pd.DataFrame({"Symbol": ["T00"], "Date": [WEEKS[t]], "Event": [ev.E1]})
+    ev_out, dr_out = lb.build_labels(event, _members(bars), bars, _history(bars), weekly=True)
+    row, b = ev_out.iloc[0], bars["T00"]
+    assert config.RESEARCH_WEEKLY_HORIZON == 4
+    assert row["entry_date"] == WEEKS[t + 1] and row["exit_date"] == WEEKS[t + 4]
+    assert row["R10"] == pytest.approx(b["Close"].iloc[t + 4] / b["Open"].iloc[t + 1] - 1)
+    spy = bars["SPY"]
+    assert row["SPY_R10"] == pytest.approx(spy["Close"].iloc[t + 4] / spy["Open"].iloc[t + 1] - 1)
+    assert not row["session_gap"] and len(dr_out) == 20
+
+
+def test_weekly_reach_window_is_four_bars():
+    hist = pd.DataFrame({"Date": WEEKS, "Symbol": "X", "Status": bs.STATUS_WATCH})
+    hist.loc[105, "Status"] = bs.STATUS_TRIGGERED
+    r = lb.reach_frame(hist, config.RESEARCH_WEEKLY_HORIZON)["REACH10"]
+    assert r.iloc[101] and not r.iloc[100]
+
+
+def test_weekly_holdout_event_raises():
+    days = pd.date_range("2025-06-02", "2026-06-29", freq="W-MON")
+    bars = {f"T{i:02d}": _bars(i, days) for i in range(25)} | {"SPY": _bars(999, days)}
+    event = pd.DataFrame(
+        {"Symbol": ["T00"], "Date": [pd.Timestamp("2026-03-30")], "Event": [ev.E2]}
+    )
+    with pytest.raises(ValueError, match="holdout is sealed"):
+        lb.build_labels(event, _members(bars), bars, _history(bars), weekly=True)

@@ -54,12 +54,15 @@ def first_bar_events(history: pd.DataFrame) -> pd.DataFrame:
 HISTORY_COLUMNS = ["Date", "Symbol", "Status", "Breakout Readiness", "Rubric Version"]
 
 
-def history_panel(bars: Mapping[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict[str, str]]:
-    """Daily ``scan_history`` for every ticker, stacked; plus skipped tickers and why."""
+def history_panel(
+    bars: Mapping[str, pd.DataFrame], mode: str = "daily"
+) -> tuple[pd.DataFrame, dict[str, str]]:
+    """``scan_history`` (``mode``: daily or weekly bars) for every ticker, stacked; plus
+    skipped tickers and why."""
     frames, skipped = [], {}
     for symbol, b in bars.items():
         try:
-            hist = bs.scan_history(b, symbol, "daily", "daily")
+            hist = bs.scan_history(b, symbol, mode, mode)
         except ValueError as exc:
             skipped[symbol] = str(exc)
             continue
