@@ -119,6 +119,37 @@ cells, uncorrected.
 Robustness only (42 events and 555 draws flagged `split_suspect` excluded): same picture.
 p (Holm) is 1.000 / 1.000 / 0.992 for PRE_BREAKOUT / TRIGGERED / CONFIRMED, all FAIL.
 
+### In-sample, weekly (§11; run once on 2026-10-27)
+
+Analysis code `77e1826` (committed before the run); labels `d29350e`, breakout rubric v1.0,
+same snapshot as daily. Full report: `data/research/insample_weekly_2026-10-27/report.md`.
+Signal weeks 2018-05-07 → week of 2026-03-23 (389 weeks), in-universe events only.
+**Survivorship is reduced, not removed** (§8.4).
+
+| Signal | Count | Weeks | % up | Mean R4W | Mean − SPY | Mean − random | p vs SPY | p vs random | p (Holm) | Result |
+|--------|------:|------:|-----:|---------:|-----------:|--------------:|---------:|------------:|---------:|--------|
+| PRE_BREAKOUT | 464 | 189 | 56.7% | +1.25% | +0.00% | −0.06% | 0.439 | 0.534 | 1.000 | **FAIL** |
+| TRIGGERED | 3,682 | 375 | 53.1% | +0.58% | −0.01% | −0.09% | 0.549 | 0.756 | 1.000 | **FAIL** |
+| CONFIRMED | 718 | 283 | 52.0% | +3.26% | +2.30% | +2.03% | 0.011 | 0.016 | 0.049 | **PASS** |
+
+- PRE_BREAKOUT follow-through (TRIGGERED/CONFIRMED within 4 weeks): 48.5% vs 28.1% random.
+  Reported, not a pass criterion.
+- **Decision (§11): weekly CONFIRMED passes in-sample and is eligible for the one holdout
+  run. PRE_BREAKOUT and TRIGGERED are dropped, not tuned.** The holdout has not been
+  opened.
+- Read with care. These caveats change nothing in the decision:
+  - The pass is marginal (0.049 against 0.05).
+  - The §11 overlap caveat applies: successive 4-week windows overlap, so the plain
+    t-test overstates significance.
+  - The excess is concentrated. % up is only 52%, while the mean is +2%, so a minority
+    of large winners carries it.
+- Robustness only: with the 28 CONFIRMED events (and their draws) flagged `split_suspect`
+  (one-week moves ≥ 40%) excluded, mean − random falls to +1.10% and p (Holm) to 0.400.
+  The in-sample result depends on a few extreme weeks.
+- By year (descriptive, not a pass criterion): CONFIRMED is positive against random in
+  7 of 9 years. 2020 is the largest cell (95 events, +5.36%, unadjusted p 0.046). Negative
+  years are 2018 (−0.02%) and 2021 (−0.45%).
+
 ## 10. Variant log
 
 Every run: date, commit, what changed, which hypotheses, result. Includes failed and abandoned runs.
@@ -191,3 +222,5 @@ windows overlap the same way.)
 
 **Survivorship.** As §8.4: reduced, not removed.
 | 2026-10-27 | d29350e | Weekly blind label run (§11), breakout rubric v1.0: `data/research/labels_weekly_2026-10-27/` from the same snapshot `snapshots/2026-10-27/` (weekly files). In-sample, in-universe: E1 464, E2 3682, E3 718 over 389 signal weeks (2018-05-07 → week of 2026-03-23, known 03-27); 20 draws each (none short). DQ: 0 missing next open / short window / gap / SPY missing; 49 events and 952 draws `split_suspect` (kept). scan_history skipped BMNR, CRCL, FIG (< 80 weekly bars). Labels only, no results computed. | W-E1–W-E3 | — |
+| 2026-10-27 | 77e1826 | Weekly in-sample analysis run once (§11 as pre-registered) on `labels_weekly_2026-10-27`. No threshold, horizon or definition changed. | W-E1–W-E3 | PRE_BREAKOUT FAIL (p Holm 1.000), TRIGGERED FAIL (1.000), **CONFIRMED PASS (0.049)**. Holdout not opened. |
+| 2026-10-27 | — | **Exploratory, not a finding:** weekly CONFIRMED's in-sample pass does not survive excluding the 28 split-flagged events (p Holm 0.400). An overlap-robust test (non-overlapping 4-week windows, or HAC errors) would be a new pre-registered test. It cannot replace the §11 rule, and it cannot be chosen after seeing the holdout. | — | — |
