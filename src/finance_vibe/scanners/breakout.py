@@ -223,37 +223,6 @@ _RESAMPLE_AGG = {
 # =========================
 
 
-def _safe_float(value, digits: int | None = None) -> float | None:
-    """Return a finite float (optionally rounded) or None."""
-    if value is None or (isinstance(value, (float, np.floating)) and np.isnan(value)):
-        return None
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        return None
-    try:
-        out = float(value)
-    except (TypeError, ValueError):
-        return None
-    if not np.isfinite(out):
-        return None
-    if digits is not None:
-        return round(out, digits)
-    return out
-
-
-def _safe_bool(value) -> bool | None:
-    if value is None:
-        return None
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        return None
-    return bool(value)
-
-
 def _ta_col(frame: pd.DataFrame | None, *prefixes: str) -> pd.Series | None:
     """Pick the first pandas_ta column whose name starts with any prefix."""
     if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
@@ -308,18 +277,6 @@ def _scalar(value):
     if isinstance(value, (float, np.floating)):
         return float(value)
     return value
-
-
-def _asof_str(value) -> str | None:
-    if value is None:
-        return None
-    try:
-        if pd.isna(value):
-            return None
-    except (TypeError, ValueError):
-        return None
-    ts = pd.Timestamp(value)
-    return str(ts.date())
 
 
 # =========================
@@ -538,47 +495,6 @@ def add_indicators(
     return out
 
 
-def _trend_bull(df: pd.DataFrame, *, require_sma50: bool = True) -> bool | None:
-    """SMA stack on the last bar: Close > SMA20 > SMA50 (and > SMA200 if present).
-
-    Monthly frames often lack SMA50 early in a 5y history. In that case
-    ``require_sma50=False`` falls back to Close > rising SMA20.
-    """
-    if df is None or df.empty:
-        return None
-    last = df.iloc[-1]
-    close = _safe_float(last.get("Close"))
-    sma20 = _safe_float(last.get("SMA20"))
-    sma50 = _safe_float(last.get("SMA50"))
-    sma200 = _safe_float(last.get("SMA200"))
-    if close is None or sma20 is None:
-        return None
-    bull = close > sma20
-    if sma50 is not None:
-        bull = bull and sma20 > sma50 and close > sma50
-    elif require_sma50:
-        return None
-    if sma200 is not None:
-        bull = bull and close > sma200
-    if len(df) >= 2:
-        prev_sma20 = _safe_float(df.iloc[-2].get("SMA20"))
-        if prev_sma20 is not None:
-            bull = bull and sma20 >= prev_sma20
-    return bool(bull)
-
-
-def _trend_bear(df: pd.DataFrame | None) -> bool | None:
-    if df is None or df.empty:
-        return None
-    last = df.iloc[-1]
-    close = _safe_float(last.get("Close"))
-    sma20 = _safe_float(last.get("SMA20"))
-    sma50 = _safe_float(last.get("SMA50"))
-    if close is None or sma20 is None or sma50 is None:
-        return None
-    return bool(close < sma20 < sma50)
-
-
 # Research CSV feature columns → BreakoutFeatures fields (after the identity columns).
 FEATURE_COLUMNS = {
     "Close": "close",
@@ -662,42 +578,16 @@ class BreakoutFeatures:
 
 
 class FeatureEngine:
-    """OHLCV → timeframes → indicators → last-bar feature snapshot.
+    """OHLCV → indicators → last-bar feature snapshot (the last row of ``_feature_frame``).
 
-    Scoring / classification must not live here. Callers that want a
-    historical bar should pass ``df.iloc[: i + 1]`` so only data through
-    that bar is visible.
+    Scoring / classification must not live here. For every bar's features
+    and states, use :func:`scan_history`.
     """
 
     def __init__(self, native_tf: str):
         if native_tf not in ("daily", "weekly"):
             raise ValueError(f"unsupported native timeframe: {native_tf}")
         self.native_tf = native_tf
-
-    def create_timeframes(self, df: pd.DataFrame) -> dict[str, pd.DataFrame]:
-        """Build Monthly / Weekly / Daily frames from native OHLCV only."""
-        frames: dict[str, pd.DataFrame] = {}
-        if self.native_tf == "daily":
-            frames["daily"] = df.copy()
-            frames["weekly"] = resample_ohlcv(df, "W-FRI")
-            frames["monthly"] = resample_ohlcv(df, "ME")
-        else:
-            frames["weekly"] = df.copy()
-            frames["monthly"] = resample_ohlcv(df, "ME")
-        return frames
-
-    def enrich_timeframes(self, frames: dict[str, pd.DataFrame]) -> dict[str, pd.DataFrame]:
-        enriched: dict[str, pd.DataFrame] = {}
-        for tf, frame in frames.items():
-            if frame is None or frame.empty:
-                continue
-            include_slow = tf != "monthly"
-            enriched[tf] = add_indicators(
-                frame,
-                pctl_window=PCTL_WINDOW[tf],
-                include_sma200=include_slow,
-            )
-        return enriched
 
     def extract(
         self,
@@ -941,19 +831,6 @@ def _feature_frame(clean: pd.DataFrame, native_tf: str) -> pd.DataFrame:
 # =========================
 
 
-def _pctl_points(pctl: float | None, full: int, mid: int, bands: tuple[float, float]) -> int:
-    """Lower percentile = more compressed. ``bands`` is (full_cut, partial_cut)."""
-    if pctl is None:
-        return 0
-    if pctl <= bands[0]:
-        return full
-    if pctl <= bands[1]:
-        return mid
-    if pctl <= 50:
-        return max(1, mid // 2)
-    return 0
-
-
 # MTF labels with no bullish timeframe. They carry the same score penalty
 # DIVERGENT did before they were split out of it (see score_readiness).
 MTF_NO_UPTREND = {"BEARISH", "NEUTRAL"}
@@ -964,59 +841,9 @@ def _mtf_label(feat: BreakoutFeatures) -> str:
     return classify_states(feat)["MTF"]
 
 
-def _primary_trend_label(feat: BreakoutFeatures) -> str:
-    primary_bull = feat.daily_trend_bull if feat.has_daily else feat.weekly_trend_bull
-    primary_bear = feat.daily_trend_bear if feat.has_daily else feat.weekly_trend_bear
-    if primary_bull:
-        return "BULLISH"
-    if primary_bear:
-        return "BEARISH"
-    return "NEUTRAL"
-
-
-def _volatility_label(feat: BreakoutFeatures) -> str:
-    if feat.compression:
-        return "COMPRESSING"
-    expanding = (feat.bb_width_pctl is not None and feat.bb_width_pctl >= 70) or (
-        feat.atr_pctl is not None and feat.atr_pctl >= 70
-    )
-    if expanding:
-        return "EXPANDING"
-    return "NORMAL"
-
-
-def _volume_label(feat: BreakoutFeatures) -> str:
-    if feat.volume_dryup or (feat.rvol20 is not None and feat.rvol20 < RVOL_DRYUP):
-        return "DRYING_UP"
-    if feat.rvol20 is not None and feat.rvol20 >= 1.20:
-        return "EXPANDING"
-    return "NORMAL"
-
-
 def _momentum_label(feat: BreakoutFeatures) -> str:
     """ACCELERATING: RSI and MACD-histogram slopes both up; FADING: both down."""
     return classify_states(feat)["Momentum"]
-
-
-def _structure_label(feat: BreakoutFeatures) -> str:
-    dist = feat.distance_resistance_atr
-    close = feat.close
-    support = feat.support
-    if close is not None and support is not None and close < support:
-        return "BELOW_SUPPORT"
-    if dist is None:
-        return "UNKNOWN"
-    if dist < 0:
-        return "ABOVE_RESISTANCE"
-    if dist <= AT_RESISTANCE_ATR:
-        return "AT_RESISTANCE"
-    return "UNDER_RESISTANCE"
-
-
-def _distance_label(feat: BreakoutFeatures) -> str:
-    if feat.distance_resistance_atr is None:
-        return ""
-    return f"{feat.distance_resistance_atr:.1f} ATR"
 
 
 # =========================
@@ -1055,7 +882,7 @@ def _is_known(frame: pd.DataFrame, name: str) -> np.ndarray:
 
 
 def _pctl_points_v(pctl: np.ndarray, full: int, mid: int, bands: tuple[float, float]) -> np.ndarray:
-    """Vectorized :func:`_pctl_points` (NaN scores 0)."""
+    """Lower percentile = more compressed; ``bands`` is (full_cut, partial_cut). NaN scores 0."""
     return np.select(
         [pctl <= bands[0], pctl <= bands[1], pctl <= 50], [full, mid, max(1, mid // 2)], 0
     )

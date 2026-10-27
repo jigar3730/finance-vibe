@@ -318,7 +318,14 @@ def test_forming_sma_matches_truncated_recompute(native_tf, rule, lengths):
 def _reference_flags(clean: pd.DataFrame, native_tf: str) -> dict[str, bool | None]:
     """Trend flags the original per-row code computes on ``clean`` (its last bar)."""
     flags: dict[str, bool | None] = {"daily_trend_bull": None, "daily_trend_bear": None}
-    frames = bs.FeatureEngine(native_tf).create_timeframes(clean)
+    if native_tf == "daily":  # the original FeatureEngine.create_timeframes map
+        frames = {
+            "daily": clean.copy(),
+            "weekly": bs.resample_ohlcv(clean, "W-FRI"),
+            "monthly": bs.resample_ohlcv(clean, "ME"),
+        }
+    else:
+        frames = {"weekly": clean.copy(), "monthly": bs.resample_ohlcv(clean, "ME")}
     for tf, frame in frames.items():
         enriched = bs.add_indicators(
             frame, pctl_window=bs.PCTL_WINDOW[tf], include_sma200=tf != "monthly"
