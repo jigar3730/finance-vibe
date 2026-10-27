@@ -197,7 +197,7 @@ outcomes; nothing in the holdout is evaluated.
   inside the window (listed then, so the daily file is their whole history):
   {", ".join(listed_in_window) or "none"}. It undercounts the other
   {len(long_listed_fallback)}, which start on the daily window's first day (listed earlier,
-  true age unknown) and so wait until their {config.RESEARCH_MIN_HISTORY_BARS}th daily bar:
+  true age unknown) and so wait until they have {config.RESEARCH_MIN_HISTORY_BARS} daily bars:
   {", ".join(long_listed_fallback) or "none"}. Events the fallback removes from those
   {len(long_listed_fallback)} (reason `history`): E1 {fallback_counts[ev.E1]},
   E2 {fallback_counts[ev.E2]}, E3 {fallback_counts[ev.E3]}.
