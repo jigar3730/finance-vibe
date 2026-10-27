@@ -302,6 +302,7 @@ def _truncated_htf_smas(clean: pd.DataFrame, t: int, rule: str, lengths) -> list
     return [float(bs._sma(close, n).iloc[-1]) for n in lengths]
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     ("native_tf", "rule", "lengths"),
     [("daily", "W-FRI", (20, 50, 200)), ("daily", "ME", (20, 50)), ("weekly", "ME", (20, 50))],

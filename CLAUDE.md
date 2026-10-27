@@ -16,7 +16,8 @@ dashboard. It produces *signals* for review, not trades.
   RS, Cobra market gate), `pipeline` (orchestrator)
 - `src/finance_vibe/data/` — `tickers`, `ingest` (Yahoo download, both modes),
   `daily_ingest`, `raw` (the raw CSV loader)
-- `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout`
+- `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout` (`scan_history()` gives
+  every bar's breakout states/status/score, same rules as the scan)
 - `src/finance_vibe/web/` — Flask app, `playbook.py` (Top Setups ranking, Market tab bias, long/short levels), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
@@ -31,7 +32,8 @@ uv lock                                    # after editing pyproject.toml deps; 
 # without uv: pip install -r requirements.txt && export PYTHONPATH=src
 # commands below assume the .venv is active (or prefix with `uv run`)
 
-python -m pytest -q                        # full suite, ~30s (or: uv run pytest -q)
+python -m pytest -q                        # full suite, ~70s (or: uv run pytest -q)
+python -m pytest -q -m "not slow"          # skip the brute-force forming-SMA oracle, ~50s
 python -m pytest tests/test_coiled_cobra.py -q
 
 python -m finance_vibe.pipeline                         # weekly (default)
@@ -118,6 +120,7 @@ The host may not have pytest. These scripts copy the working tree into the
 
 ```bash
 scripts/test_in_container.sh                    # pytest (any pytest args pass through)
+scripts/test_in_container.sh -m "not slow"      # fast run; run the full suite before committing
 scripts/golden_in_container.sh compare          # golden-output check, ~1.5 min
 scripts/lint_in_container.sh                    # ruff check + ruff format --check + mypy
 scripts/lint_in_container.sh ruff check --fix   # or any command in the lint venv

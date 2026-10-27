@@ -45,6 +45,9 @@ default-groups = ["dev"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = [
+    "slow: brute-force oracles; deselect with -m \"not slow\" for a fast run",
+]
 
 [tool.ruff]
 target-version = "py312"

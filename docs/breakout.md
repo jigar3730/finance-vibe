@@ -15,8 +15,11 @@ the other's output. Breakout output is descriptive, for inspection.
 
 > **Source of truth:** the module. This doc was audited line by line against
 > the code on 2026-10-10. Every threshold below is a module constant or a
-> literal in `add_indicators`, the `_*_label` functions, `classify_status` or
-> `score_readiness`. Where they disagree, the code wins.
+> literal in `add_indicators`, `classify_states_frame`, `classify_status_frame`
+> or `score_readiness_frame`. Since 2026-10-26 the rules exist only in those
+> vectorized functions; the per-row `classify_states` / `classify_status` /
+> `score_readiness` are one-row wrappers over them. Where code and doc
+> disagree, the code wins.
 
 ## Design principles
 
@@ -46,26 +49,28 @@ raw.load_raw()             contract check, clean dates, optional as-of cut
 normalize_ohlcv()          header aliases, UTC dates, dedupe, negative volume → 0
         │
         ▼
-FeatureEngine.create_timeframes()
-        ├── daily native  → Daily + Weekly + Monthly
-        └── weekly native → Weekly + Monthly
+_feature_frame()          one row of features per native bar
+        ├── add_indicators() on the native frame
+        ├── daily native  → daily flags (native) + weekly (W-FRI) and monthly
+        │                   (ME) flags from the bar forming at each date
+        └── weekly native → weekly flags (native) + monthly flags (forming)
         │
-        ▼
-add_indicators()  per timeframe
-        │
-        ▼
-FeatureEngine.extract()  → BreakoutFeatures (last bar of the native frame)
-        │
-        ▼
-ScoringEngine.evaluate()
+        ├──────────────────────────────┐
+        ▼                              ▼
+FeatureEngine.extract()        scan_history()
+  last row → BreakoutFeatures    every row (bars 80+)
+        │                              │
+        ▼                              ▼
+ScoringEngine.evaluate()       the same rules on the whole frame
         ├── classify_states()   Trend / Volatility / Volume / Momentum /
         │                       Structure / Breakout Distance / MTF
         ├── classify_status()   PRE_BREAKOUT · BREAKOUT_CONFIRMED ·
-        │                       FAILED_BREAKOUT · DEVELOPING · WATCH
+        │                       BREAKOUT_TRIGGERED · FAILED_BREAKOUT ·
+        │                       DEVELOPING · WATCH
         └── score_readiness()   100-pt score + factor scores − penalties
-        │
+        │                       (each a one-row call of the *_frame rule)
         ▼
-breakout_setups_<date>.csv
+breakout_setups_<date>.csv     DataFrame (Date + output columns)
 ```
 
 Files with fewer than 80 native bars (`MIN_PRIMARY_BARS`) are rejected as
@@ -107,7 +112,9 @@ Implementations are in `indicators.py` (pandas-ta 0.4.71b0 semantics).
 | `Failed Breakout` | Triggered on any of the previous 5 bars, not triggered now, **and** Close < `Breakout Level`. Resistance rolls up to the breakout bar's own high the next day, so closing under it while holding the broken level is not a failure (fixed 2026-10-08; before that, most next-day pullbacks were labelled failed). |
 | `Wick Reject` | High > Resistance but Close < Resistance |
 
-**Trend flags** (last bar of each timeframe):
+**Trend flags** (per timeframe, evaluated at each native bar; on daily data the
+weekly and monthly flags use the higher-timeframe bar as it was forming at that
+date, e.g. Monday–Wednesday of the current week on a Wednesday):
 - **Bull:** all of the following hold.
   - Close > SMA20, SMA20 > SMA50, and Close > SMA50.
   - Close > SMA200, when SMA200 exists.
@@ -141,6 +148,25 @@ Evaluated in order; the first match wins. "Not through" means `Breakout Triggere
 | 4 | `BREAKOUT_TRIGGERED` | Triggered but not confirmed (closed above Resistance without the RVOL20 / SMA20 confirmation). Before 2026-10-20 these rows were labelled `WATCH`; older CSVs still say `WATCH`, and the dashboard relabels them from `Breakout Triggered`. |
 | 5 | `DEVELOPING` | Not through **and** Trend `BULLISH` **and** (Compression **or** BB Width Pctl ≤ 40) **and** distance > 1.25 ATR |
 | 6 | `WATCH` | Everything else |
+
+## History (`scan_history`)
+
+`scan_history(bars, symbol, scan_mode, native_tf)` returns every bar's features,
+states, Status and score, not just the last bar's. It is a function, not a
+pipeline stage or CSV.
+
+- One row per native bar that has at least 80 bars of history (`MIN_PRIMARY_BARS`);
+  fewer bars in total raise `insufficient bars`, as the scan does.
+- Columns: `Date` (the bar's timestamp, datetime), then the output columns below.
+- The row dated t is what `run_scanner --as-of t` writes for that ticker, cell for
+  cell. On daily data the weekly/monthly trend flags at t come from the
+  higher-timeframe bar forming at t, never the completed week or month.
+  Weekly raw bars only exist complete, so weekly data has no forming week; its
+  monthly flags still use the forming month.
+- Pass bars from `raw.load_raw` (the data contract). Truncating the output at t
+  equals calling it on data cut at t (`tests/test_breakout_history.py`).
+- The forming-bar SMAs are bit-exact with `indicators.sma` on the cut data: every
+  window is laid end to end and convolved once.
 
 ## Display and sort
 
@@ -245,6 +271,22 @@ Percentile bands award full points, then partial points, then `max(1, partial //
 
 ## Design choices
 
+### Known quirks (kept for parity)
+
+Both are behaviour of the current rubric, kept so `scan_history` and the daily
+scan stay identical. Fix them only in a deliberate, versioned change (re-baseline
+golden, regenerate history):
+
+- **Length-n SMA.** When a timeframe has exactly n bars, `indicators.sma` sums its
+  single window in reverse order (numpy convolution), so that one SMA can differ
+  in the last bit from the same window inside a longer series. That can flip a
+  trend-flag tie (e.g. `SMA20 ≥ previous`) on the bar where the SMA first warms
+  up. `scan_history` reproduces it deliberately.
+- **Rounding before thresholds.** Features are rounded (prices, ATR, RVOL20,
+  slopes and distances to 4 dp; percentiles to 2 dp; MACD values to 6 dp) before
+  the states, status and score compare them with their thresholds. A value just
+  under a cut can round onto it (e.g. RVOL20 1.49996 counts as 1.5).
+
 - **Bollinger width uses sample std (ddof=1)**, as pandas-ta did; textbook
   Bollinger uses population std. Kept on purpose (decided 2026-10-10):
   widths are only compared with their own percentile history, so ddof just
@@ -266,7 +308,10 @@ python -m finance_vibe.scanners.breakout daily
 python -m finance_vibe.scanners.breakout weekly --as-of 2025-11-07
 ```
 
-Tests: `tests/test_breakout.py`, `tests/test_dashboard.py`, `tests/test_as_of.py`.
+Tests: `tests/test_breakout.py`, `tests/test_breakout_history.py`,
+`tests/test_dashboard.py`, `tests/test_as_of.py`. `tests/breakout_reference.py` is a
+frozen copy of the pre-vectorization scalar rules used as a test oracle; delete it
+(and its tests) in the next deliberate rule change rather than editing it.
 
 ## Validation status
 
