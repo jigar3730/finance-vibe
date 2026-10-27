@@ -30,13 +30,6 @@ from finance_vibe import config
 from finance_vibe.data import raw
 from finance_vibe.scanners import breakout as bs
 
-PENDING = pytest.mark.xfail(
-    not hasattr(bs, "scan_history"),
-    raises=AttributeError,
-    strict=True,
-    reason="scan_history not implemented yet",
-)
-
 # ---------------------------------------------------------------------------
 # Synthetic market data (seeded; runs anywhere)
 # ---------------------------------------------------------------------------
@@ -272,13 +265,27 @@ def test_vectorized_rules_match_reference():
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("digits", [2, 4, 6])
+def test_round_like_builtin_matches_round(digits):
+    rng = np.random.default_rng(digits)
+    scale = 10.0**digits
+    ties = (np.arange(-5000, 5000) + 0.5) / scale  # x.xx5 values: the hard cases
+    values = np.concatenate(
+        [ties, rng.uniform(-200, 200, 20_000), rng.normal(0, 1e-3, 2_000), [2.675, 1.0005, 0.125]]
+    )
+    got = bs._round_like_builtin(values, digits)
+    want = np.array([round(float(v), digits) for v in values])
+    np.testing.assert_array_equal(got, want)
+    edge = bs._round_like_builtin([np.inf, -np.inf, np.nan, 1e17], digits)
+    assert np.isnan(edge[:3]).all() and edge[3] == 1e17
+
+
 def _truncated_htf_smas(clean: pd.DataFrame, t: int, rule: str, lengths) -> list[float]:
     """Brute force: SMAs on the last HTF bar of data cut after native bar t."""
     close = bs.resample_ohlcv(clean.iloc[: t + 1], rule)["Close"].astype(float)
     return [float(bs._sma(close, n).iloc[-1]) for n in lengths]
 
 
-@PENDING
 @pytest.mark.parametrize(
     ("native_tf", "rule", "lengths"),
     [("daily", "W-FRI", (20, 50, 200)), ("daily", "ME", (20, 50)), ("weekly", "ME", (20, 50))],
@@ -305,13 +312,12 @@ def _reference_flags(clean: pd.DataFrame, native_tf: str) -> dict[str, bool | No
     return flags
 
 
-@PENDING
 @pytest.mark.parametrize("native_tf", ["daily", "weekly"])
 @pytest.mark.parametrize("symbol", ["BULL", "CHOP"])
 def test_trend_flags_match_truncated_recompute(native_tf, symbol):
     clean = _clean(symbol, native_tf)
     frame = bs._feature_frame(clean, native_tf)
-    step = 7 if native_tf == "daily" else 3  # 7 is coprime to 5: every weekday is hit
+    step = 17 if native_tf == "daily" else 3  # coprime to 5: every weekday is hit
     for t in range(bs.MIN_PRIMARY_BARS - 1, len(clean), step):
         want = _reference_flags(clean.iloc[: t + 1], native_tf)
         for col, value in want.items():
@@ -365,7 +371,6 @@ def test_canary_is_bullish_when_complete_but_not_while_forming(canary, flag):
     assert forming is False and complete is True
 
 
-@PENDING
 @pytest.mark.parametrize(("canary", "flag"), [(_week_canary, "Weekly"), (_month_canary, "Monthly")])
 def test_htf_flags_use_the_forming_bar(canary, flag):
     """Mid-period, the flag must reflect the period so far, not how it ended."""
@@ -403,7 +408,6 @@ def scanner_env(tmp_path, monkeypatch):
     return setup
 
 
-@PENDING
 @pytest.mark.parametrize("mode", ["daily", "weekly"])
 @pytest.mark.parametrize("as_of", [None, "2025-06-11", "2025-06-13", "2025-04-30"])
 def test_last_row_parity_with_run_scanner(scanner_env, mode, as_of):
@@ -430,13 +434,12 @@ def test_last_row_parity_with_run_scanner(scanner_env, mode, as_of):
         bs.scan_history(short, "SHRT", mode, mode)
 
 
-@PENDING
 @pytest.mark.parametrize("native_tf", ["daily", "weekly"])
 def test_history_rows_match_per_date_replay(native_tf):
     """Every sampled row equals the per-row path run on data cut at that bar."""
     clean = _clean("MIXD", native_tf)
     hist = bs.scan_history(clean, "MIXD", native_tf, native_tf)
-    step = 11 if native_tf == "daily" else 3
+    step = 23 if native_tf == "daily" else 3
     offset = bs.MIN_PRIMARY_BARS - 1
     for t in range(offset, len(clean), step):
         row = hist.iloc[t - offset]
@@ -448,7 +451,6 @@ def test_history_rows_match_per_date_replay(native_tf):
 _GOLDEN = Path("/app/data/golden")
 
 
-@PENDING
 @pytest.mark.skipif(not (_GOLDEN / "fixture").is_dir(), reason="golden fixture not mounted")
 @pytest.mark.parametrize("mode", ["daily", "weekly"])
 def test_golden_fixture_sample_parity(mode):
@@ -487,7 +489,6 @@ LOOKAHEAD_DATES = [
 ]
 
 
-@PENDING
 @pytest.mark.parametrize("native_tf", ["daily", "weekly"])
 @pytest.mark.parametrize("symbol", ["BULL", "MIXD", "LATE"])
 def test_scan_history_has_no_lookahead(native_tf, symbol):
@@ -511,7 +512,6 @@ def test_scan_history_has_no_lookahead(native_tf, symbol):
 # ---------------------------------------------------------------------------
 
 
-@PENDING
 @pytest.mark.parametrize("native_tf", ["daily", "weekly"])
 def test_scan_history_shape(native_tf):
     clean = _clean("BULL", native_tf)

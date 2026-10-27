@@ -567,6 +567,35 @@ def _trend_bear(df: pd.DataFrame | None) -> bool | None:
     return bool(close < sma20 < sma50)
 
 
+# Research CSV feature columns → BreakoutFeatures fields (after the identity columns).
+FEATURE_COLUMNS = {
+    "Close": "close",
+    "SMA20": "sma20",
+    "SMA50": "sma50",
+    "SMA200": "sma200",
+    "RSI": "rsi",
+    "ATR": "atr",
+    "Resistance": "resistance",
+    "Support": "support",
+    "BB Width Pctl": "bb_width_pctl",
+    "KC Width Pctl": "kc_width_pctl",
+    "ATR Pctl": "atr_pctl",
+    "Range20 Pctl": "range20_pctl",
+    "RVOL20": "rvol20",
+    "RSI Slope": "rsi_slope",
+    "MACD Hist Slope": "macd_hist_slope",
+    "Distance Resistance ATR": "distance_resistance_atr",
+    "Extension ATR": "extension_atr",
+    "Daily Trend Bull": "daily_trend_bull",
+    "Weekly Trend Bull": "weekly_trend_bull",
+    "Monthly Trend Bull": "monthly_trend_bull",
+    "Compression": "compression",
+    "Breakout Triggered": "breakout_triggered",
+    "Breakout Confirmation": "breakout_confirmation",
+    "Failed Breakout": "failed_breakout",
+}
+
+
 @dataclass
 class BreakoutFeatures:
     """Last-bar snapshot produced by :class:`FeatureEngine`. No scores."""
@@ -610,36 +639,14 @@ class BreakoutFeatures:
 
     def feature_row(self) -> dict:
         """Underlying features for the research CSV (no scores)."""
-        return {
+        row = {
             "Symbol": self.symbol,
             "Mode": self.mode,
             "Source": "breakout",
             "AsOf Date": self.asof,
-            "Close": self.close,
-            "SMA20": self.sma20,
-            "SMA50": self.sma50,
-            "SMA200": self.sma200,
-            "RSI": self.rsi,
-            "ATR": self.atr,
-            "Resistance": self.resistance,
-            "Support": self.support,
-            "BB Width Pctl": self.bb_width_pctl,
-            "KC Width Pctl": self.kc_width_pctl,
-            "ATR Pctl": self.atr_pctl,
-            "Range20 Pctl": self.range20_pctl,
-            "RVOL20": self.rvol20,
-            "RSI Slope": self.rsi_slope,
-            "MACD Hist Slope": self.macd_hist_slope,
-            "Distance Resistance ATR": self.distance_resistance_atr,
-            "Extension ATR": self.extension_atr,
-            "Daily Trend Bull": self.daily_trend_bull,
-            "Weekly Trend Bull": self.weekly_trend_bull,
-            "Monthly Trend Bull": self.monthly_trend_bull,
-            "Compression": self.compression,
-            "Breakout Triggered": self.breakout_triggered,
-            "Breakout Confirmation": self.breakout_confirmation,
-            "Failed Breakout": self.failed_breakout,
         }
+        row.update({col: getattr(self, field) for col, field in FEATURE_COLUMNS.items()})
+        return row
 
 
 class FeatureEngine:
@@ -745,6 +752,223 @@ class FeatureEngine:
             macd_hist=_safe_float(last.get("MACD_Hist"), 6),
             has_daily=daily is not None,
         )
+
+
+# =========================
+# PER-BAR FEATURE FRAME (one row per native bar, for scan_history)
+# =========================
+
+# BreakoutFeatures float fields: (indicator column, digits extract() rounds to).
+# The rules compare these *rounded* values with their thresholds.
+_ROUNDED_FEATURES: dict[str, tuple[str, int]] = {
+    "close": ("Close", 4),
+    "sma20": ("SMA20", 4),
+    "sma50": ("SMA50", 4),
+    "sma200": ("SMA200", 4),
+    "rsi": ("RSI", 4),
+    "atr": ("ATR", 4),
+    "resistance": ("Resistance", 4),
+    "support": ("Support", 4),
+    "bb_width_pctl": ("BB Width Pctl", 2),
+    "kc_width_pctl": ("KC Width Pctl", 2),
+    "atr_pctl": ("ATR Pctl", 2),
+    "range20_pctl": ("Range20 Pctl", 2),
+    "rvol20": ("RVOL20", 4),
+    "rsi_slope": ("RSI Slope", 4),
+    "macd_hist_slope": ("MACD Hist Slope", 6),
+    "distance_resistance_atr": ("Distance Resistance ATR", 4),
+    "extension_atr": ("Extension ATR", 4),
+    "macd_hist": ("MACD_Hist", 6),
+}
+
+_BOOL_FEATURES: dict[str, str] = {
+    "squeeze": "Squeeze",
+    "compression": "Compression",
+    "volume_dryup": "Volume Dryup",
+    "breakout_triggered": "Breakout Triggered",
+    "breakout_confirmation": "Breakout Confirmation",
+    "failed_breakout": "Failed Breakout",
+    "wick_reject": "Wick Reject",
+}
+
+
+def _round_like_builtin(values, digits: int) -> np.ndarray:
+    """Vectorized ``round(x, digits)`` that matches the builtin bit for bit; ±inf → NaN.
+
+    ``np.round`` (scale, rint, unscale) agrees with the builtin except near a
+    .5 tie of the scaled value, where scaling error can flip the direction;
+    those few elements fall back to the builtin.
+    """
+    x = np.array(values, dtype="float64")
+    x[~np.isfinite(x)] = np.nan
+    out = np.round(x, digits)
+    scaled = x * 10.0**digits
+    risky = np.isfinite(x) & (
+        (np.abs(scaled - np.floor(scaled) - 0.5) < 1e-6) | (np.abs(scaled) >= 2.0**52)
+    )
+    for i in np.flatnonzero(risky):
+        out[i] = round(float(x[i]), digits)
+    return out
+
+
+def _nullable(values: np.ndarray, known: np.ndarray, index: pd.Index) -> pd.Series:
+    """bool values → pandas ``boolean`` Series, NA where not ``known`` (the scalar ``None``)."""
+    arr = pd.arrays.BooleanArray(values.astype(bool), ~known.astype(bool))
+    return pd.Series(arr, index=index)
+
+
+def _trend_flags(
+    close: np.ndarray,
+    sma20: np.ndarray,
+    sma50: np.ndarray,
+    sma200: np.ndarray,
+    prev_sma20: np.ndarray,
+    *,
+    require_sma50: bool,
+    index: pd.Index,
+) -> tuple[pd.Series, pd.Series]:
+    """Per-bar bull / bear flags: Close > SMA20 > SMA50 (> SMA200 when known), rising SMA20.
+
+    ``prev_sma20`` is NaN where there is no previous bar. Without SMA50,
+    ``require_sma50=False`` (monthly) falls back to Close > rising SMA20.
+    NA means unknown (not enough history).
+    """
+    with np.errstate(invalid="ignore"):
+        has50 = ~np.isnan(sma50)
+        bull = close > sma20
+        bull &= ~has50 | ((sma20 > sma50) & (close > sma50))
+        bull &= np.isnan(sma200) | (close > sma200)
+        bull &= np.isnan(prev_sma20) | (sma20 >= prev_sma20)
+        bear = (close < sma20) & (sma20 < sma50)
+    known = ~np.isnan(close) & ~np.isnan(sma20)
+    bull_known = known & has50 if require_sma50 else known
+    return _nullable(bull, bull_known, index), _nullable(bear, known & has50, index)
+
+
+def _htf_periods(clean: pd.DataFrame, rule: str) -> tuple[np.ndarray, np.ndarray]:
+    """Higher-timeframe closes and, per native bar, the index of its HTF period.
+
+    Periods come from :func:`resample_ohlcv` itself (bins are labelled at the
+    period end), so week/month bounds are defined in one place.
+    """
+    htf = resample_ohlcv(clean, rule)
+    closes = htf["Close"].to_numpy(dtype="float64")
+    pid = np.searchsorted(htf["Date"].to_numpy(), clean["Date"].to_numpy(), side="left")
+    return closes, pid
+
+
+def _forming_smas(
+    closes: np.ndarray, pid: np.ndarray, native_close: np.ndarray, lengths: Iterable[int]
+) -> dict[int, np.ndarray]:
+    """SMA(n) of the HTF bar as it was forming at each native bar, bit-exact.
+
+    At native bar t in period k the HTF frame cut at t is ``closes[:k]`` plus
+    a forming bar whose close is t's close. Its SMA must equal
+    ``indicators.sma`` on that cut frame exactly (ties in the trend flags are
+    real: equal closes give equal SMAs). ``indicators.sma`` is a convolution
+    whose full-overlap outputs depend only on the window, so every window is
+    laid end to end, one pad value apart, and convolved once. A cut frame of
+    exactly n bars hits numpy's reversed single-window sum; those rows repeat
+    that exact call.
+    """
+    out: dict[int, np.ndarray] = {}
+    for n in lengths:
+        sma = np.full(len(native_close), np.nan)
+        rows = np.flatnonzero(pid >= n - 1)
+        if rows.size:
+            k = pid[rows]
+            kernel = np.ones(n) / n
+            windows = np.zeros((rows.size, n + 1))
+            windows[:, 1:n] = closes[k[:, None] + np.arange(1 - n, 0)]
+            windows[:, n] = native_close[rows]
+            full = np.convolve(kernel, windows.ravel())
+            sma[rows] = full[np.arange(rows.size) * (n + 1) + n]
+            for j in np.flatnonzero(k == n - 1):
+                sma[rows[j]] = np.convolve(kernel, windows[j, 1:])[n - 1]
+        out[n] = sma
+    return out
+
+
+def _forming_htf_smas(
+    clean: pd.DataFrame, rule: str, lengths: Iterable[int]
+) -> dict[int, np.ndarray]:
+    closes, pid = _htf_periods(clean, rule)
+    return _forming_smas(closes, pid, clean["Close"].to_numpy(dtype="float64"), lengths)
+
+
+def _forming_htf_trend(
+    clean: pd.DataFrame, rule: str, *, require_sma50: bool, include_sma200: bool
+) -> tuple[pd.Series, pd.Series]:
+    """HTF bull / bear flags per native bar, from the HTF bar forming at that bar."""
+    closes, pid = _htf_periods(clean, rule)
+    close = clean["Close"].to_numpy(dtype="float64")
+    lengths = (SMA_FAST, SMA_MID, SMA_SLOW) if include_sma200 else (SMA_FAST, SMA_MID)
+    smas = _forming_smas(closes, pid, close, lengths)
+    completed_sma20 = _sma(pd.Series(closes), SMA_FAST).to_numpy()
+    prev_sma20 = np.where(pid >= 1, completed_sma20[np.maximum(pid - 1, 0)], np.nan)
+    sma200 = smas[SMA_SLOW] if include_sma200 else np.full(len(close), np.nan)
+    return _trend_flags(
+        close,
+        smas[SMA_FAST],
+        smas[SMA_MID],
+        sma200,
+        prev_sma20,
+        require_sma50=require_sma50,
+        index=clean.index,
+    )
+
+
+def _native_trend(primary: pd.DataFrame) -> tuple[pd.Series, pd.Series]:
+    """Bull / bear flags on the native frame (each bar's previous bar is complete)."""
+    sma20 = primary["SMA20"].to_numpy(dtype="float64")
+    return _trend_flags(
+        primary["Close"].to_numpy(dtype="float64"),
+        sma20,
+        primary["SMA50"].to_numpy(dtype="float64"),
+        primary["SMA200"].to_numpy(dtype="float64"),
+        np.r_[np.nan, sma20[:-1]],
+        require_sma50=True,
+        index=primary.index,
+    )
+
+
+def _feature_frame(clean: pd.DataFrame, native_tf: str) -> pd.DataFrame:
+    """Every native bar's :class:`BreakoutFeatures`, one row per bar (no lookahead).
+
+    Row t holds what ``FeatureEngine.extract`` returns on data cut at bar t:
+    native indicators are causal, and weekly/monthly trend flags use the
+    higher-timeframe bar as it was forming at t. Columns are the dataclass
+    field names (minus symbol/mode) plus ``date``.
+    """
+    primary = add_indicators(clean, pctl_window=PCTL_WINDOW[native_tf], include_sma200=True)
+    index = primary.index
+    frame = pd.DataFrame(
+        {"date": primary["Date"], "asof": primary["Date"].dt.strftime("%Y-%m-%d")}, index=index
+    )
+    for field, (col, digits) in _ROUNDED_FEATURES.items():
+        frame[field] = _round_like_builtin(primary[col], digits)
+
+    na = _nullable(np.zeros(len(index), dtype=bool), np.zeros(len(index), dtype=bool), index)
+    native_bull, native_bear = _native_trend(primary)
+    if native_tf == "daily":
+        frame["daily_trend_bull"], frame["daily_trend_bear"] = native_bull, native_bear
+        weekly = _forming_htf_trend(clean, "W-FRI", require_sma50=True, include_sma200=True)
+    else:
+        frame["daily_trend_bull"], frame["daily_trend_bear"] = na, na.copy()
+        weekly = native_bull, native_bear
+    frame["weekly_trend_bull"], frame["weekly_trend_bear"] = weekly
+    monthly = _forming_htf_trend(clean, "ME", require_sma50=False, include_sma200=False)
+    frame["monthly_trend_bull"], frame["monthly_trend_bear"] = monthly
+
+    for field, col in _BOOL_FEATURES.items():
+        frame[field] = primary[col].astype("boolean")
+    obv = primary["OBV"].to_numpy(dtype="float64")
+    obv_sma = primary["OBV_SMA20"].to_numpy(dtype="float64")
+    known = np.isfinite(obv) & np.isfinite(obv_sma)
+    with np.errstate(invalid="ignore"):
+        frame["obv_rising"] = _nullable(obv > obv_sma, known, index)
+    frame["has_daily"] = native_tf == "daily"
+    return frame
 
 
 # =========================
@@ -1100,6 +1324,288 @@ def score_readiness(feat: BreakoutFeatures, states: dict[str, str]) -> dict:
     }
 
 
+# =========================
+# VECTORIZED RULES (one row per bar; same rules as the scalar functions above)
+# =========================
+
+TIMEFRAMES = ("daily", "weekly", "monthly")
+STATE_COLUMNS = [
+    "Trend",
+    "Volatility",
+    "Volume State",
+    "Momentum",
+    "Structure",
+    "Breakout Distance",
+    "MTF",
+]
+
+
+def _num(frame: pd.DataFrame, name: str) -> np.ndarray:
+    """Float column with None → NaN (1-row frames built from a dataclass hold None)."""
+    return pd.to_numeric(frame[name], errors="coerce").to_numpy(dtype="float64")
+
+
+def _is_true(frame: pd.DataFrame, name: str) -> np.ndarray:
+    """Truthiness of a bool-or-None column, as ``if feat.x:`` reads it."""
+    return frame[name].astype("boolean").fillna(False).to_numpy(dtype=bool)
+
+
+def _is_false(frame: pd.DataFrame, name: str) -> np.ndarray:
+    """``feat.x is False`` (None is not False)."""
+    return frame[name].astype("boolean").eq(False).fillna(False).to_numpy(dtype=bool)
+
+
+def _is_known(frame: pd.DataFrame, name: str) -> np.ndarray:
+    return frame[name].astype("boolean").notna().to_numpy(dtype=bool)
+
+
+def _pctl_points_v(pctl: np.ndarray, full: int, mid: int, bands: tuple[float, float]) -> np.ndarray:
+    """Vectorized :func:`_pctl_points` (NaN scores 0)."""
+    return np.select(
+        [pctl <= bands[0], pctl <= bands[1], pctl <= 50], [full, mid, max(1, mid // 2)], 0
+    )
+
+
+def classify_states_frame(feats: pd.DataFrame) -> pd.DataFrame:
+    """Per-row :func:`classify_states` over a frame of feature rows."""
+    has_daily = feats["has_daily"].astype(bool).to_numpy()
+    d_bull, w_bull, m_bull = (_is_true(feats, f"{tf}_trend_bull") for tf in TIMEFRAMES)
+    d_bear, w_bear, m_bear = (_is_true(feats, f"{tf}_trend_bear") for tf in TIMEFRAMES)
+    d_known, w_known, m_known = (_is_known(feats, f"{tf}_trend_bull") for tf in TIMEFRAMES)
+    close, support = _num(feats, "close"), _num(feats, "support")
+    dist = _num(feats, "distance_resistance_atr")
+    bb, atr_p, rvol = _num(feats, "bb_width_pctl"), _num(feats, "atr_pctl"), _num(feats, "rvol20")
+    rsi_slope, hist_slope = _num(feats, "rsi_slope"), _num(feats, "macd_hist_slope")
+
+    with np.errstate(invalid="ignore"):
+        trend = np.select(
+            [np.where(has_daily, d_bull, w_bull), np.where(has_daily, d_bear, w_bear)],
+            ["BULLISH", "BEARISH"],
+            "NEUTRAL",
+        )
+        volatility = np.select(
+            [_is_true(feats, "compression"), (bb >= 70) | (atr_p >= 70)],
+            ["COMPRESSING", "EXPANDING"],
+            "NORMAL",
+        )
+        volume = np.select(
+            [_is_true(feats, "volume_dryup") | (rvol < RVOL_DRYUP), rvol >= 1.20],
+            ["DRYING_UP", "EXPANDING"],
+            "NORMAL",
+        )
+        momentum = np.select(
+            [(rsi_slope > 0) & (hist_slope > 0), (rsi_slope < 0) & (hist_slope < 0)],
+            ["ACCELERATING", "FADING"],
+            "NEUTRAL",
+        )
+        structure = np.select(
+            [close < support, np.isnan(dist), dist < 0, dist <= AT_RESISTANCE_ATR],
+            ["BELOW_SUPPORT", "UNKNOWN", "ABOVE_RESISTANCE", "AT_RESISTANCE"],
+            "UNDER_RESISTANCE",
+        )
+
+    # MTF: the daily flag counts only on daily data.
+    d_on = has_daily & d_known
+    n_known = d_on.astype(int) + w_known + m_known
+    all_bull = (~d_on | d_bull) & (~w_known | w_bull) & (~m_known | m_bull)
+    any_bull = (has_daily & d_bull) | w_bull | m_bull
+    any_bear = (has_daily & d_bear) | w_bear | m_bear
+    mtf = np.select(
+        [n_known < 2, all_bull, any_bull & any_bear, any_bull, any_bear],
+        ["INSUFFICIENT", "ALIGNED", "DIVERGENT", "PARTIAL", "BEARISH"],
+        "NEUTRAL",
+    )
+
+    return pd.DataFrame(
+        {
+            "Trend": trend,
+            "Volatility": volatility,
+            "Volume State": volume,
+            "Momentum": momentum,
+            "Structure": structure,
+            "Breakout Distance": [f"{d:.1f} ATR" if d == d else "" for d in dist],
+            "MTF": mtf,
+        },
+        index=feats.index,
+        dtype=object,
+    )
+
+
+def classify_status_frame(feats: pd.DataFrame, states: pd.DataFrame) -> pd.Series:
+    """Per-row :func:`classify_status`; the first matching rule wins, in the same order."""
+    failed = _is_true(feats, "failed_breakout")
+    confirmed = _is_true(feats, "breakout_confirmation")
+    triggered = _is_true(feats, "breakout_triggered")
+    dist, rvol, bb = (
+        _num(feats, c) for c in ("distance_resistance_atr", "rvol20", "bb_width_pctl")
+    )
+    volume_state = states["Volume State"].to_numpy()
+
+    with np.errstate(invalid="ignore"):
+        near = (dist >= 0.0) & (dist <= PRE_BREAKOUT_ATR_MAX)
+        still_far = dist > PRE_BREAKOUT_ATR_MAX
+        early_bb = bb <= 40
+        quiet_expansion = (volume_state == "EXPANDING") & (rvol < RVOL_CONFIRM)
+    under = states["Structure"].isin(["UNDER_RESISTANCE", "AT_RESISTANCE"]).to_numpy()
+    mtf_ok = states["MTF"].isin(["ALIGNED", "PARTIAL"]).to_numpy()
+    trend_ok = (states["Trend"] == "BULLISH").to_numpy()
+    compressing = (states["Volatility"] == "COMPRESSING").to_numpy()
+    accelerating = (states["Momentum"] == "ACCELERATING").to_numpy()
+    volume_ok = np.isin(volume_state, ["DRYING_UP", "NORMAL"]) | quiet_expansion
+    not_through = ~triggered
+
+    pre = not_through & trend_ok & compressing & accelerating & under & near & mtf_ok & volume_ok
+    early_coil = compressing | early_bb
+    developing = trend_ok & early_coil & (accelerating | still_far) & not_through & still_far
+    status = np.select(
+        [failed, confirmed, pre, triggered & ~confirmed, developing],
+        [STATUS_FAILED, STATUS_CONFIRMED, STATUS_PRE, STATUS_TRIGGERED, STATUS_DEV],
+        STATUS_WATCH,
+    )
+    return pd.Series(status, index=feats.index, dtype=object, name="Status")
+
+
+def score_readiness_frame(feats: pd.DataFrame, states: pd.DataFrame) -> pd.DataFrame:
+    """Per-row :func:`score_readiness`: integer pillar and factor scores."""
+    has_daily = feats["has_daily"].astype(bool).to_numpy()
+    close, sma50, sma200 = _num(feats, "close"), _num(feats, "sma50"), _num(feats, "sma200")
+    rsi, rsi_slope = _num(feats, "rsi"), _num(feats, "rsi_slope")
+    hist, hist_slope = _num(feats, "macd_hist"), _num(feats, "macd_hist_slope")
+    rvol, ext = _num(feats, "rvol20"), _num(feats, "extension_atr")
+    dist = _num(feats, "distance_resistance_atr")
+    triggered = _is_true(feats, "breakout_triggered")
+    obv_rising = _is_true(feats, "obv_rising")
+    dryup = _is_true(feats, "volume_dryup")
+
+    with np.errstate(invalid="ignore"):
+        daily_cap = np.where(has_daily, 10, 0)
+        weekly_cap = np.where(has_daily, 8, 15)
+        monthly_cap = np.where(has_daily, 7, 10)
+        above50 = np.where(np.isnan(sma200) | (close > sma200), 6, 3)
+        daily_pts = np.select(
+            [has_daily & _is_true(feats, "daily_trend_bull"), has_daily & (close > sma50)],
+            [daily_cap, above50],
+            0,
+        )
+        weekly_pts, monthly_pts = (
+            np.select(
+                [
+                    _is_true(feats, f"{tf}_trend_bull"),
+                    _is_false(feats, f"{tf}_trend_bull") & _is_false(feats, f"{tf}_trend_bear"),
+                ],
+                [cap, cap // 2],
+                0,
+            )
+            for tf, cap in (("weekly", weekly_cap), ("monthly", monthly_cap))
+        )
+        trend_score = daily_pts + weekly_pts + monthly_pts
+
+        bb_pts = _pctl_points_v(_num(feats, "bb_width_pctl"), 8, 6, (15, 25))
+        atr_pts = _pctl_points_v(_num(feats, "atr_pctl"), 6, 4, (20, 35))
+        range_pts = _pctl_points_v(_num(feats, "range20_pctl"), 5, 3, (20, 35))
+        squeeze_pts = np.select(
+            [_is_true(feats, "squeeze"), _num(feats, "kc_width_pctl") <= 30], [6, 3], 0
+        )
+        compression_score = bb_pts + atr_pts + range_pts + squeeze_pts
+
+        rsi_pts = np.select(
+            [
+                np.isnan(rsi),
+                (rsi >= 50) & (rsi <= 65),
+                ((rsi >= 45) & (rsi < 50)) | ((rsi > 65) & (rsi <= 70)),
+                (rsi >= 40) & (rsi < 45),
+                rsi > 75,
+            ],
+            [0, 6, 4, 2, 0],
+            1,
+        )
+        rsi_slope_pts = np.select([rsi_slope >= 2, rsi_slope > 0], [7, 5], 0)
+        macd_pts = np.select([(hist_slope > 0) & (hist > 0), hist_slope > 0], [7, 5], 0)
+        momentum_score = rsi_pts + rsi_slope_pts + macd_pts
+
+        # Regime-aware volume: dry-up before a breakout, expansion once triggered.
+        dry_base = np.select([dryup, rvol < 1.0], [8, 4], 0)
+        rvol_trig = np.select(
+            [rvol >= 2.0, rvol >= RVOL_CONFIRM, rvol >= RVOL_IGNITION], [7, 6, 3], 0
+        )
+        rvol_trig = np.where(obv_rising, np.minimum(7, rvol_trig + 1), rvol_trig)
+        rvol_quiet = np.select(
+            [
+                obv_rising & (np.nan_to_num(rvol, nan=0.0) < 1.2),
+                obv_rising,
+                (rvol >= RVOL_IGNITION) & (rvol < RVOL_CONFIRM),
+                dryup,
+            ],
+            [7, 5, 4, 2],
+            0,
+        )
+        rvol_pts = np.where(triggered, rvol_trig, rvol_quiet)
+        dry_pts = np.where(triggered, np.minimum(dry_base, 3), dry_base)
+        volume_score = dry_pts + rvol_pts
+
+        prox_pts = np.select(
+            [
+                np.isnan(dist),
+                (dist >= 0.0) & (dist <= 0.75),
+                (dist > 0.75) & (dist <= 1.50),
+                (dist > 1.50) & (dist <= 2.50),
+                (dist < 0) & (dist >= -0.35),
+                dist < 0,
+            ],
+            [0, 10, 7, 4, 5, 2],
+            1,
+        )
+        ext_pts = np.select(
+            [
+                np.isnan(ext),
+                (ext >= 0.0) & (ext <= 1.50),
+                (ext > 1.50) & (ext <= 2.00),
+                ext < 0,
+            ],
+            [0, 5, 3, 2],
+            0,
+        )
+        structure_score = prox_pts + ext_pts
+
+        penalty = (
+            np.select(
+                [_is_true(feats, "failed_breakout"), _is_true(feats, "wick_reject")], [20, 8], 0
+            )
+            + np.where(states["MTF"].isin(["DIVERGENT", *MTF_NO_UPTREND]).to_numpy(), 10, 0)
+            + np.where(ext > 2.50, 10, 0)
+            + np.where(rsi > 75, 5, 0)
+            + np.where((states["Trend"] == "BEARISH").to_numpy(), 10, 0)
+        )
+
+    raw_score = trend_score + compression_score + momentum_score + volume_score + structure_score
+    columns = {
+        "Breakout Readiness": np.clip(raw_score - penalty, 0, 100),
+        "Trend Score": trend_score,
+        "Compression Score": compression_score,
+        "Momentum Score": momentum_score,
+        "Volume Score": volume_score,
+        "Structure Score": structure_score,
+        "Penalty": penalty,
+        "Daily Trend Score": daily_pts,
+        "Weekly Trend Score": weekly_pts,
+        "Monthly Trend Score": monthly_pts,
+        "BB Width Score": bb_pts,
+        "ATR Pctl Score": atr_pts,
+        "Range20 Score": range_pts,
+        "Squeeze Score": squeeze_pts,
+        "RSI Score": rsi_pts,
+        "RSI Slope Score": rsi_slope_pts,
+        "MACD Hist Slope Score": macd_pts,
+        "Volume Dryup Score": dry_pts,
+        "RVOL Score": rvol_pts,
+        "Proximity Score": prox_pts,
+        "Extension Score": ext_pts,
+    }
+    return pd.DataFrame(
+        {k: np.asarray(v, dtype="int64") for k, v in columns.items()}, index=feats.index
+    )
+
+
 class ScoringEngine:
     """Classify market states and attach a 100-point readiness score.
 
@@ -1172,6 +1678,41 @@ def _rejection_key(reason: str) -> str:
     if "empty" in reason or "usable" in reason or "Missing required" in reason:
         return "missing_columns"
     return "invalid_ohlcv"
+
+
+def scan_history(
+    bars: pd.DataFrame, symbol: str, scan_mode: str, native_tf: str | None = None
+) -> pd.DataFrame:
+    """Every bar's states, Status and Readiness, as ``run_scanner`` would have written them.
+
+    One row per native bar that has at least ``MIN_PRIMARY_BARS`` bars of
+    history: the row dated t equals the ``run_scanner --as-of t`` row for this
+    ticker. Columns are ``Date`` (the bar timestamp) then ``OUTPUT_COLUMNS``.
+    On daily data the weekly/monthly trend flags at t use the bar forming at t.
+    Pass bars from :func:`raw.load_raw`. Raises ``ValueError`` like
+    ``FeatureEngine.extract`` (e.g. ``insufficient bars``).
+    """
+    native = native_tf or _native_timeframe(scan_mode)
+    clean = normalize_ohlcv(bars)
+    if len(clean) < MIN_PRIMARY_BARS:
+        raise ValueError(f"insufficient bars: {len(clean)} < {MIN_PRIMARY_BARS}")
+
+    feats = _feature_frame(clean, native)
+    states = classify_states_frame(feats)
+    scores = score_readiness_frame(feats, states)
+    out = pd.DataFrame(
+        {"Date": feats["date"], "Symbol": symbol.upper(), "Mode": scan_mode, "Source": "breakout"},
+        index=feats.index,
+    )
+    out["AsOf Date"] = feats["asof"]
+    for col, field in FEATURE_COLUMNS.items():
+        out[col] = feats[field]
+    out["MTF Alignment"] = states["MTF"] == "ALIGNED"
+    out[STATE_COLUMNS] = states
+    out["Status"] = classify_status_frame(feats, states)
+    out[list(scores.columns)] = scores
+    out = out.iloc[MIN_PRIMARY_BARS - 1 :].reset_index(drop=True)
+    return out[["Date", *OUTPUT_COLUMNS]]
 
 
 def scan_files(
