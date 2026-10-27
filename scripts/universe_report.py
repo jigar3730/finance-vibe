@@ -151,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
     events = events.merge(members, on=["Date", "Symbol"], how="left", validate="one_to_one")
     events["in_universe"] = events["in_universe"].fillna(False).astype(bool)
     events["reason"] = events["reason"].fillna("no_row")
+    events["Rubric Version"] = config.BREAKOUT_RUBRIC_VERSION
     events.to_csv(out_dir / f"universe_events_{args.stamp}.csv", index=False)
 
     survival = survival_table(events)
@@ -173,7 +174,7 @@ Point-in-time universe (docs/research_review.md fix #1) applied to RESEARCH.md �
 events. **No forward prices or returns are computed here.** Event counts are not
 outcomes; nothing in the holdout is evaluated.
 
-- Code `{commit}`. Daily raw `{args.raw_dir}` ({len(bars)} tickers,
+- Code `{commit}`, breakout rubric v{config.BREAKOUT_RUBRIC_VERSION}. Daily raw `{args.raw_dir}` ({len(bars)} tickers,
   {window_start.date()} → {panel["Date"].max().date()}), weekly raw `{args.weekly_dir}`.
 - Rule at date t (bars ≤ t only): not excluded; ≥ {config.RESEARCH_MIN_HISTORY_BARS} sessions
   of listing history; Close ≥ ${config.RESEARCH_MIN_CLOSE:g}; top {config.RESEARCH_UNIVERSE_TOP_N}

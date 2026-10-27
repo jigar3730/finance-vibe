@@ -4,6 +4,10 @@
 **Pipeline step:** last stage of `finance_vibe.pipeline` (after Coiled Cobra)
 **Output:** `data/logs/{mode}/breakout_setups_<YYYY-MM-DD>.csv`
 **UI:** `/breakout/<mode>/<date>` in `web/app.py` (weekly, daily)
+**Rubric:** Rubric v1.0 (`config.BREAKOUT_RUBRIC_VERSION = "1.0"`), stamped on
+`scan_history()` rows and every research output. Bump it whenever a state, Status
+or Readiness rule or threshold changes; `tests/test_rubric_docs_sync.py`
+fingerprints the rule code and constants and fails until you do.
 
 A research scanner that labels each ticker's **state** (trend, volatility,
 volume, momentum, structure, multi-timeframe alignment) and classifies it as a
@@ -157,7 +161,8 @@ pipeline stage or CSV.
 
 - One row per native bar that has at least 80 bars of history (`MIN_PRIMARY_BARS`);
   fewer bars in total raise `insufficient bars`, as the scan does.
-- Columns: `Date` (the bar's timestamp, datetime), then the output columns below.
+- Columns: `Date` (the bar's timestamp, datetime), then the output columns below, then
+  `Rubric Version`.
 - The row dated t is what `run_scanner --as-of t` writes for that ticker, cell for
   cell. On daily data the weekly/monthly trend flags at t come from the
   higher-timeframe bar forming at t, never the completed week or month.

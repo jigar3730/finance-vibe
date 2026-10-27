@@ -1235,7 +1235,8 @@ def scan_history(
 
     One row per native bar that has at least ``MIN_PRIMARY_BARS`` bars of
     history: the row dated t equals the ``run_scanner --as-of t`` row for this
-    ticker. Columns are ``Date`` (the bar timestamp) then ``OUTPUT_COLUMNS``.
+    ticker. Columns are ``Date`` (the bar timestamp), ``OUTPUT_COLUMNS``, then
+    ``Rubric Version`` (:data:`config.BREAKOUT_RUBRIC_VERSION`).
     On daily data the weekly/monthly trend flags at t use the bar forming at t.
     Pass bars from :func:`raw.load_raw`. Raises ``ValueError`` like
     ``FeatureEngine.extract`` (e.g. ``insufficient bars``).
@@ -1260,7 +1261,9 @@ def scan_history(
     out["Status"] = classify_status_frame(feats, states)
     out[list(scores.columns)] = scores
     out = out.iloc[MIN_PRIMARY_BARS - 1 :].reset_index(drop=True)
-    return out[["Date", *OUTPUT_COLUMNS]]
+    out = out[["Date", *OUTPUT_COLUMNS]]
+    out["Rubric Version"] = config.BREAKOUT_RUBRIC_VERSION
+    return out
 
 
 def scan_files(

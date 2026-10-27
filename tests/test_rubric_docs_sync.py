@@ -6,6 +6,9 @@ Coiled Cobra, bump config.RUBRIC_VERSION) in the same change.
 
 from __future__ import annotations
 
+import ast
+import hashlib
+import inspect
 from pathlib import Path
 
 import pytest
@@ -54,6 +57,8 @@ def test_cobra_timeframe_numbers_in_doc():
 @pytest.mark.parametrize(
     "phrase",
     [
+        f"Rubric v{config.BREAKOUT_RUBRIC_VERSION}",
+        f'`config.BREAKOUT_RUBRIC_VERSION = "{config.BREAKOUT_RUBRIC_VERSION}"`',
         f"fewer than {bs.MIN_PRIMARY_BARS} native bars",
         f"RVOL20 ≥ {bs.RVOL_CONFIRM}",
         f"distance ≤ {bs.PRE_BREAKOUT_ATR_MAX} ATR",
@@ -94,3 +99,61 @@ def test_breakout_factor_score_count_matches_doc():
     }
     n_factors = len(set(scores) - pillars)
     assert f"{n_factors} factor scores" in BREAKOUT
+
+
+# Breakout rule code (everything scan_history's states/status/score depend on)
+# and every module-level constant, fingerprinted per BREAKOUT_RUBRIC_VERSION.
+# ast.dump output can change between Python minor versions; 3.12 (the container) is the reference.
+_BREAKOUT_RULES = [
+    "_ta_col", "_rolling_percentile", "_series_or_nan", "_sma", "_native_timeframe",
+    "_scalar", "normalize_ohlcv", "resample_ohlcv", "add_indicators",
+    "_round_like_builtin", "_nullable", "_trend_flags", "_htf_periods", "_forming_smas",
+    "_forming_htf_smas", "_forming_htf_trend", "_native_trend", "_feature_frame",
+    "_num", "_is_true", "_is_false", "_is_known", "_pctl_points_v",
+    "classify_states_frame", "classify_status_frame", "score_readiness_frame",
+    "scan_history",
+]  # fmt: skip
+BREAKOUT_RULE_FINGERPRINTS = {
+    "1.0": "0c3e04cf2e62c62ad6bdc865602c733dabcb41b551d08f091d7b51a4b5ea8868",
+}
+
+
+def _strip_docstrings(tree: ast.AST) -> ast.AST:
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if (
+            isinstance(body, list)
+            and body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            node.body = body[1:] or [ast.Pass()]
+    return tree
+
+
+def breakout_rule_fingerprint() -> str:
+    """sha256 of the rule functions' AST (no comments, docstrings or formatting)
+    plus the values of every UPPER_CASE breakout and BREAKOUT_* config constant
+    (paths excluded: they differ between checkouts)."""
+    parts = []
+    for name in _BREAKOUT_RULES:
+        tree = _strip_docstrings(ast.parse(inspect.getsource(getattr(bs, name))))
+        parts.append(ast.dump(tree, include_attributes=False))
+    consts = {k: getattr(bs, k) for k in dir(bs) if k.isupper() and not k.endswith("_PATH")}
+    consts |= {k: getattr(config, k) for k in dir(config) if k.startswith("BREAKOUT_")}
+    consts.pop("BREAKOUT_RUBRIC_VERSION")
+    for k in sorted(consts):
+        v = consts[k]  # sets repr in hash order; sort them so the hash is stable
+        parts.append(f"{k}={sorted(v)!r}" if isinstance(v, set | frozenset) else f"{k}={v!r}")
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()
+
+
+def test_breakout_rules_match_rubric_version():
+    got = breakout_rule_fingerprint()
+    assert BREAKOUT_RULE_FINGERPRINTS.get(config.BREAKOUT_RUBRIC_VERSION) == got, (
+        "breakout rule code or constants changed. If states/Status/Readiness can change, "
+        "bump config.BREAKOUT_RUBRIC_VERSION and docs/breakout.md and add the new "
+        "fingerprint here; for a behaviour-neutral refactor (golden IDENTICAL), replace "
+        f"the current version's fingerprint. New fingerprint: {got}"
+    )

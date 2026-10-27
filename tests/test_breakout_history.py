@@ -540,7 +540,8 @@ def test_scan_history_has_no_lookahead(native_tf, symbol):
 def test_scan_history_shape(native_tf):
     clean = _clean("BULL", native_tf)
     hist = bs.scan_history(_bars("BULL", native_tf), "bull", native_tf, native_tf)
-    assert list(hist.columns) == ["Date", *bs.OUTPUT_COLUMNS]
+    assert list(hist.columns) == ["Date", *bs.OUTPUT_COLUMNS, "Rubric Version"]
+    assert (hist["Rubric Version"] == config.BREAKOUT_RUBRIC_VERSION).all()
     assert len(hist) == len(clean) - (bs.MIN_PRIMARY_BARS - 1)
     assert pd.api.types.is_datetime64_any_dtype(hist["Date"])
     assert hist["Date"].is_monotonic_increasing and hist["Date"].is_unique

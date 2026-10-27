@@ -39,6 +39,11 @@ DEFAULT_MODE = "weekly"
 # ``Score`` or which setups qualify (e.g. Gate D 5/6 -> 4/6).
 RUBRIC_VERSION = "4.0"
 
+# Breakout scanner rubric version (docs/breakout.md), stamped on scan_history()
+# rows and every research output. Bump whenever a state, Status or Readiness
+# rule or threshold changes; tests/test_rubric_docs_sync.py fingerprints the rules.
+BREAKOUT_RUBRIC_VERSION = "1.0"
+
 
 def get_mode_config(mode: str | None = None) -> dict[str, Any]:
     """Return download settings and directory paths for ``weekly`` or ``daily``.
