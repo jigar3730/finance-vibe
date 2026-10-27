@@ -28,14 +28,21 @@ def _bool(col: pd.Series) -> pd.Series:
 
 
 def load(labels_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
-    events = pd.read_csv(labels_dir / "events.csv.gz", parse_dates=DATES)
-    draws = pd.read_csv(labels_dir / "draws.csv.gz", parse_dates=DATES)
+    """Events, draws and manifest of a label run, with the holdout seal checked.
+
+    Weekly runs (manifest ``mode``) store ``R4W`` / ``SPY_R4W`` / ``REACH4W``; they
+    are renamed back to the in-memory names and sealed on the week-end date.
+    """
+    manifest = json.loads((labels_dir / "manifest.json").read_text(encoding="utf-8"))
+    weekly = manifest.get("mode", "daily") == "weekly"
+    back = {v: k for k, v in lb.WEEKLY_NAMES.items()} if weekly else {}
+    events = pd.read_csv(labels_dir / "events.csv.gz", parse_dates=DATES).rename(columns=back)
+    draws = pd.read_csv(labels_dir / "draws.csv.gz", parse_dates=DATES).rename(columns=back)
     for frame in (events, draws):
         frame["REACH10"] = _bool(frame["REACH10"])
         frame["split_suspect"] = _bool(frame["split_suspect"]).fillna(False).astype(bool)
-    lb.check_in_sample(events["Date"])  # the holdout stays sealed
-    lb.check_in_sample(draws["Date"])
-    manifest = json.loads((labels_dir / "manifest.json").read_text(encoding="utf-8"))
+    lb.check_in_sample(events["Date"], weekly=weekly)  # the holdout stays sealed
+    lb.check_in_sample(draws["Date"], weekly=weekly)
     return events, draws, manifest
 
 

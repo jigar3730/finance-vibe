@@ -175,3 +175,31 @@ def test_load_refuses_holdout_dates(tmp_path, which):
     _write_labels(tmp_path, frames["events"], frames["draws"])
     with pytest.raises(ValueError, match="holdout is sealed"):
         ins.load(tmp_path)
+
+
+def _write_weekly(tmp_path, events, draws):
+    from finance_vibe.research import labels as lb
+
+    for f in (events, draws):
+        f["entry_date"] = f["Date"]
+        f["exit_date"] = f["Date"]
+    events.rename(columns=lb.WEEKLY_NAMES).to_csv(tmp_path / "events.csv.gz", index=False)
+    draws.rename(columns=lb.WEEKLY_NAMES).to_csv(tmp_path / "draws.csv.gz", index=False)
+    (tmp_path / "manifest.json").write_text(json.dumps({"commit": "x", "mode": "weekly"}))
+
+
+def test_weekly_load_renames_columns_back(tmp_path):
+    events, draws = _frames({ev.E1: (0.01, 0.01)})
+    _write_weekly(tmp_path, events, draws)
+    e, d, m = ins.load(tmp_path)
+    assert m["mode"] == "weekly" and {"R10", "SPY_R10", "REACH10"} <= set(e) and "R4W" not in e
+    assert e["R10"].tolist() == pytest.approx(events["R10"].tolist())
+    assert ins.scorecard(ins.with_benchmarks(e, d)).loc["PRE_BREAKOUT", "Result"] == "PASS"
+
+
+def test_weekly_load_seals_on_the_week_end(tmp_path):
+    events, draws = _frames({ev.E3: (0.0, 0.0)})
+    events.loc[0, "Date"] = pd.Timestamp("2026-03-30")  # Monday; week closes 04-03
+    _write_weekly(tmp_path, events, draws)
+    with pytest.raises(ValueError, match="holdout is sealed"):
+        ins.load(tmp_path)

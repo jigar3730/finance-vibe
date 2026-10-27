@@ -2,7 +2,8 @@
 
 Reads a blind label run (``scripts/research_labels.py``: ``events.csv.gz``,
 ``draws.csv.gz``, ``manifest.json``) and writes, under
-``<out-dir>/insample_<stamp>/``:
+``<out-dir>/insample_<stamp>/`` (``insample_weekly_<stamp>/`` for a weekly
+label run, RESEARCH.md §11; the mode comes from the label manifest):
 
     scorecard.csv     one row per signal: count, % up, mean R10, mean - SPY,
                       mean - random, date-clustered p-values, Holm, PASS/FAIL
@@ -78,10 +79,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     commit = args.commit or _git_rev()
     labels_dir = Path(args.labels_dir)
-    run_dir = Path(args.out_dir) / f"insample_{args.stamp}"
+    events, draws, manifest = load(labels_dir)  # seal checked before anything is written
+    weekly = manifest.get("mode", "daily") == "weekly"
+    run_dir = Path(args.out_dir) / (
+        f"insample_weekly_{args.stamp}" if weekly else f"insample_{args.stamp}"
+    )
     run_dir.mkdir(parents=True, exist_ok=False)
 
-    events, draws, manifest = load(labels_dir)
     e = with_benchmarks(events, draws)
     card = scorecard(e)
     years = by_year(e)
@@ -89,6 +93,21 @@ def main(argv: list[str] | None = None) -> int:
     robust = scorecard(
         with_benchmarks(events[~events["split_suspect"]], no_split_draws), decide=False
     )
+    if weekly:
+        shown = {"Mean R10 %": "Mean R4W %"}
+        card, years, robust = (f.rename(columns=shown) for f in (card, years, robust))
+        title, horizon = (
+            "Weekly in-sample results (RESEARCH.md §11)",
+            config.RESEARCH_WEEKLY_HORIZON,
+        )
+        label = "R4W = Close[t+4] / Open[t+1] − 1 on weekly bars (entry: next week's open)"
+        dates = "signal weeks"
+        end_rule = f"signals known (week end) after {config.RESEARCH_IN_SAMPLE_END}"
+    else:
+        title, horizon = "In-sample results", config.RESEARCH_HORIZON
+        label = "R10 = Close[t+10] / Open[t+1] − 1"
+        dates = "signal dates"
+        end_rule = f"signal dates after {config.RESEARCH_IN_SAMPLE_END}"
     card.to_csv(run_dir / "scorecard.csv")
     years.to_csv(run_dir / "by_year.csv", index=False)
     robust.to_csv(run_dir / "robustness.csv")
@@ -97,18 +116,18 @@ def main(argv: list[str] | None = None) -> int:
         "events.csv.gz": _sha(labels_dir / "events.csv.gz"),
         "draws.csv.gz": _sha(labels_dir / "draws.csv.gz"),
     }
-    md = f"""# In-sample results ({args.stamp})
+    md = f"""# {title} ({args.stamp})
 
-RESEARCH.md §4–§7, run once. Holdout (signal dates after {config.RESEARCH_IN_SAMPLE_END})
+RESEARCH.md §4–§7, run once. Holdout ({end_rule})
 not read: every event and draw date was checked in-sample.
 
 - Report code `{commit}`. Labels `{labels_dir}` (label code `{manifest["commit"]}`,
   breakout rubric v{manifest["breakout_rubric_version"]}, snapshot `{manifest["snapshot"]}`).
 - Inputs sha256: events `{inputs["events.csv.gz"][:16]}…`, draws `{inputs["draws.csv.gz"][:16]}…`.
-- Signal dates {events["Date"].min().date()} → {events["Date"].max().date()}. R10 =
-  Close[t+10] / Open[t+1] − 1, no costs. Excess vs SPY on the same dates; vs the mean of
+- {dates.capitalize()} {events["Date"].min().date()} → {events["Date"].max().date()}
+  ({events["Date"].nunique()} {dates}). {label}, no costs. Excess vs SPY on the same dates; vs the mean of
   {config.RESEARCH_RANDOM_DRAWS} date-matched random universe members.
-- Test: per signal date mean excess → one-sided t-test (H1: > 0), vs SPY and vs random;
+- Test: per {dates[:-1]} mean excess → one-sided t-test (H1: > 0), vs SPY and vs random;
   p = the larger; Holm across the 3 signals; PASS if p (Holm) < {ALPHA}.
 - **Survivorship:** reduced, not removed. Yahoo has no delisted names (RESEARCH.md §8.4);
   a re-test on a survivorship-free source is required before real money.
@@ -118,7 +137,7 @@ not read: every event and draw date was checked in-sample.
 {_fmt(card)}
 
 Follow-through (PRE_BREAKOUT only): share of events whose Status is TRIGGERED or
-CONFIRMED on any of the next {config.RESEARCH_HORIZON} bars, vs the same rate for its random draws.
+CONFIRMED on any of the next {horizon} bars, vs the same rate for its random draws.
 Reported, not a pass criterion.
 
 ## By signal year — descriptive, not a pass criterion
