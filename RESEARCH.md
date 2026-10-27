@@ -132,3 +132,61 @@ Every run: date, commit, what changed, which hypotheses, result. Includes failed
 | 2026-10-27 | f24a4d5 | In-sample analysis run once (§4–§7 as frozen) on `labels_2026-10-27`. No threshold, horizon or definition changed. | E1–E3 | All FAIL in-sample (p Holm 1.000 / 1.000 / 0.713). Holdout not opened. Signals dropped. |
 | 2026-10-27 | — | **Exploratory, not a finding:** PRE_BREAKOUT anticipates the scanner's own state change (61% vs 40% reach TRIGGERED/CONFIRMED in 10 sessions), but that does not show up in returns. Any test built on this needs its own pre-registration and a fresh holdout; the 2026-04 → holdout cannot be used to pick it. | — | — |
 | 2026-10-27 | — | **Exploratory, not a finding:** CONFIRMED has the largest per-event excess (+0.69% vs random) but heavy-tailed noise (t 0.86). A new hypothesis (e.g. a longer horizon or another universe) would be a new pre-registered test, not a re-run of this one. | — | — |
+| 2026-10-27 | weekly addendum commit | Weekly addendum pre-registered (§11) before any weekly forward return was computed. Daily sections unchanged. | W-E1–W-E3 | — |
+
+## 11. Weekly addendum (pre-registered 2026-10-27, before any weekly return)
+
+Same question as §1, on weekly bars: do PRE_BREAKOUT, TRIGGERED and CONFIRMED (first bar
+of a run) beat the market over the next 4 weeks? Everything not stated here is as in §3–§7.
+
+**Data.** `scan_history(bars, symbol, "weekly", "weekly")` over the weekly raw files of the
+same snapshot the daily run used (`data/research/snapshots/2026-10-27/weekly/`, 268 files,
+Yahoo auto-adjusted, 10y: 2016-10 → 2026-10). Weekly bars are dated Monday and hold the whole
+week. A bar's signal is known at that week's close (Friday = Monday + 4 days).
+
+**Events.** E1/E2/E3 exactly as §3, on consecutive weekly `scan_history` rows.
+
+**Universe, adapted to weekly bars.** At week t, using only weekly bars up to and including t:
+- not in `RESEARCH_EXCLUDED_SYMBOLS` (same list);
+- ≥ 52 weekly bars of history (≈ the daily 252 sessions). Listing age is the weekly bar
+  count; the files start 2016-10, so names listed earlier are counted from there;
+- weekly Close ≥ $5;
+- top 200 by trailing 4-bar median of weekly Close × weekly Volume (≈ the daily 20-session
+  window), ties A→Z.
+- Candidates are the 268 weekly raw files. The 46 daily tickers that have no weekly file
+  are not in the weekly test.
+
+**Entry, exit, label.** Entry is the open of week t+1 (its first session). Exit is the close
+of week t+4 (the 4th week, counting the entry week as the 1st).
+`R4W = Close[t+4] / Open[t+1] − 1`. No costs, no stops.
+E1 only: `REACH4W` = Status is BREAKOUT_TRIGGERED or BREAKOUT_CONFIRMED on any weekly bar
+t+1 … t+4.
+
+**Benchmarks.** SPY over the same weekly entry and exit bars
+(`Close[exit week] / Open[entry week] − 1`). Twenty date-matched random stocks per event,
+drawn without replacement from that week's universe members (never the event's own
+ticker), fixed seed, same rules.
+
+**Report and decision rule.** As §6–§7, with R4W in place of R10. Per-date clustering
+uses the signal week. A signal passes in-sample only if it beats both SPY and random:
+the larger of the two one-sided p-values, Holm across the 3 weekly signals, p < 0.05.
+The holdout runs once, only for signals that passed, with the same test. Failed
+signals are dropped, not tuned. This is a separate family from the daily test, and
+daily results do not change it.
+
+**Holdout seal.** The seal is on the date the signal is known (week end). In-sample is
+signals known **on or before 2026-03-31**: the last in-sample bar is the week of
+2026-03-23 (closes 03-27). The week of 2026-03-30 closes 04-03, so it is holdout.
+In-sample starts at the first available signal. With 80 bars of `scan_history`
+warm-up, that is about 2018-04, roughly 410 signal weeks. Forward bars after
+2026-03-31 may be read to label late-March signals, as in the daily test.
+
+**Sample size.** Weekly gives far fewer signal dates than daily: about 410 weeks
+against about 1,000 sessions, and fewer events per date. Power is lower, so a FAIL
+here is weaker evidence of no effect than the daily FAIL. Each event's 4-week window
+overlaps the next 3 signal weeks, so successive weekly means are correlated. The plain
+date-clustered t-test does not correct for that, which makes a false PASS more likely,
+not less. This is stated, and the rule is not changed for it. (The daily 10-session
+windows overlap the same way.)
+
+**Survivorship.** As §8.4: reduced, not removed.
