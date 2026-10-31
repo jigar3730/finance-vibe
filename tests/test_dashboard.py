@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 from datetime import date
 
 import pandas as pd
@@ -53,6 +54,15 @@ def breakout_logs(tmp_path, monkeypatch):
     monkeypatch.setattr(app_module, "LOG_DIRS", modes)
     _write_scan(tmp_path / "daily", "2026-09-04")
     return modes
+
+
+@pytest.fixture(autouse=True)
+def market_context_silo(tmp_path, monkeypatch):
+    """Market-health files live in a tmp silo, empty unless a test writes to it."""
+    profile = dict(app_module.config.MARKET_CONTEXT_PROFILE)
+    profile |= {"raw_dir": str(tmp_path / "mraw"), "logs_dir": str(tmp_path / "mlogs")}
+    monkeypatch.setattr(app_module.config, "MARKET_CONTEXT_PROFILE", profile)
+    return profile
 
 
 def test_routes_registered():
@@ -504,6 +514,48 @@ def test_market_home_shows_today_table_instead_of_strip(client, tmp_path, monkey
     assert "Growth vs dividend:" in today
     # Most important facts first: Today, then the relative view, then the ETF cards.
     assert body.index("today-view") < body.index("relative-view") < body.index("setup-card")
+
+
+def _write_market_context(profile, rising: set[str]):
+    os.makedirs(profile["raw_dir"], exist_ok=True)
+    dates = pd.bdate_range(end="2026-10-30", periods=80).strftime("%Y-%m-%d")
+    for sym in app_module.config.MARKET_CONTEXT_TICKERS:
+        close = [10 + i * 0.1 for i in range(80)]
+        if sym not in rising:
+            close = close[::-1]
+        frame = pd.DataFrame(
+            {"Date": dates, "Open": close, "High": close, "Low": close, "Close": close, "Volume": 1}
+        )
+        frame.to_csv(app_module.config.get_raw_path(sym, profile), index=False)
+
+
+def test_market_health_section_with_plain_sector_names(
+    client, tmp_path, monkeypatch, market_context_silo
+):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _write_market_context(market_context_silo, rising={"VIX", "XLK", "XLE"})
+    body = client.get("/").get_data(as_text=True)
+    sec = body.split('class="health-view"')[1].split("</section>")[0]
+    assert body.index("today-view") < body.index("health-view") < body.index("relative-view")
+    vol = sec.split('class="health-volatility"')[1].split("</tr>")[0]
+    assert "VIX 17.90, +0.10 since the previous close, above its 20-day average" in vol
+    credit = sec.split('class="health-credit"')[1].split("</tr>")[0]
+    assert "HYG/IEF ratio 1.0000" in credit and "% over 1 month" in credit
+    breadth = sec.split('class="health-breadth"')[1].split("</tr>")[0]
+    assert "<strong>2 of 11</strong> sectors above their 50-day average" in breadth
+    above = breadth.split("Above:")[1].split("</div>")[0]
+    assert "XLK Technology" in above and "XLE Energy" in above
+    assert "XLU Utilities" in breadth.split("Below:")[1].split("</div>")[0]
+    # Facts only: no up/down colours, no verdict words.
+    for word in ('class="pos"', 'class="neg"', "risk on", "risk off", "bullish", "bearish"):
+        assert word not in sec.lower()
+
+
+def test_market_health_without_data_says_no_data(client, tmp_path, monkeypatch):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    sec = client.get("/").get_data(as_text=True).split('class="health-view"')[1]
+    assert sec.split("</section>")[0].count("No data") == 3
+    assert "VIX missing" in sec and "XLK missing" in sec
 
 
 def test_old_market_link_redirects_home(client):

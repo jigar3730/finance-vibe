@@ -28,6 +28,39 @@
     </section>
     {% endif %}
 
+    {% if health %}
+    <section class="health-view">
+        <h2>Market health <span class="top-date">daily closes</span></h2>
+        <table class="table health-table">
+            {% set v = health.volatility %}
+            <tr class="health-volatility"><th>Volatility</th>
+                <td>{% if v %}VIX {{ v.level|num }}{% if v.change is not none %}, {{ v.change|signed(2) }} since the previous close{% endif %}{% if v.ma is not none %}, {{ 'above' if v.above_ma else 'below' }} its 20-day average ({{ v.ma|num }}){% endif %}{% else %}No data{% endif %}</td>
+                <td class="muted">{{ v.as_of if v else '—' }}</td>
+                <td>{% for f in health.volatility_flags %}<span class="warn">⚠ {{ f }}</span> {% endfor %}</td>
+            </tr>
+            {% set c = health.credit %}
+            <tr class="health-credit"><th>Credit</th>
+                <td>{% if c %}HYG/IEF ratio {{ c.ratio|num(4) }}{% if c.ma is not none %}, {{ 'above' if c.above_ma else 'below' }} its 50-day average ({{ c.ma|num(4) }}){% endif %}{% if c.month_change is not none %}, {{ (c.month_change * 100)|signed(1) }}% over 1 month{% endif %}{% else %}No data{% endif %}</td>
+                <td class="muted">{{ c.as_of if c else '—' }}</td>
+                <td>{% for f in health.credit_flags %}<span class="warn">⚠ {{ f }}</span> {% endfor %}</td>
+            </tr>
+            {% set b = health.breadth %}
+            <tr class="health-breadth"><th>Breadth</th>
+                <td>{% if b.counted %}<strong>{{ b.above|length }} of {{ b.counted }}</strong> sectors above their 50-day average
+                    <div class="sector-list">Above: {% for s in b.above %}<span class="sector">{{ s.symbol }} {{ s.name }}</span>{% if not loop.last %}, {% endif %}{% else %}none{% endfor %}</div>
+                    <div class="sector-list">Below: {% for s in b.below %}<span class="sector">{{ s.symbol }} {{ s.name }}</span>{% if not loop.last %}, {% endif %}{% else %}none{% endfor %}</div>
+                    {% if b.unknown %}<div class="sector-list muted">No data: {% for s in b.unknown %}{{ s.symbol }} {{ s.name }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
+                    {% else %}No data{% endif %}</td>
+                <td class="muted">{{ b.as_of or '—' }}</td>
+                <td>{% for f in health.breadth_flags %}<span class="warn">⚠ {{ f }}</span> {% endfor %}</td>
+            </tr>
+        </table>
+        <p class="meta">Facts, not a signal: no rule here has been tested. HYG holds high-yield company bonds and IEF
+            7–10 year Treasuries, so their ratio falls when lenders want more for riskier companies. Breadth counts
+            the 11 S&amp;P 500 sector funds.</p>
+    </section>
+    {% endif %}
+
     {% if relative %}{% set rot = relative.rotation %}
     <section class="relative-view">
         <h2>Relative view <span class="top-date">daily closes</span></h2>

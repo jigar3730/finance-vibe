@@ -343,6 +343,10 @@ table.table tr:has(.live-surge) {
 .relative-table td.pos { color: var(--finviz-green-light); }
 .relative-table td.neg { color: var(--finviz-red); }
 .today-view { margin-bottom: 24px; }
+.health-view { margin-bottom: 24px; }
+.health-table th { text-align: left; white-space: nowrap; }
+.sector-list { margin-top: 4px; font-size: 0.85rem; }
+.sector { white-space: nowrap; }
 .today-table td.pos { color: var(--finviz-green-light); }
 .today-table td.neg { color: var(--finviz-red); }
 .rotation-label { font-weight: 700; }

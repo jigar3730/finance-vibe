@@ -10,7 +10,7 @@ with a Flask dashboard to review their output:
 
 Both produce *signals* for review, not trades. The backtest found no proven edge in them
 (`RESEARCH.md`), so the dashboard's home page is daily market context (SPY / QQQ / SCHG /
-SCHD facts); the scans live on a back page, Setups (unproven).
+SCHD facts, VIX, credit and sector breadth); the scans live on a back page, Setups (unproven).
 
 ## Quick start
 
@@ -58,7 +58,7 @@ src/finance_vibe/
   pipeline.py         orchestrator (python -m finance_vibe.pipeline)
   data/               tickers.py, ingest.py, daily_ingest.py, market_ingest.py, raw.py, quality.py, ticker_manifest.csv
   scanners/           coiled_cobra.py, breakout.py
-  web/                app.py, playbook.py (Setups page sections, Market rows), insights.py (freshness, changes, ETF relative view), templates/, static/
+  web/                app.py, playbook.py (Setups page sections, Market rows), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers
 tests/                pytest suite
 docs/                 scanner specs and operations

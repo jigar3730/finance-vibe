@@ -178,7 +178,7 @@ dashboard and the next scheduled run pick it up.
 
 | Route | Contents |
 | ----- | -------- |
-| `/` | Market home: a "Today" table for SPY / QQQ / SCHG / SCHD (daily change, close vs 50- and 200-day averages, heavy-volume support break, growth vs dividend), the relative view (returns, RS vs SPY), then a card per ETF (bias, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
+| `/` | Market home: a "Today" table for SPY / QQQ / SCHG / SCHD (daily change, close vs 50- and 200-day averages, heavy-volume support break, growth vs dividend), Market health (VIX, HYG/IEF credit ratio, sectors above their 50-day average), the relative view (returns, RS vs SPY), then a card per ETF (bias, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
 | `/market` | Redirects (301) to `/` |
 | `/setups` | Setups (unproven), by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), counts of signals that failed in-sample |
 | `/changes` | What's new since the previous run: Market ETF changes, new weekly CONFIRMED, stock list entered / left, then other changes as counts (`?show=all` for the full list) |
@@ -243,6 +243,24 @@ Setups page shows a "market headwind" banner. The ranking is unchanged.
   RVOL20 ≥ `config.BREAKOUT_RVOL_CONFIRM` (1.5),
 
 then the growth-vs-dividend label. Facts only: it shows no bias and adds no rule.
+
+**Market health (`web/health.market_health`).** Under the Today table, from the
+market-context files (`data/raw/market/`, last daily closes, no live prices):
+- **Volatility:** the VIX close, its change in points since the previous close, and
+  whether it is above or below its 20-day average.
+- **Credit:** the HYG / IEF close ratio (high-yield company bonds vs 7–10 year
+  Treasuries), above or below its 50-day average, and its change over 21 sessions. IEF
+  rather than TLT: its bonds are closer in length to HYG's, so the ratio moves mostly
+  with credit worry, not with long-term interest rates.
+- **Breadth:** how many of the 11 sector funds (`config.MARKET_SECTOR_FUNDS`) closed
+  above their 50-day average ("7 of 11"), then the funds above and below, each with its
+  plain name ("XLK Technology"). A fund without a file or enough history is listed as
+  no data and left out of the count.
+
+Each row shows its date and a warning when a file is missing, older than the last
+closed session, or has an error row in the newest `data/logs/market/data_quality_<date>.csv`.
+Facts only, in plain text with no up/down colours: no score, no risk-on / risk-off
+label, and no rule built on them has been tested.
 
 **Relative view (`web/insights.etf_relative`).** A table above the cards, from each
 ETF's daily raw closes:

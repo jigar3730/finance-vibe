@@ -17,7 +17,7 @@ from werkzeug.wrappers import Response as RedirectResponse
 from finance_vibe import config
 from finance_vibe.data import raw
 from finance_vibe.log import setup_logging
-from finance_vibe.web import insights, playbook
+from finance_vibe.web import health, insights, playbook
 from finance_vibe.web.playbook import (
     BREAKOUT_PREFIX,
     COBRA_PREFIX,
@@ -417,7 +417,11 @@ def market() -> str:
             m["symbol"], {"daily": m["daily"], "weekly": m["weekly"]}, expected
         )
     return render_template(
-        "market.html", rows=rows, relative=insights.etf_relative(), today=_market_strip()
+        "market.html",
+        rows=rows,
+        relative=insights.etf_relative(),
+        today=_market_strip(),
+        health=health.market_health(expected["daily"]),
     )
 
 
