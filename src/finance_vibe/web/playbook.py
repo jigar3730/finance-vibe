@@ -181,37 +181,27 @@ def _line(price: float | None, label: str, color: str, style: int) -> dict[str, 
 
 
 # ---------------------------------------------------------------------------
-# Market tab: SPY / QQQ / SCHG / SCHD bias from the breakout scanner's states
+# Market home: SPY / QQQ / SCHG / SCHD facts from the breakout scanner's states
 # ---------------------------------------------------------------------------
 
 MARKET_SYMBOLS = ("SPY", "QQQ", "SCHG", "SCHD")
-HEADWIND_SYMBOLS = ("SPY", "QQQ")  # a SHORT bias here puts a banner on Setups
-_LONG_MTF = {"ALIGNED", "PARTIAL"}
+SETUPS_MARKET_SYMBOLS = ("SPY", "QQQ")  # their facts head the Setups page
 
 
-def market_bias(
-    daily: dict[str, Any] | None, weekly: dict[str, Any] | None
-) -> tuple[str, list[str]]:
-    """LONG / SHORT / NEUTRAL for one ETF, with the reasons shown on its card.
-
-    LONG: weekly Trend BULLISH, weekly MTF ALIGNED or PARTIAL, daily Close above
-    daily SMA50. SHORT: weekly Trend or MTF BEARISH, daily Close below daily SMA50.
-    Anything else (or a missing row) is NEUTRAL.
-    """
-    if not daily or not weekly:
-        return "NEUTRAL", ["missing a daily or weekly scan row"]
-    trend, mtf = weekly.get("Trend"), weekly.get("MTF")
+def market_facts(daily: dict[str, Any] | None, weekly: dict[str, Any] | None) -> list[str]:
+    """Plain facts for one ETF: weekly Trend and MTF, daily close vs its SMA50. No rule."""
+    facts = (
+        [f"weekly trend {weekly.get('Trend')}", f"weekly MTF {weekly.get('MTF')}"]
+        if weekly
+        else ["no weekly scan row"]
+    )
+    if not daily:
+        return [*facts, "no daily scan row"]
     close, sma50 = num(daily.get("Close")), num(daily.get("SMA50"))
-    reasons = [f"weekly trend {trend}", f"weekly MTF {mtf}"]
     if close is None or sma50 is None:
-        return "NEUTRAL", [*reasons, "daily SMA50 unavailable"]
-    above = close > sma50
-    reasons.append(f"daily close {'above' if above else 'below'} SMA50 ({sma50:,.2f})")
-    if trend == "BULLISH" and mtf in _LONG_MTF and above:
-        return "LONG", reasons
-    if (trend == "BEARISH" or mtf == "BEARISH") and not above:
-        return "SHORT", reasons
-    return "NEUTRAL", reasons
+        return [*facts, "daily 50-day average unavailable"]
+    side = "above" if close > sma50 else "below"
+    return [*facts, f"daily close {side} its 50-day average ({sma50:,.2f})"]
 
 
 def row_for(df: pd.DataFrame, symbol: str) -> dict[str, Any] | None:
@@ -236,7 +226,7 @@ def market_rows(
     live: dict[str, float | str] | None = None,
     symbols: tuple[str, ...] = MARKET_SYMBOLS,
 ) -> list[dict[str, Any]]:
-    """One dict per ETF: its scan rows, bias and reasons, price and chart lines.
+    """One dict per ETF: its scan rows, plain facts, price and chart lines.
 
     ``price`` is the live quote when usable, else the daily Close. A symbol
     without a daily row gets ``levels`` = None.
@@ -244,7 +234,6 @@ def market_rows(
     rows = []
     for symbol in symbols:
         daily, weekly = row_for(daily_breakout, symbol), row_for(weekly_breakout, symbol)
-        bias, reasons = market_bias(daily, weekly)
         live_price = live_price_or_none((live or {}).get(symbol))
         close = num(daily.get("Close")) if daily else None
         rows.append(
@@ -252,8 +241,7 @@ def market_rows(
                 "symbol": symbol,
                 "daily": daily,
                 "weekly": weekly,
-                "bias": bias,
-                "reasons": reasons,
+                "facts": market_facts(daily, weekly),
                 "price": live_price if live_price is not None else close,
                 "price_is_live": live_price is not None,
                 "levels": range_levels(daily) if daily else None,

@@ -90,10 +90,7 @@
 
     <h2>ETF details</h2>
     <div class="meta scan-note">
-        Bias from the breakout scan: LONG when the weekly trend is bullish with MTF aligned or partial and the
-        daily close is above its SMA50; SHORT when the weekly trend or MTF is bearish and the daily close is below
-        its SMA50; otherwise NEUTRAL. Chart lines are the daily scan's Resistance and Support. The rule is
-        unvalidated; treat it as market context, not a call.
+        States from the breakout scan. Chart lines are the daily scan's Resistance and Support. Context, not a call.
     </div>
     <div class="card-grid">
     {% for m in rows %}
@@ -101,7 +98,6 @@
         <article class="setup-card">
             <header class="setup-head">
                 <a class="ticker-link setup-symbol" href="https://finviz.com/quote.ashx?t={{ m.symbol }}" target="_blank" rel="noopener noreferrer">{{ m.symbol }}</a>
-                <span class="bias-pill bias-{{ m.bias|lower }}">{{ m.bias }}</span>
             </header>
             {% if m.freshness %}
             <p class="setup-note freshness">
@@ -110,7 +106,7 @@
                 {% endfor %}
             </p>
             {% endif %}
-            <p class="setup-note">{{ m.reasons|join(' · ') }}</p>
+            <p class="setup-note market-card-facts">{{ m.facts|join(' · ') }}</p>
 
             <table class="table states-table">
                 <tr><th></th><th>Trend</th><th>MTF</th><th>Momentum</th><th>Structure</th><th>Status</th></tr>

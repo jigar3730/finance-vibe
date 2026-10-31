@@ -392,16 +392,15 @@ def setups() -> str:
         {"mode": mode, "date": date, "counts": playbook.failed_counts(bo, mode)}
         for mode, (date, _, bo) in latest.items()
     ]
-    # Only the bias is needed here, so no live prices for the market rows.
-    market_rows = _market(latest, symbols=playbook.HEADWIND_SYMBOLS)
-    headwinds = [m for m in market_rows if m["bias"] == "SHORT"]
+    # Plain facts for SPY / QQQ above the setups; no live prices needed.
+    market_rows = _market(latest, symbols=playbook.SETUPS_MARKET_SYMBOLS)
     return render_template(
         "setups.html",
         week_date=week_date,
         cards=cards,
         cobra=cobra,
         failed=failed,
-        headwinds=headwinds,
+        market_rows=market_rows,
     )
 
 

@@ -382,7 +382,7 @@ def test_home_without_weekly_confirmed(client, tmp_path, monkeypatch):
     )
     body = client.get("/setups").get_data(as_text=True)
     assert "No weekly CONFIRMED setups in the latest run." in body
-    assert "headwind-banner" not in body
+    assert "headwind" not in body
 
 
 @pytest.fixture
@@ -475,11 +475,16 @@ def _market_logs(tmp_path, monkeypatch, weekly_trend):
     pd.DataFrame(weekly).to_csv(dirs["weekly"] / "breakout_setups_2026-10-20.csv", index=False)
 
 
-def test_market_page_shows_bias_and_no_trade_plans(client, tmp_path, monkeypatch):
+def test_market_cards_show_facts_not_a_bias_pill(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BEARISH")
     body = client.get("/").get_data(as_text=True)
     spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
-    assert "bias-short" in spy and "SHORT" in spy
+    facts = spy.split('class="setup-note market-card-facts"')[1].split("</p>")[0]
+    assert facts == (
+        ">weekly trend BEARISH · weekly MTF PARTIAL · daily close below its 50-day average (767.26)"
+    )
+    assert "bias" not in body.lower()  # no pill, no bias-* class, no rule text
+    assert "LONG" not in body and "SHORT" not in body  # Trend's NEUTRAL state stays
     for gone in ("Long: break above", "Short: break below", "plan-block", "2R", "Stop", "Trigger"):
         assert gone not in spy
     assert "758.79" in spy and "781.62" in spy
@@ -607,15 +612,15 @@ def test_market_cards_show_freshness(client, tmp_path, monkeypatch):
     assert "missing" in qqq.split("Weekly")[1].split("</p>")[0]  # no weekly QQQ row
 
 
-def test_top_setups_banner_when_spy_is_short(client, tmp_path, monkeypatch):
-    _market_logs(tmp_path, monkeypatch, weekly_trend="BEARISH")
+@pytest.mark.parametrize("trend", ["BEARISH", "BULLISH"])
+def test_setups_page_always_shows_spy_qqq_facts(client, tmp_path, monkeypatch, trend):
+    _market_logs(tmp_path, monkeypatch, weekly_trend=trend)
     body = client.get("/setups").get_data(as_text=True)
-    assert "headwind-banner" in body and "<strong>SPY</strong> bias SHORT" in body
-
-
-def test_no_banner_when_spy_is_not_short(client, tmp_path, monkeypatch):
-    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
-    assert "headwind-banner" not in client.get("/setups").get_data(as_text=True)
+    box = body.split('class="market-facts"')[1].split("</div>")[0]
+    assert f"<strong>SPY:</strong> weekly trend {trend} · weekly MTF PARTIAL" in box
+    assert "<strong>QQQ:</strong> no weekly scan row · daily close below" in box
+    assert "SCHG" not in box and 'href="/"' in box
+    assert "headwind" not in body and "bias" not in body.lower()
 
 
 def test_market_page_without_runs(client, tmp_path, monkeypatch):

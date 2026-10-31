@@ -370,18 +370,7 @@ table.table tr:has(.live-surge) {
 .market-strip .pos { color: var(--finviz-green-light); }
 .market-strip .neg { color: var(--finviz-red); }
 
-/* Market tab */
-.bias-pill {
-    margin-left: auto;
-    padding: 4px 12px;
-    border-radius: 12px;
-    font-size: 0.8rem;
-    font-weight: 700;
-    font-family: var(--finviz-font-mono);
-}
-.bias-long { background: rgba(8, 153, 129, 0.18); color: var(--finviz-green-light); }
-.bias-short { background: rgba(242, 54, 69, 0.16); color: var(--finviz-red); }
-.bias-neutral { background: var(--finviz-bg-hover); color: var(--finviz-text-muted); }
+/* Market home */
 .states-table { margin-bottom: 10px; table-layout: fixed; }
 table.states-table th, table.states-table td {
     white-space: normal;
@@ -389,15 +378,16 @@ table.states-table th, table.states-table td {
     font-size: 0.68rem;
     padding: 4px 5px;
 }
-.headwind-banner {
+.market-facts {
     margin: 0 0 16px;
-    padding: 10px 14px;
-    border: 1px solid rgba(242, 54, 69, 0.5);
+    padding: 8px 14px;
+    border: 1px solid var(--finviz-border);
     border-radius: 6px;
-    background: rgba(242, 54, 69, 0.1);
-    color: var(--finviz-text-primary);
+    font-size: 0.85rem;
+    color: var(--finviz-text-muted);
 }
-.headwind-banner a { color: var(--finviz-accent-blue); }
+.market-facts p { margin: 2px 0; }
+.market-facts a { color: var(--finviz-accent-blue); }
 
 @media (max-width: 880px) {
     .page-body { padding: 20px 16px 36px; }

@@ -125,41 +125,39 @@ def _spy(**kw):
 
 
 # ---------------------------------------------------------------------------
-# Market bias
+# Market facts (no bias rule)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    ("weekly", "daily_close", "bias"),
-    [
-        ({"Trend": "BULLISH", "MTF": "ALIGNED"}, 769.05, "LONG"),
-        ({"Trend": "BULLISH", "MTF": "PARTIAL"}, 760.0, "NEUTRAL"),  # below SMA50
-        ({"Trend": "BULLISH", "MTF": "DIVERGENT"}, 769.05, "NEUTRAL"),
-        ({"Trend": "BEARISH", "MTF": "PARTIAL"}, 760.0, "SHORT"),
-        ({"Trend": "NEUTRAL", "MTF": "BEARISH"}, 760.0, "SHORT"),
-        ({"Trend": "BEARISH", "MTF": "BEARISH"}, 769.05, "NEUTRAL"),  # above SMA50
-        ({"Trend": "NEUTRAL", "MTF": "PARTIAL"}, 769.05, "NEUTRAL"),
-    ],
-)
-def test_market_bias_rule(weekly, daily_close, bias):
-    got, reasons = pb.market_bias(_spy(Close=daily_close), weekly)
-    assert got == bias
-    assert reasons[0] == f"weekly trend {weekly['Trend']}"
+def test_market_facts_are_the_states_and_the_50_day_side():
+    facts = pb.market_facts(_spy(Close=760.0), {"Trend": "BEARISH", "MTF": "PARTIAL"})
+    assert facts == [
+        "weekly trend BEARISH",
+        "weekly MTF PARTIAL",
+        "daily close below its 50-day average (767.26)",
+    ]
+    assert pb.market_facts(_spy(), {"Trend": "BULLISH", "MTF": "ALIGNED"})[-1].startswith(
+        "daily close above"
+    )
 
 
-def test_market_bias_is_neutral_without_rows():
-    assert pb.market_bias(None, {"Trend": "BULLISH"})[0] == "NEUTRAL"
-    assert pb.market_bias(_spy(SMA50=None), {"Trend": "BULLISH", "MTF": "ALIGNED"})[0] == "NEUTRAL"
+def test_market_facts_say_what_is_missing():
+    assert pb.market_facts(None, None) == ["no weekly scan row", "no daily scan row"]
+    assert pb.market_facts(_spy(SMA50=None), {"Trend": "BULLISH", "MTF": "ALIGNED"})[-1] == (
+        "daily 50-day average unavailable"
+    )
+    assert not hasattr(pb, "market_bias")  # the LONG / SHORT / NEUTRAL rule is gone
 
 
-def test_market_rows_carry_bias_price_and_support_resistance_lines():
+def test_market_rows_carry_facts_price_and_support_resistance_lines():
     daily = pd.DataFrame([_spy(), _spy(Symbol="QQQ")])
     weekly = pd.DataFrame([_spy(Trend="BULLISH", MTF="ALIGNED")])
     rows = {r["symbol"]: r for r in pb.market_rows(daily, weekly, {"SPY": 790.0, "QQQ": "N/A"})}
     assert list(rows) == ["SPY", "QQQ", "SCHG", "SCHD"]
-    assert rows["SPY"]["bias"] == "LONG" and "plans" not in rows["SPY"]
+    assert rows["SPY"]["facts"][:2] == ["weekly trend BULLISH", "weekly MTF ALIGNED"]
+    assert "bias" not in rows["SPY"] and "plans" not in rows["SPY"]
     assert rows["SPY"]["price"] == 790.0 and rows["SPY"]["price_is_live"]
-    assert rows["QQQ"]["bias"] == "NEUTRAL"  # no weekly row
+    assert rows["QQQ"]["facts"][0] == "no weekly scan row"
     assert rows["QQQ"]["price"] == 769.05 and not rows["QQQ"]["price_is_live"]
     assert [(line["label"], line["price"]) for line in rows["SPY"]["levels"]] == [
         ("Resistance", 781.62),

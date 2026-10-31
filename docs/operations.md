@@ -178,7 +178,7 @@ dashboard and the next scheduled run pick it up.
 
 | Route | Contents |
 | ----- | -------- |
-| `/` | Market home: a "Today" table for SPY / QQQ / SCHG / SCHD (daily change, close vs 50- and 200-day averages, heavy-volume support break, growth vs dividend), Market health (VIX, HYG/IEF credit ratio, sectors above their 50-day average), the relative view (returns, RS vs SPY), then a card per ETF (bias, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
+| `/` | Market home: a "Today" table for SPY / QQQ / SCHG / SCHD (daily change, close vs 50- and 200-day averages, heavy-volume support break, growth vs dividend), Market health (VIX, HYG/IEF credit ratio, sectors above their 50-day average), the relative view (returns, RS vs SPY), then a card per ETF (weekly trend / MTF and close vs 50-day average, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
 | `/market` | Redirects (301) to `/` |
 | `/setups` | Setups (unproven), by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), counts of signals that failed in-sample |
 | `/changes` | What's new since the previous run: Market ETF changes, new weekly CONFIRMED, stock list entered / left, then other changes as counts (`?show=all` for the full list) |
@@ -219,21 +219,17 @@ needs no internet access; to upgrade, replace that file and update the version i
 
 Signals to review, not advice.
 
-### Market home (`/`, `playbook.market_bias`)
+### Market home (`/`, `playbook.market_facts`)
 
-SPY, QQQ, SCHG and SCHD are in `STATIC_TICKERS`, so every run scans them. Their bias comes
-from the breakout scan's states:
+SPY, QQQ, SCHG and SCHD are in `STATIC_TICKERS`, so every run scans them. Each card
+shows plain facts from the breakout scan, with no LONG / SHORT / NEUTRAL label (that
+rule was untested and was removed on 2026-10-30): the weekly `Trend`, the weekly `MTF`,
+and whether the daily close is above or below its SMA50 (`playbook.market_facts`).
+Then the weekly and daily states, a daily chart with the scan's `Resistance` and
+`Support` lines, and the daily close, SMAs, ATR and RVOL20. There are no trade plans
+(no trigger, stop or targets) on this page.
 
-- **LONG:** the weekly `Trend` is BULLISH, the weekly `MTF` is ALIGNED or PARTIAL, and
-  the daily close is above its SMA50.
-- **SHORT:** the weekly `Trend` or `MTF` is BEARISH, and the daily close is below its
-  SMA50.
-- **NEUTRAL:** anything else, or a missing row.
-
-Each card shows the weekly and daily states, a daily chart with the scan's
-`Resistance` and `Support` lines, and the daily close, SMAs, ATR and RVOL20. There are no
-trade plans (no trigger, stop or targets) on this page. When SPY or QQQ is SHORT, the
-Setups page shows a "market headwind" banner. The ranking is unchanged.
+The Setups page opens with the same facts for SPY and QQQ, always shown, in plain text.
 
 **Market strip (`web/insights.market_strip`).** A bar under the nav on every page except
 `/`, where the same facts are the "Today" table at the top. For each of SPY / QQQ / SCHG / SCHD:
@@ -242,7 +238,7 @@ Setups page shows a "market headwind" banner. The ranking is unchanged.
 - "closed below support on heavy volume" when the daily close is below `Support` and
   RVOL20 ≥ `config.BREAKOUT_RVOL_CONFIRM` (1.5),
 
-then the growth-vs-dividend label. Facts only: it shows no bias and adds no rule.
+then the growth-vs-dividend label. Facts only: it adds no rule.
 
 **Market health (`web/health.market_health`).** Under the Today table, from the
 market-context files (`data/raw/market/`, last daily closes, no live prices):
@@ -295,9 +291,9 @@ The top of the page shows the two run dates compared per mode (newest vs the one
 before). Facts only; no section adds a buy or sell rule. Top to bottom:
 
 1. **Market changes** (`insights.market_changes`, newest daily run vs the previous one).
-   For SPY / QQQ / SCHG / SCHD, only ETFs where something changed: the bias
-   (`playbook.market_bias`, each daily run paired with the newest weekly run on or
-   before it), the daily close crossing its SMA50 or SMA200, or a *new* close below
+   For SPY / QQQ / SCHG / SCHD, only ETFs where something changed: the weekly `Trend`
+   or `MTF` (`insights.weekly_state_changes`, each daily run paired with the newest
+   weekly run on or before it, e.g. "weekly trend BULLISH → NEUTRAL"), the daily close crossing its SMA50 or SMA200, or a *new* close below
    `Support` with RVOL20 ≥ 1.5 (`insights.heavy_break`, the market strip's rule; already
    broken the run before does not count). Plus whether the growth-vs-dividend label
    flipped, from daily closes up to each run's date.

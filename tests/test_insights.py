@@ -198,20 +198,23 @@ def test_run_changes_needs_two_runs(tmp_path):
     assert got["status"]["upgrades"] == [] and got["cobra"]["new"] == []
 
 
-def test_bias_changes_pairs_each_day_with_its_weekly_run(tmp_path):
+def test_weekly_state_changes_pair_each_day_with_its_weekly_run(tmp_path):
     daily, weekly = tmp_path / "d", tmp_path / "w"
     daily.mkdir()
     weekly.mkdir()
     row = {"Symbol": "SPY", "Close": 110.0, "SMA50": 100.0}
     for day in ("2026-10-29", "2026-10-30"):
         pd.DataFrame([row]).to_csv(daily / f"breakout_setups_{day}.csv", index=False)
-    # Only the 10-30 daily run has a weekly run on or before it that is bullish.
-    pd.DataFrame([{"Symbol": "SPY", "Trend": "BULLISH", "MTF": "ALIGNED"}]).to_csv(
-        weekly / "breakout_setups_2026-10-30.csv", index=False
-    )
-    got = {b["symbol"]: b for b in insights.bias_changes(str(daily), str(weekly))}
-    assert got["SPY"] == {"symbol": "SPY", "bias": "LONG", "prev": "NEUTRAL", "changed": True}
-    assert got["SCHD"]["changed"] is False
+    # 10-29 pairs with the 10-23 weekly run, 10-30 with the 10-30 one.
+    for week, trend in (("2026-10-23", "NEUTRAL"), ("2026-10-30", "BULLISH")):
+        rows = [
+            {"Symbol": "SPY", "Trend": trend, "MTF": "ALIGNED"},
+            {"Symbol": "QQQ", "Trend": "BULLISH", "MTF": "ALIGNED"},
+        ]
+        pd.DataFrame(rows).to_csv(weekly / f"breakout_setups_{week}.csv", index=False)
+    got = insights.weekly_state_changes(str(daily), str(weekly))
+    assert got["SPY"] == ["weekly trend NEUTRAL → BULLISH"]
+    assert got["QQQ"] == [] and "SCHD" not in got  # unchanged / no rows
 
 
 def test_universe_changes_entered_and_left():
@@ -289,15 +292,20 @@ def test_market_changes_lists_only_etfs_with_new_facts(tmp_path, raw_silo):
     assert got["rotation"] == {"now": insights.MIXED, "prev": insights.MIXED, "changed": False}
 
 
-def test_market_changes_bias_and_cross_back_above(tmp_path, raw_silo):
+def test_market_changes_weekly_states_and_cross_back_above(tmp_path, raw_silo):
     prev = [_etf("SPY", 99.0)]
     now = [_etf("SPY", 101.0)]
     daily, weekly = _market_runs(tmp_path, prev, now)
-    pd.DataFrame([{"Symbol": "SPY", "Trend": "BULLISH", "MTF": "ALIGNED"}]).to_csv(
-        f"{weekly}/breakout_setups_2026-10-23.csv", index=False
-    )
+    for week, mtf in (("2026-10-23", "PARTIAL"), ("2026-10-30", "ALIGNED")):
+        pd.DataFrame([{"Symbol": "SPY", "Trend": "BULLISH", "MTF": mtf}]).to_csv(
+            f"{weekly}/breakout_setups_{week}.csv", index=False
+        )
     facts = {r["symbol"]: r["facts"] for r in insights.market_changes(daily, weekly)["rows"]}
-    assert facts["SPY"] == ["bias NEUTRAL → LONG", "closed above its 50-day average (was below)"]
+    assert facts["SPY"] == [
+        "weekly MTF PARTIAL → ALIGNED",
+        "closed above its 50-day average (was below)",
+    ]
+    assert not any("bias" in f for f in facts["SPY"])
 
 
 def test_market_changes_rotation_flip_uses_closes_up_to_each_run(tmp_path, raw_silo):
