@@ -236,7 +236,6 @@ def test_dashboard_display_rule_mirrors_scanner():
 
     assert bs.CANDIDATE_STATUSES == app_module.BREAKOUT_ALWAYS_SHOWN
     assert bs.DISPLAY_SCORE_FLOOR == app_module.BREAKOUT_SCORE_FLOOR
-    assert bs.RVOL_CONFIRM == app_module.playbook.RVOL_CONFIRM
     rank = bs._sort_candidates(
         pd.DataFrame(
             {

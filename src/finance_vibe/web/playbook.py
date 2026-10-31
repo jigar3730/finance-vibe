@@ -18,8 +18,6 @@ from typing import Any
 
 import pandas as pd
 
-from finance_vibe import config
-
 logger = logging.getLogger(__name__)
 
 COBRA_PREFIX = "coiled_cobra_setups_"
@@ -33,11 +31,6 @@ FAILED_IN_SAMPLE = {
     "daily": ("PRE_BREAKOUT", "BREAKOUT_TRIGGERED", CONFIRMED_STATUS),
     "weekly": ("PRE_BREAKOUT", "BREAKOUT_TRIGGERED"),
 }
-
-RVOL_CONFIRM = config.BREAKOUT_RVOL_CONFIRM
-STOP_BUFFER_ATR = 0.25
-EXTENDED_ATR = 1.0  # above trigger + this many ATR: don't chase
-WIDE_STOP_PCT = 8.0
 
 
 # ---------------------------------------------------------------------------
@@ -170,102 +163,10 @@ def failed_counts(breakout: pd.DataFrame, mode: str) -> dict[str, int]:
 
 
 # ---------------------------------------------------------------------------
-# Levels and action plan
-# ---------------------------------------------------------------------------
-
-
-def action_plan(
-    row: pd.Series | dict[str, Any], live_price: float | None = None, side: str = "long"
-) -> dict[str, Any]:
-    """Trigger / stop and a status for one row, long or short.
-
-    Long: trigger is the breakout Resistance (a close above it on RVOL20 >=
-    RVOL_CONFIRM and above SMA20 confirms); stop is the higher of Support and Cobra
-    Swing Low (when below the trigger) minus ``STOP_BUFFER_ATR`` x ATR.
-    Short (the mirror): trigger is Support (a close below it); stop is the lower of
-    Resistance and SMA20 (when above the trigger) plus the same buffer.
-    Status uses the live price when given, else the scan's Close.
-    """
-    if side not in ("long", "short"):
-        raise ValueError(f"side must be 'long' or 'short', not {side!r}")
-    long = side == "long"
-    atr = num(row.get("ATR"))
-    support, resistance = num(row.get("Support")), num(row.get("Resistance"))
-    entry = resistance if long else support
-    if entry is None or atr is None or atr <= 0:
-        raise ValueError("row needs a trigger level (Resistance / Support) and a positive ATR")
-    if long:
-        floors = [support, num(row.get("Cobra Swing Low"))]
-        level = max((f for f in floors if f is not None and f < entry), default=None)
-    else:
-        ceilings = [resistance, num(row.get("SMA20"))]
-        level = min((c for c in ceilings if c is not None and c > entry), default=None)
-    if level is None:
-        raise ValueError("row needs a stop level on the other side of the trigger")
-    d = 1 if long else -1  # +1: profit when price rises
-    stop = level - d * STOP_BUFFER_ATR * atr
-    risk = d * (entry - stop)
-    close = num(row.get("Close"))
-    live_price = live_price_or_none(live_price)
-    price = live_price if live_price is not None else close
-    beyond, toward = ("above", "below") if long else ("below", "above")
-
-    if price is None:
-        state, note = "UNKNOWN", "No price available."
-    elif d * (price - stop) < 0:
-        state, note = "INVALIDATED", f"Price is {toward} the stop; the setup is broken."
-    elif d * (price - entry) < 0:
-        gap = d * (entry - price) / atr
-        state, note = "WAITING", f"{gap:.1f} ATR {toward} the trigger."
-    elif d * (price - entry) <= EXTENDED_ATR * atr:
-        state = "TRIGGERED"
-        if not long:
-            note = (
-                "Below the trigger. The breakout scan does not confirm breakdowns; "
-                "judge the close and volume yourself."
-            )
-        elif row.get("Status") == CONFIRMED_STATUS:
-            note = "Breakout confirmed by the scan (close above on volume)."
-        else:
-            note = f"Above the trigger; needs a close above it on RVOL ≥ {RVOL_CONFIRM:g}."
-    else:
-        state = "EXTENDED"
-        note = (
-            f"More than {EXTENDED_ATR:g} ATR {beyond} the trigger: don't chase, "
-            "wait for a pullback toward it."
-        )
-
-    risk_pct = 100 * risk / entry
-    return {
-        "side": side,
-        "trigger": round(entry, 2),
-        "stop": round(stop, 2),
-        "support": None if support is None else round(support, 2),
-        "resistance": None if resistance is None else round(resistance, 2),
-        "risk": round(risk, 2),
-        "risk_pct": round(risk_pct, 1),
-        "price": None if price is None else round(price, 2),
-        "price_is_live": live_price is not None,
-        "status": state,
-        "note": note,
-        "wide_stop": risk_pct > WIDE_STOP_PCT,
-        "condition": (
-            f"Close above {entry:.2f} with RVOL20 ≥ {RVOL_CONFIRM:g} and above SMA20"
-            if long
-            else f"Close below {entry:.2f} (mirror of the long rule; not a scanner signal)"
-        ),
-    }
-
-
-# ---------------------------------------------------------------------------
 # Chart levels
 # ---------------------------------------------------------------------------
 
-LEVEL_COLORS = {
-    "trigger": "#2962ff",
-    "stop": "#f23645",
-    "support": "#787b86",
-}
+LEVEL_COLORS = {"resistance": "#2962ff", "support": "#787b86"}
 SOLID, DOTTED = 0, 1  # Lightweight Charts LineStyle
 
 
@@ -273,18 +174,6 @@ def _line(price: float | None, label: str, color: str, style: int) -> dict[str, 
     if price is None:
         return None
     return {"price": price, "label": label, "color": color, "style": style}
-
-
-def chart_levels(plan: dict[str, Any], *, with_support: bool = False) -> list[dict[str, Any]]:
-    """Price lines for one plan: trigger and stop (and Support if asked)."""
-    prefix = "" if plan["side"] == "long" else "Short "
-    lines = [
-        _line(plan["trigger"], f"{prefix}Trigger", LEVEL_COLORS["trigger"], SOLID),
-        _line(plan["stop"], f"{prefix}Stop", LEVEL_COLORS["stop"], SOLID),
-    ]
-    if with_support:
-        lines.append(_line(plan.get("support"), "Support", LEVEL_COLORS["support"], DOTTED))
-    return [line for line in lines if line is not None]
 
 
 # ---------------------------------------------------------------------------
@@ -331,7 +220,7 @@ def row_for(df: pd.DataFrame, symbol: str) -> dict[str, Any] | None:
 def range_levels(row: dict[str, Any]) -> list[dict[str, Any]]:
     """Chart lines for a scan row's Resistance and Support, nothing else."""
     lines = [
-        _line(num(row.get("Resistance")), "Resistance", LEVEL_COLORS["trigger"], SOLID),
+        _line(num(row.get("Resistance")), "Resistance", LEVEL_COLORS["resistance"], SOLID),
         _line(num(row.get("Support")), "Support", LEVEL_COLORS["support"], DOTTED),
     ]
     return [line for line in lines if line is not None]
