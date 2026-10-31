@@ -78,6 +78,13 @@ def test_zero_volume_is_a_warning():
     assert set(got) == {"zero_volume"} and got["zero_volume"]["Severity"] == "warn"
 
 
+def test_zero_volume_check_can_be_skipped_for_an_index():
+    df = _bars()
+    df["Volume"] = 0.0
+    issues = quality.bar_issues(df, "VIX", expected_last=LAST, check_volume=False)
+    assert "zero_volume" not in {i["Check"] for i in issues}
+
+
 def test_flat_close_run_is_flagged_at_the_threshold():
     df = _bars()
     run = config.DQ_FLAT_RUN

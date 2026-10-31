@@ -15,7 +15,7 @@ dashboard. It produces *signals* for review, not trades.
 - `src/finance_vibe/` — `config`, `log`, `indicators`, `market` (QQQ benchmark,
   RS, Cobra market gate), `pipeline` (orchestrator)
 - `src/finance_vibe/data/` — `tickers`, `ingest` (Yahoo download, both modes),
-  `daily_ingest`, `raw` (the raw CSV loader), `quality` (bar-quality flags → `data_quality_<date>.csv`, never changes scores)
+  `daily_ingest`, `market_ingest` (VIX / HYG / IEF / sector funds → `data/raw/market/`, never scanned), `raw` (the raw CSV loader), `quality` (bar-quality flags → `data_quality_<date>.csv`, never changes scores)
 - `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout` (`scan_history()` gives
   every bar's breakout states/status/score, same rules as the scan)
 - `src/finance_vibe/research/` — research only (RESEARCH.md): `universe` (point-in-time
@@ -25,7 +25,7 @@ dashboard. It produces *signals* for review, not trades.
 - `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home bias and levels), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market relative view, market strip), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
-- `data/` — gitignored. `data/raw/{weekly|daily}/`, `data/logs/{weekly|daily}/`, `data/active_tickers.csv`, `data/research/`
+- `data/` — gitignored. `data/raw/{weekly|daily|market}/`, `data/logs/{weekly|daily|market}/`, `data/active_tickers.csv`, `data/research/`
 - `scripts/` — cron runners, output health checks, test/lint/golden helpers
 
 ## Commands
@@ -57,7 +57,8 @@ Stages are declared in `pipeline.STAGES` (dotted module names) and run as
 `python -m <module>` subprocesses (or `--in-process` via each stage's
 `main(argv)`), in order: wipe `data/raw/{mode}/` (unless `--reuse-raw`/`--as-of`)
 → `data.tickers` → `data.ingest` (weekly) or `data.daily_ingest` (daily; drops
-today's bar before 17:00 ET) → `scanners.coiled_cobra` → `scanners.breakout`.
+today's bar before 17:00 ET) → `scanners.coiled_cobra` → `scanners.breakout`
+→ `data.market_ingest` (daily only; market-context funds for the home page).
 Outputs land in `data/logs/{mode}/` with a `_<date>` suffix.
 
 If a doc disagrees with `pipeline.py` or `config.py`, the code wins.

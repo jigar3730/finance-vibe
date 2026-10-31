@@ -116,6 +116,15 @@ def test_in_process_stage_lists_match_subprocess(monkeypatch):
     assert calls[1][1] == []  # daily_ingest takes no mode argument
 
 
+def test_market_context_download_runs_last_in_daily_only(monkeypatch):
+    calls = _fake_stages(monkeypatch)
+    pipeline.run_workflow(["--mode", "daily", "--in-process"])
+    assert calls[-1] == ("market_ingest", [])  # after both scanners
+    calls.clear()
+    pipeline.run_workflow(["--mode", "weekly", "--in-process"])
+    assert "market_ingest" not in [c[0] for c in calls]
+
+
 @pytest.mark.parametrize("kind", ["fail", "boom"])
 def test_in_process_failure_halts_pipeline(monkeypatch, kind):
     calls = _fake_stages(monkeypatch, **{kind: "coiled_cobra"})

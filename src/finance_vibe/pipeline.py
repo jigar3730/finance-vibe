@@ -57,6 +57,9 @@ STAGES: tuple[Stage, ...] = (
     Stage("finance_vibe.data.daily_ingest", modes=("daily",), pass_mode=False, ingest=True),
     Stage("finance_vibe.scanners.coiled_cobra", as_of=True),
     Stage("finance_vibe.scanners.breakout", as_of=True),
+    # Market-context funds for the home page, into their own silo. Last, so a Yahoo
+    # hiccup here never blocks the scans.
+    Stage("finance_vibe.data.market_ingest", modes=("daily",), pass_mode=False, ingest=True),
 )
 
 

@@ -217,6 +217,40 @@ DQ_FLAT_RUN = 5  # this many identical closes in a row looks like placeholder da
 DQ_JUMP_PCT = 0.40  # a close-to-close move this large may be a split or a bad print
 DQ_PRICE_TOL = 1e-6  # relative slack when checking High/Low against Open/Close
 
+# Market context (home page): an index and funds downloaded only for the market facts,
+# by data.market_ingest at the end of each daily run. They live in their own silo so
+# neither scanner ever sees them (and no scan CSV changes). Same OHLCV contract and
+# bar-quality checks as the scanned universe.
+MARKET_CONTEXT_PROFILE = {
+    "period": "2y",
+    "interval": "1d",
+    "raw_dir": os.path.join(PROJECT_ROOT, "data", "raw", "market"),
+    "logs_dir": os.path.join(PROJECT_ROOT, "data", "logs", "market"),
+}
+# The 11 S&P 500 sector funds, for breadth (sectors above their 50-day average).
+MARKET_SECTOR_FUNDS = {
+    "XLB": "Materials",
+    "XLC": "Communication services",
+    "XLE": "Energy",
+    "XLF": "Financials",
+    "XLI": "Industrials",
+    "XLK": "Technology",
+    "XLP": "Consumer staples",
+    "XLRE": "Real estate",
+    "XLU": "Utilities",
+    "XLV": "Health care",
+    "XLY": "Consumer discretionary",
+}
+# File symbol -> Yahoo symbol. VIX is an index (``^VIX``); its file is ``VIX_...csv``.
+MARKET_CONTEXT_TICKERS = {
+    "VIX": "^VIX",
+    "HYG": "HYG",  # high-yield corporate bonds
+    "IEF": "IEF",  # 7-10 year Treasuries (credit ratio HYG / IEF)
+    **{s: s for s in MARKET_SECTOR_FUNDS},
+}
+# Indexes Yahoo reports without volume: the zero-volume quality check is skipped.
+MARKET_NO_VOLUME = frozenset({"VIX"})
+
 # Market tab growth-vs-dividend rotation (web.insights.rotation): SCHG / SCHD close
 # ratio vs its SMA, plus the spread of their returns over the lookback. Unvalidated.
 ROTATION_GROWTH, ROTATION_DIVIDEND = "SCHG", "SCHD"

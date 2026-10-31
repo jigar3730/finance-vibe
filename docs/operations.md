@@ -15,13 +15,14 @@ the dashboard.
 | Path | Contents |
 | ---- | -------- |
 | `src/finance_vibe/` | `config`, `log`, `indicators`, `market` (benchmark, RS, market gate), `pipeline` |
-| `src/finance_vibe/data/` | `tickers` (universe), `ingest` (Yahoo download), `daily_ingest`, `raw` (raw CSV loader) |
+| `src/finance_vibe/data/` | `tickers` (universe), `ingest` (Yahoo download), `daily_ingest`, `market_ingest` (market-context funds), `raw` (raw CSV loader), `quality` |
 | `src/finance_vibe/scanners/` | `coiled_cobra`, `breakout` |
 | `src/finance_vibe/web/` | Flask dashboard (`app`, `templates/`, `static/`) |
 | `scripts/` | Cron runners, output health checks, email alerts, test/lint/golden helpers |
 | `data/active_tickers.csv` | Ticker universe |
 | `data/raw/{weekly,daily}/` | Raw OHLCV CSVs (`*_10y_1wk.csv`, `*_5y_1d.csv`) |
 | `data/logs/{weekly,daily}/` | Dated scan outputs and ingest errors |
+| `data/raw/market/`, `data/logs/market/` | Market-context raw CSVs (`*_2y_1d.csv`), their ingest errors and quality reports |
 
 ## Pipeline
 
@@ -39,6 +40,7 @@ python -m finance_vibe.pipeline --as-of 2025-11-07       # replay a past date
 | 2 | `data.ingest` (weekly) / `data.daily_ingest` (daily) | raw CSVs in `data/raw/{mode}/` (skipped with `--reuse-raw`) |
 | 3 | `scanners.coiled_cobra` | `coiled_cobra_setups_<date>.csv` |
 | 4 | `scanners.breakout` | `breakout_setups_<date>.csv` |
+| 5 | `data.market_ingest` (daily only) | raw CSVs in `data/raw/market/` and `data/logs/market/data_quality_<date>.csv` (skipped with `--reuse-raw`) |
 
 Each stage also runs on its own:
 
@@ -46,6 +48,7 @@ Each stage also runs on its own:
 python -m finance_vibe.data.tickers
 python -m finance_vibe.data.ingest weekly
 python -m finance_vibe.data.daily_ingest                 # takes no mode
+python -m finance_vibe.data.market_ingest                # takes no mode; 14 tickers
 python -m finance_vibe.scanners.coiled_cobra weekly
 python -m finance_vibe.scanners.breakout weekly
 ```
@@ -67,6 +70,16 @@ python -m finance_vibe.scanners.breakout weekly
   today's bar from every daily CSV while the session is still trading (final from
   17:00 ET, `DAY_FINAL_HOUR_ET`), so a mid-session run scans yesterday's close. It also
   holds the NYSE holiday calendar (`last_complete_session`) used by the daily health check.
+- **`data.market_ingest`** (daily, last stage) downloads `config.MARKET_CONTEXT_TICKERS`
+  for the market home page: VIX (Yahoo `^VIX`, saved as `VIX_2y_1d.csv`), HYG and IEF
+  (credit), and the 11 sector funds in `MARKET_SECTOR_FUNDS` (breadth). They are not in
+  the ticker list and live in `data/raw/market/`, so neither scanner sees them. Same
+  download, OHLCV contract, today's-bar rule and `MIN_SAVE_ROWS` as `daily_ingest`.
+  The folder is not wiped: a ticker that fails keeps its old file, which the quality
+  report then flags `stale`. Failures go to `data/logs/market/ingest_errors_<date>.csv`;
+  the stage always exits 0, so it never fails the pipeline. Its quality report
+  (`data/logs/market/data_quality_<date>.csv`) skips `zero_volume` for VIX
+  (`MARKET_NO_VOLUME`; an index has no volume).
 - **Bar-quality report (`data.quality`).** After each ingest (weekly: `ingest.main`;
   daily: `daily_ingest.ingest_daily`, after today's bar is dropped) every raw CSV is
   checked and each issue is written to `data_quality_<date>.csv`
@@ -140,7 +153,9 @@ After the pipeline exits 0, `scripts/check_{daily,weekly}_outputs.py` checks the
 outputs: both scanners' CSVs for today exist, SPY/QQQ's newest bar is the last closed
 session (daily) or the week that just closed (weekly), at most 20% of tickers failed
 to ingest, and `data_quality_<date>.csv` exists with no error rows for the market
-ETFs (other tickers' errors are only counted). Run one by hand with
+ETFs (other tickers' errors are only counted). The daily check also fails when a
+market-context file is missing, or `data/logs/market/data_quality_<date>.csv` is missing
+or has an error row (e.g. a stale VIX file). Run one by hand with
 `docker exec -i finance_vibe python - < scripts/check_daily_outputs.py`.
 
 `scripts/notify_email.py` (stdlib only, runs on the host) emails an alert with the end

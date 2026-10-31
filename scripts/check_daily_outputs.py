@@ -32,6 +32,26 @@ EXPECTED_PREFIXES = (
 )
 
 
+def market_context_problems(stamp: str) -> list[str]:
+    """Market-context silo (home page facts): every file present, today's quality report
+    written, and no error rows in it (a stale file is an error there)."""
+    cfg = config.MARKET_CONTEXT_PROFILE
+    problems = [
+        f"no market-context file for {name}"
+        for name in config.MARKET_CONTEXT_TICKERS
+        if not os.path.exists(config.get_raw_path(name, cfg))
+    ]
+    dq_path = quality.report_path(cfg["logs_dir"], stamp)
+    if not os.path.exists(dq_path):
+        return [*problems, f"missing output: market/{os.path.basename(dq_path)}"]
+    dq = pd.read_csv(dq_path, dtype=str)
+    for r in dq[dq["Severity"] == quality.ERROR].itertuples(index=False):
+        problems.append(
+            f"{r.Symbol} (market context) data quality {r.Check} ({r.Date}): {r.Detail}"
+        )
+    return problems
+
+
 def main() -> int:
     now = datetime.now(MARKET_TZ)
     stamp = now.strftime("%Y-%m-%d")
@@ -76,6 +96,8 @@ def main() -> int:
         dq_errors = len(dq)
         for r in dq[dq["Symbol"].isin(MARKET_SYMBOLS)].itertuples(index=False):
             problems.append(f"{r.Symbol} data quality {r.Check} ({r.Date}): {r.Detail}")
+
+    problems += market_context_problems(stamp)
 
     if problems:
         print("HEALTH CHECK FAILED:")

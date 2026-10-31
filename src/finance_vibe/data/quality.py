@@ -40,12 +40,15 @@ def _issue(symbol: str, check: str, severity: str, day: object, detail: str) -> 
     }
 
 
-def bar_issues(df: pd.DataFrame, symbol: str, *, expected_last: date) -> list[dict[str, str]]:
+def bar_issues(
+    df: pd.DataFrame, symbol: str, *, expected_last: date, check_volume: bool = True
+) -> list[dict[str, str]]:
     """Quality issues in one ticker's bars (a :func:`raw.load_raw` frame).
 
     ``stale`` compares the newest bar with ``expected_last``. The other checks
     look at the newest ``config.DQ_RECENT_BARS`` bars and report the latest bar
-    that fails each one.
+    that fails each one. ``check_volume=False`` skips ``zero_volume`` (an index
+    such as VIX has no volume).
     """
     if df.empty:
         return [_issue(symbol, "stale", ERROR, expected_last, "no bars")]
@@ -82,7 +85,7 @@ def bar_issues(df: pd.DataFrame, symbol: str, *, expected_last: date) -> list[di
         issues.append(_issue(symbol, "ohlc_incoherent", ERROR, recent.at[i, "Date"], detail))
 
     zero = recent["Volume"].fillna(0) <= 0
-    if zero.any():
+    if check_volume and zero.any():
         i = zero[zero].index[-1]
         issues.append(
             _issue(
@@ -122,7 +125,13 @@ def bar_issues(df: pd.DataFrame, symbol: str, *, expected_last: date) -> list[di
 
 def scan_raw_dir(mode: str, *, expected_last: date) -> pd.DataFrame:
     """Issues for every raw CSV of ``mode``, one row each (:data:`REPORT_COLUMNS`)."""
-    raw_dir = config.get_mode_config(mode)["raw_dir"]
+    return scan_dir(config.get_mode_config(mode)["raw_dir"], expected_last=expected_last)
+
+
+def scan_dir(
+    raw_dir: str, *, expected_last: date, no_volume: frozenset[str] = frozenset()
+) -> pd.DataFrame:
+    """Issues for every raw CSV in ``raw_dir``; tickers in ``no_volume`` skip ``zero_volume``."""
     rows: list[dict[str, str]] = []
     for f in raw.raw_files(raw_dir):
         try:
@@ -130,7 +139,11 @@ def scan_raw_dir(mode: str, *, expected_last: date) -> pd.DataFrame:
         except (OSError, ValueError) as exc:
             rows.append(_issue(f.ticker, "unreadable", ERROR, expected_last, str(exc)))
             continue
-        rows.extend(bar_issues(df, f.ticker, expected_last=expected_last))
+        rows.extend(
+            bar_issues(
+                df, f.ticker, expected_last=expected_last, check_volume=f.ticker not in no_volume
+            )
+        )
     return pd.DataFrame(rows, columns=REPORT_COLUMNS)
 
 
@@ -145,20 +158,35 @@ def write_report(mode: str, *, expected_last: date, now: datetime | None = None)
     failure is logged and never fails ingest.
     """
     cfg = config.get_mode_config(mode)
+    return write_dir_report(
+        cfg["raw_dir"], cfg["logs_dir"], label=mode, expected_last=expected_last, now=now
+    )
+
+
+def write_dir_report(
+    raw_dir: str,
+    logs_dir: str,
+    *,
+    label: str,
+    expected_last: date,
+    now: datetime | None = None,
+    no_volume: frozenset[str] = frozenset(),
+) -> str | None:
+    """:func:`write_report` for any raw silo (``label`` names it in the log)."""
     stamp = (now or datetime.now()).strftime("%Y-%m-%d")
-    path = report_path(cfg["logs_dir"], stamp)
+    path = report_path(logs_dir, stamp)
     try:
-        report = scan_raw_dir(mode, expected_last=expected_last)
-        os.makedirs(cfg["logs_dir"], exist_ok=True)
+        report = scan_dir(raw_dir, expected_last=expected_last, no_volume=no_volume)
+        os.makedirs(logs_dir, exist_ok=True)
         report.to_csv(path, index=False)
     except (OSError, ValueError) as exc:
-        logger.warning(f"Data-quality report for {mode} not written: {exc}")
+        logger.warning(f"Data-quality report for {label} not written: {exc}")
         return None
     errors = report[report["Severity"] == ERROR]
     for r in errors.itertuples(index=False):
         logger.warning(f"{r.Symbol}: data quality {r.Check} ({r.Date}): {r.Detail}")
     logger.info(
-        f"🩺 Data quality [{mode}]: {len(errors)} errors, {len(report) - len(errors)} warnings "
+        f"🩺 Data quality [{label}]: {len(errors)} errors, {len(report) - len(errors)} warnings "
         f"-> {os.path.basename(path)}"
     )
     return path
