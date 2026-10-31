@@ -117,8 +117,9 @@ def breadth(frames: dict[str, pd.DataFrame | None]) -> dict[str, Any]:
     """Sector funds above / below their 50-day average, with plain sector names.
 
     ``tiles`` lists every fund in ``config.MARKET_SECTOR_FUNDS`` order with its close,
-    50-day average and ``above`` (None without data); ``above`` / ``below`` /
-    ``unknown`` list ``{"symbol", "name"}``.
+    50-day average, ``pct`` (close / average - 1) and ``above`` (None without data);
+    ``ranked`` is the same tiles by ``pct``, highest first, funds without data last.
+    ``above`` / ``below`` / ``unknown`` list ``{"symbol", "name"}``.
     """
     tiles: list[dict[str, Any]] = []
     dates = []
@@ -129,14 +130,26 @@ def breadth(frames: dict[str, pd.DataFrame | None]) -> dict[str, Any]:
         if df is not None and ma is not None:
             dates.append(_as_of(df))
         above_ma = None if close is None or ma is None else close > ma
-        tiles.append({"symbol": sym, "name": name, "close": close, "ma": ma, "above": above_ma})
+        tiles.append(
+            {
+                "symbol": sym,
+                "name": name,
+                "short": config.MARKET_SECTOR_SHORT.get(sym, name),
+                "close": close,
+                "ma": ma,
+                "pct": None if above_ma is None else close / ma - 1.0,  # type: ignore[operator]
+                "above": above_ma,
+            }
+        )
 
     def names(state: bool | None) -> list[dict[str, str]]:
         return [{"symbol": t["symbol"], "name": t["name"]} for t in tiles if t["above"] is state]
 
     above, below = names(True), names(False)
+    ranked = sorted(tiles, key=lambda t: (t["pct"] is None, -(t["pct"] or 0.0)))
     return {
         "tiles": tiles,
+        "ranked": ranked,
         "above": above,
         "below": below,
         "unknown": names(None),

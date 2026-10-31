@@ -241,6 +241,20 @@ MARKET_SECTOR_FUNDS = {
     "XLV": "Health care",
     "XLY": "Consumer discretionary",
 }
+# Short tile labels for the same funds (market home breadth tiles).
+MARKET_SECTOR_SHORT = {
+    "XLB": "Materials",
+    "XLC": "Comms",
+    "XLE": "Energy",
+    "XLF": "Financials",
+    "XLI": "Industrials",
+    "XLK": "Tech",
+    "XLP": "Staples",
+    "XLRE": "Real estate",
+    "XLU": "Utilities",
+    "XLV": "Health",
+    "XLY": "Discretionary",
+}
 # File symbol -> Yahoo symbol. VIX is an index (``^VIX``); its file is ``VIX_...csv``.
 MARKET_CONTEXT_TICKERS = {
     "VIX": "^VIX",

@@ -160,6 +160,12 @@ table.table td {
     color: var(--finviz-text-strong);
 }
 
+/* Up / down colours beat the white default; numbers right-aligned. */
+table.table td.pos { color: var(--finviz-green-light); }
+table.table td.neg { color: var(--finviz-red); }
+table.table th.num,
+table.table td.num { text-align: right; }
+
 .table-container tr:nth-child(even),
 table.table tr:nth-child(even) {
     background-color: #181c27;
@@ -316,6 +322,7 @@ table.table tr:hover {
     border-radius: 4px;
 }
 .warn { color: #ffb74d; font-weight: 700; }
+.warn.plain { font-weight: 400; }
 .muted { color: var(--finviz-text-muted); }
 .changes-table { margin-bottom: 14px; }
 .compare-dates { margin: -4px 0 10px; font-size: 0.85rem; }
@@ -364,55 +371,65 @@ td.neg, .neg { color: var(--finviz-red); }
     border: 1px solid var(--finviz-border);
     background: var(--finviz-bg-card);
     color: var(--finviz-text-strong);
-    font-family: var(--finviz-font-mono);
     font-size: 0.9rem;
 }
 
 /* Market home */
 .market-page { font-size: 1.05rem; }
 .market-page h2 { color: var(--finviz-text-strong); margin: 28px 0 12px; }
-.market-page table.table { font-size: 1rem; width: auto; min-width: 60%; }
+.market-page table.table { font-size: 1rem; font-family: inherit; }
 .market-page table.table td, .market-page table.table th { padding: 8px 14px; }
 .ticker-cell { font-weight: 700; }
 .note-cell { white-space: normal; }
 .rotation-line { margin: 12px 0 0; }
+.fact-line { margin: 0 0 16px; font-size: 1.05rem; color: var(--finviz-text-strong); }
 .tile-row {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-    gap: 16px;
+    grid-template-columns: minmax(200px, 1fr) minmax(200px, 1fr) minmax(380px, 2.2fr);
+    align-items: start;
+    gap: 14px;
 }
+@media (max-width: 1000px) { .tile-row { grid-template-columns: 1fr; } }
 .metric-tile {
     background: var(--finviz-bg-card);
     border: 1px solid var(--finviz-border);
     border-radius: 6px;
-    padding: 16px 20px;
+    padding: 10px 14px;
 }
 .tile-label { color: var(--finviz-text-muted); font-weight: 700; font-size: 0.9rem; }
 .tile-value {
     color: var(--finviz-text-strong);
     font-family: var(--finviz-font-mono);
-    font-size: 2.4rem;
+    font-size: 1.9rem;
     font-weight: 700;
-    line-height: 1.2;
-    margin: 6px 0;
+    line-height: 1.15;
+    margin: 2px 0;
 }
-.tile-sub { color: var(--finviz-text-strong); font-size: 0.95rem; margin-top: 2px; }
-.sector-tiles { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.tile-unit { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 0.95rem; font-weight: 400; }
+.tile-sub { color: var(--finviz-text-strong); font-size: 0.95rem; margin-top: 1px; }
+.sector-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(92px, 1fr));
+    gap: 6px;
+    margin-top: 8px;
+}
 .sector-tile {
-    min-width: 64px;
-    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 5px 4px;
     border-radius: 4px;
-    text-align: center;
-    font-family: var(--finviz-font-mono);
-    font-weight: 700;
     color: var(--finviz-text-strong);
     cursor: default;
+    line-height: 1.25;
 }
+.sector-tile b { font-family: var(--finviz-font-mono); font-size: 0.95rem; }
+.sector-tile small { font-size: 0.78rem; }
 .sector-tile.up { background: rgba(8, 153, 129, 0.55); }
 .sector-tile.down { background: rgba(242, 54, 69, 0.55); }
 .sector-tile.nodata { background: var(--finviz-bg-hover); color: var(--finviz-text-muted); }
 .card-close { color: var(--finviz-text-strong); font-family: var(--finviz-font-mono); font-size: 1.15rem; font-weight: 700; }
-.pos-bar { margin: 18px 0 8px; }
+.pos-bar { margin: 18px 0 8px; padding: 0 22px; }
 .pos-track {
     position: relative;
     height: 8px;
@@ -429,16 +446,18 @@ td.neg, .neg { color: var(--finviz-red); }
     border-radius: 50%;
     background: var(--finviz-text-strong);
 }
+.pos-dot-out { background: transparent; border: 2px solid var(--finviz-text-strong); }
 .pos-labels {
     display: flex;
     justify-content: space-between;
     gap: 8px;
-    margin-top: 10px;
-    font-family: var(--finviz-font-mono);
+    margin: 10px -22px 0;
     font-size: 0.95rem;
     color: var(--finviz-text-strong);
 }
-.pos-close { text-align: center; }
+.pos-status { margin: 6px -22px 0; font-size: 0.95rem; color: var(--finviz-text-strong); }
+.pos-status.neg { color: var(--finviz-red); }
+.pos-status.pos { color: var(--finviz-green-light); }
 .sma-line { font-family: var(--finviz-font-mono); font-size: 0.85rem; color: var(--finviz-text-strong); margin: 8px 0 0; }
 .market-facts {
     margin: 0 0 16px;

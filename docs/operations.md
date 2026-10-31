@@ -236,13 +236,15 @@ the tree, unused, until their removal is confirmed.
 ### Market home (`/`)
 
 Daily closes only (no live prices), laid out per `docs/UX_STANDARDS.md`. One "as of"
-badge next to the title: the newest daily close the page uses. Top to bottom:
+badge next to the title: the newest daily close the page uses. Under it one fact line:
+"N of 4 funds closed below support on heavy volume · VIX ±X.XX · N of 11 sectors above
+50-day". Top to bottom:
 
 1. **One table** (`insights.market_table`) for SPY / QQQ / SCHG / SCHD: daily % change
    (last two closes in the daily raw file), returns over 1W / 1M / 3M / 6M (5 / 21 / 63 /
    126 bars) and RS vs SPY (`market.relative_strength`: 63-day return minus SPY's), all
-   with a sign and 2 decimals, green / red for up / down. A note column shows "⚠ closed
-   below support on heavy volume" (daily close below `Support` with RVOL20 ≥
+   with a sign and 2 decimals, right-aligned, green / red for up / down. Full width, in
+   the regular font. A note column shows "⚠ below support · heavy vol" (daily close below `Support` with RVOL20 ≥
    `config.BREAKOUT_RVOL_CONFIRM`, 1.5; `insights.heavy_break`) and "⚠ stale" / "⚠ no
    data" when a fund's newest close is older than the badge or missing. Under it, the
    growth-vs-dividend label (`insights.rotation`, `config.ROTATION_*`):
@@ -262,17 +264,22 @@ badge next to the title: the newest daily close the page uses. Top to bottom:
      IEF rather than TLT: its bonds are closer in length to HYG's, so the ratio moves
      mostly with credit worry, not with long-term interest rates.
    - **Breadth:** "N of 11" sector funds (`config.MARKET_SECTOR_FUNDS`) closed above
-     their 50-day average. Then 11 small tiles, green above / red below / grey no data,
-     with the plain sector name, close and 50-day average on hover. A fund without a
-     file or enough history is left out of the count.
+     their 50-day average. Inside the tile, 11 small tiles (green above / red below /
+     grey no data), each with the ticker, a short name (`config.MARKET_SECTOR_SHORT`,
+     "Tech") and its % from the 50-day average, sorted by that %, highest first; the full
+     name, close and average on hover. A fund without a file or enough history is left
+     out of the count and sorted last.
 
    A tile shows "⚠ HYG stale" (or missing, or a bar-quality check) when a file is
    missing, older than the last closed session, or has an error row in the newest
    `data/logs/market/data_quality_<date>.csv`. The tiles themselves stay uncoloured.
-3. **Support and resistance**, a card per ETF (`playbook.position_bar`): the daily close,
-   and a bar from the daily scan's `Support` (left) to `Resistance` (right) with a dot
-   at the close. A close outside the range pins the dot to that end and says "below
-   support by 1.20%" / "above resistance by …". SMA 20 / 50 / 200 underneath. A card
+3. **Support and resistance**, a card per ETF (`playbook.position_bar`, macro in
+   `templates/_macros.html`): the daily close, and a bar from the daily scan's `Support`
+   (left end) to `Resistance` (right end) with a dot at the close. Every card has the
+   same layout: the bar, Support and Resistance under its ends, then the close on its
+   own line. A close out of range draws a hollow dot just outside that end of the bar
+   and adds "below support by 1.20%" (line in red) or "above resistance by …" (green).
+   SMA 20 / 50 / 200 underneath. A card
    header shows the ETF's daily freshness flags (`insights.etf_freshness`: missing or
    stale scan row, raw bar-quality issue).
 

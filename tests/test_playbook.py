@@ -189,6 +189,7 @@ def test_position_bar_between_support_and_resistance(close, pct, outside):
     bar = pb.position_bar({"Close": close, "Support": 90.0, "Resistance": 110.0})
     assert bar["pct"] == pytest.approx(pct) and bar["outside"] == outside
     assert (bar["support"], bar["resistance"], bar["close"]) == (90.0, 110.0, close)
+    assert bar["side"] == {85.5: "below", 115.5: "above"}.get(close)
 
 
 def test_position_bar_needs_all_three_levels():

@@ -568,7 +568,7 @@ def test_home_text_has_no_verdict_or_status_words(
 def test_home_one_table_with_returns_and_rs(client, tmp_path, monkeypatch, market_context_silo):
     body = _home(client, tmp_path, monkeypatch, market_context_silo)
     table = body.split('class="table overview-table"')[1].split("</table>")[0]
-    headers = re.findall(r"<th>([^<]*)", table)
+    headers = re.findall(r"<th[^>]*>([^<]*)", table)
     assert [h.strip() for h in headers] == [
         "Ticker",
         "Daily",
@@ -604,8 +604,12 @@ def test_home_table_formats_and_warnings(client, tmp_path, monkeypatch, market_c
     body = client.get("/").get_data(as_text=True)
     table = body.split('class="table overview-table"')[1].split("</table>")[0]
     qqq = table.split('ticker-cell">QQQ')[1].split("</tr>")[0]
-    assert '<td class="pos">+0.30%</td>' in qqq  # 2 decimals with a sign
-    assert "⚠ closed below support on heavy volume" in qqq
+    assert '<td class="num pos">+0.30%</td>' in qqq  # 2 decimals, sign, right-aligned
+    assert '<span class="warn plain"' in qqq and "⚠ below support · heavy vol" in qqq
+    facts = body.split('class="fact-line"')[1].split("</p>")[0]
+    assert " ".join(facts.split()) == (
+        "> 2 of 4 funds closed below support on heavy volume · VIX — · — sectors above 50-day"
+    )
     schg = table.split('ticker-cell">SCHG')[1].split("</tr>")[0]
     assert "⚠ no data" in schg
 
@@ -618,15 +622,27 @@ def test_home_health_tiles_and_sector_tiles(client, tmp_path, monkeypatch, marke
     credit = body.split('class="metric-tile tile-credit"')[1].split('class="metric-tile')[0]
     assert '<div class="tile-value">1.0000</div>' in credit and "over 1 month" in credit
     assert "HYG = high-yield company bonds" in credit
-    breadth = body.split('class="metric-tile tile-breadth"')[1].split("sector-tiles")[0]
-    assert '<div class="tile-value">2 of 11</div>' in breadth
-    tiles = re.findall(r'class="sector-tile (\w+)"\s+title="([^"]+)">(\w+)<', body)
+    breadth = body.split('class="metric-tile tile-breadth"')[1].split("</section>")[0]
+    assert '<div class="tile-value">2 of 11 <span class="tile-unit">' in breadth
+    tiles = re.findall(
+        r'class="sector-tile (\w+)" title="([^"]+)"><b>(\w+)</b><small>([^<]+)</small>'
+        r"<small>([^<]+)</small>",
+        breadth,  # inside the Breadth tile
+    )
     assert len(tiles) == 11
-    by_sym = {sym: (state, title) for state, title, sym in tiles}
-    assert by_sym["XLK"][0] == "up" and by_sym["XLK"][1].startswith("Technology: close ")
-    assert by_sym["XLU"] == ("down", by_sym["XLU"][1]) and by_sym["XLU"][1].startswith("Utilities:")
-    health = body.split('class="health"')[1].split('class="sector-tiles"')[0]
-    assert 'class="pos"' not in health and 'class="neg"' not in health  # tiles stay neutral
+    by_sym = {sym: (state, title, short, pct) for state, title, sym, short, pct in tiles}
+    assert by_sym["XLK"][:3] == ("up", by_sym["XLK"][1], "Tech")
+    assert by_sym["XLK"][1].startswith("Technology: close ")
+    assert by_sym["XLU"][0] == "down" and by_sym["XLU"][2] == "Utilities"
+    assert by_sym["XLE"][2] == "Energy" and by_sym["XLE"][3].startswith("+")
+    # Sorted by % from the 50-day average, highest first: the two rising funds lead.
+    assert {t[2] for t in tiles[:2]} == {"XLE", "XLK"}
+    pcts = [float(t[4].rstrip("%")) for t in tiles]
+    assert pcts == sorted(pcts, reverse=True)
+    vix_credit = body.split('class="health"')[1].split('class="metric-tile tile-breadth"')[0]
+    assert 'class="pos"' not in vix_credit and 'class="neg"' not in vix_credit  # neutral
+    facts = body.split('class="fact-line"')[1].split("</p>")[0]
+    assert "VIX +0.10" in facts and "2 of 11 sectors above 50-day" in facts
 
 
 def test_home_health_without_data(client, tmp_path, monkeypatch):
@@ -642,8 +658,9 @@ def test_home_cards_have_position_bar_and_smas(client, tmp_path, monkeypatch, ma
     spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
     # Fixture: Support 758.79, Resistance 781.62, Close 760.0 -> 5.3% along the bar.
     assert 'style="left: 5.3%"' in spy
-    assert "Support</span> 758.79" in spy and "Resistance</span> 781.62" in spy
-    assert "Close</span> 760.00" in spy
+    labels = spy.split('class="pos-labels"')[1].split("</div>")[0]
+    assert labels.index("Support</span> 758.79") < labels.index("Resistance</span> 781.62")
+    assert '<div class="pos-status">' in spy and "Close</span> 760.00" in spy
     assert (
         "SMA 20</span> 770.62" in spy
         and "SMA 50</span> 767.26" in spy
@@ -652,6 +669,22 @@ def test_home_cards_have_position_bar_and_smas(client, tmp_path, monkeypatch, ma
     assert "⚠ stale" in spy.split("</header>")[0]  # daily row is a session behind
     assert "states-table" not in body and "weekly trend" not in body
     assert "No support / resistance" in body.split("quote.ashx?t=SCHG")[1].split("</article>")[0]
+
+
+def test_home_card_close_outside_the_range(client, tmp_path, monkeypatch, market_context_silo):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    daily = tmp_path / "d" / "breakout_setups_2026-10-20.csv"
+    df = pd.read_csv(daily)
+    df.loc[df["Symbol"] == "SPY", "Close"] = 750.0  # below support 758.79
+    df.loc[df["Symbol"] == "QQQ", "Close"] = 800.0  # above resistance 781.62
+    df.to_csv(daily, index=False)
+    body = client.get("/").get_data(as_text=True)
+    spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
+    qqq = body.split("quote.ashx?t=QQQ")[1].split("</article>")[0]
+    assert 'class="pos-dot pos-dot-out" style="left: -14px"' in spy
+    assert '<div class="pos-status neg">' in spy and "below support by 1.16%" in spy
+    assert 'style="left: calc(100% + 14px)"' in qqq
+    assert '<div class="pos-status pos">' in qqq and "above resistance by 2.35%" in qqq
 
 
 def test_home_without_runs(client, tmp_path, monkeypatch):

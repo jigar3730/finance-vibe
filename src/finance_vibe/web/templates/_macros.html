@@ -1,12 +1,18 @@
 {# Shared template pieces (market home, Setups). #}
+{# Support at the left end, Resistance at the right end, the close on its own line. A close
+   out of range puts the dot just outside the bar and colours the line (red below support,
+   green above resistance). #}
 {% macro position_bar(bar, scan='daily') %}
 {% if bar %}
+{% set dot = {'below': 'left: -14px', 'above': 'left: calc(100% + 14px)'}.get(bar.side, 'left: %.1f%%' % bar.pct) %}
 <div class="pos-bar">
-    <div class="pos-track"><span class="pos-dot" style="left: {{ bar.pct|round(1) }}%"></span></div>
+    <div class="pos-track"><span class="pos-dot{% if bar.side %} pos-dot-out{% endif %}" style="{{ dot }}"></span></div>
     <div class="pos-labels">
         <span><span class="label">Support</span> {{ bar.support|num }}</span>
-        <span class="pos-close">{% if bar.outside %}{{ bar.outside }}{% else %}<span class="label">Close</span> {{ bar.close|num }}{% endif %}</span>
         <span><span class="label">Resistance</span> {{ bar.resistance|num }}</span>
+    </div>
+    <div class="pos-status{% if bar.side == 'below' %} neg{% elif bar.side == 'above' %} pos{% endif %}">
+        <span class="label">Close</span> {{ bar.close|num }}{% if bar.outside %} · {{ bar.outside }}{% endif %}
     </div>
 </div>
 {% else %}

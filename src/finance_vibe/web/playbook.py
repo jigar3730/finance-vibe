@@ -224,17 +224,19 @@ def position_bar(row: dict[str, Any]) -> dict[str, Any] | None:
     """Where the close sits between ``Support`` (0%) and ``Resistance`` (100%).
 
     ``pct`` is clamped to 0-100 for drawing; ``outside`` says how far a close below
-    support or above resistance is (e.g. "below support by 1.20%"). None without a
+    support or above resistance is (e.g. "below support by 1.20%") and ``side`` is
+    "below" / "above" (None inside the range). None without a
     close, support and resistance with resistance above support.
     """
     close, support, resistance = (num(row.get(k)) for k in ("Close", "Support", "Resistance"))
     if close is None or support is None or resistance is None or resistance <= support:
         return None
     pct = (close - support) / (resistance - support) * 100.0
-    outside = None
+    outside = side = None
     if close < support:
-        outside = f"below support by {(support - close) / support * 100:.2f}%"
+        side, outside = "below", f"below support by {(support - close) / support * 100:.2f}%"
     elif close > resistance:
+        side = "above"
         outside = f"above resistance by {(close - resistance) / resistance * 100:.2f}%"
     return {
         "close": close,
@@ -242,6 +244,7 @@ def position_bar(row: dict[str, Any]) -> dict[str, Any] | None:
         "resistance": resistance,
         "pct": min(max(pct, 0.0), 100.0),
         "outside": outside,
+        "side": side,
     }
 
 

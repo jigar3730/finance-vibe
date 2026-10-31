@@ -72,6 +72,12 @@ def test_breadth_counts_sectors_with_plain_names(silo):
     assert {s["symbol"] for s in b["above"]} == {"XLE", "XLF", "XLK"}
     assert {"symbol": "XLK", "name": "Technology"} in b["above"]
     assert {"symbol": "XLU", "name": "Utilities"} in b["below"]
+    ranked = [t["symbol"] for t in b["ranked"]]
+    assert set(ranked[:3]) == {"XLE", "XLF", "XLK"} and len(ranked) == 11
+    pcts = [t["pct"] for t in b["ranked"]]
+    assert pcts == sorted(pcts, reverse=True)
+    xlk = next(t for t in b["tiles"] if t["symbol"] == "XLK")
+    assert xlk["short"] == "Tech" and xlk["pct"] == pytest.approx(xlk["close"] / xlk["ma"] - 1)
 
 
 def test_missing_stale_and_quality_errors_are_flagged(silo, tmp_path):
