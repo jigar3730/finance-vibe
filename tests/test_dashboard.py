@@ -92,6 +92,10 @@ def test_breakout_view_kpis(client, breakout_logs):
     assert "Setups" in body
     assert ">4<" in body
     assert "66.0" in body  # median of [83, 72, 60, 25]
+    head = body.split('class="page-head"')[1].split("</div>")[0]
+    assert "daily run 2026-09-04" in head and "none is validated as an entry signal" in head
+    assert "Descriptive only" not in body and "scan-note" not in body
+    assert "kpi-value pos" not in body and "kpi-value neg" not in body  # counts, not up / down
     # Default view: PRE_BREAKOUT and the failed section; WATCH rows are hidden.
     for sym in ("AAA", "DDD"):
         assert sym in body
@@ -134,11 +138,13 @@ def test_breakout_view_live_price_next_to_close(client, breakout_logs):
     assert 'live-price-cell live-flat">N/A' in body
 
 
-def test_cobra_view_orders_by_score_with_live_price_and_surge_row(client, tmp_path, monkeypatch):
+def test_cobra_view_orders_by_score_with_live_price_and_no_row_highlight(
+    client, tmp_path, monkeypatch
+):
     modes = {"weekly": str(tmp_path / "weekly"), "daily": str(tmp_path / "daily")}
     monkeypatch.setattr(app_module, "LOG_DIRS", modes)
     (tmp_path / "weekly").mkdir()
-    # AAA live 95 < 100 (red), BBB live 55.5 vs 50 = +11% (green + surge),
+    # AAA live 95 < 100 (red), BBB live 55.5 vs 50 = +11% (green, no row highlight),
     # CCC live == close (neutral), DDD live N/A.
     pd.DataFrame(
         [
@@ -162,9 +168,11 @@ def test_cobra_view_orders_by_score_with_live_price_and_surge_row(client, tmp_pa
         table.index(s) for s in ("AAA", "BBB", "CCC", "DDD")
     )  # Score descending
     assert 'live-price-cell live-below-close">$95.00' in body
-    assert 'live-price-cell live-above-close live-surge">$55.50' in body
+    assert 'live-price-cell live-above-close">$55.50' in body
     assert 'live-price-cell live-flat">$20.00' in body
-    assert body.count("live-surge") == 1
+    assert "live-surge" not in body
+    head = body.split('class="page-head"')[1].split("</div>")[0]
+    assert "weekly run 2026-09-04" in head and "Never backtested" in head
 
 
 def test_live_price_cell_surge_threshold_is_strictly_over_five_percent():

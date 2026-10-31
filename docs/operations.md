@@ -184,12 +184,12 @@ dashboard and the next scheduled run pick it up.
 | `/changes` | Market facts that changed since the previous daily run (SMA50 / SMA200 crossings, new heavy-volume support breaks, growth-vs-dividend label) |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
-| `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, live price vs Close |
+| `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, live price vs Close (green above / red below; no row highlight) |
 | `/breakout/<mode>/<date>` | Breakout scan: KPIs, status chips, highlights (or `?show=all` / `?status=`), failed breakouts collapsed |
 
-Live prices come from `yfinance` `fast_info`, fetched 16 at a time and cached for 60
-seconds. A Coiled Cobra row whose live price is more than 5% above its close is
-highlighted.
+Live prices (scanner run pages only) come from `yfinance` `fast_info`, fetched 16 at a
+time and cached for 60 seconds. Both run pages have one badge (mode and run date), and
+their caveats are `?` tooltips on the title.
 
 ### Setups (unproven) (`/setups`, `web/playbook.py`)
 

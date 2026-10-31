@@ -2,8 +2,11 @@
 {% block title %}Breakout Scan - {{ date }} ({{ mode }}){% endblock %}
 {% block content %}
     <a class="back" href="{{ url_for('runs') }}">← Back to runs</a>
-    <h1>🎯 Breakout Scan</h1>
-    <div class="meta">Mode: <strong>{{ mode|upper }}</strong> | Run Date: <strong>{{ date }}</strong> | Source File: <code>{{ file_name }}</code></div>
+    <div class="page-head">
+        <h1>🎯 Breakout Scan <span class="tip" title="Descriptive states and scores; none is validated as an entry signal (RESEARCH.md).">?</span></h1>
+        <span class="asof-badge">{{ mode }} run {{ date }}</span>
+    </div>
+    <div class="meta"><span class="label">Source file</span> <code>{{ file_name }}</code></div>
 
     <div class="kpi-row">
         <div class="kpi-card">
@@ -15,18 +18,15 @@
             <div class="kpi-label">Median Readiness</div>
         </div>
         <div class="kpi-card">
-            <div class="kpi-value pos">{{ kpis['actionable'] }}</div>
+            <div class="kpi-value">{{ kpis['actionable'] }}</div>
             <div class="kpi-label">Readiness ≥ 70</div>
         </div>
         <div class="kpi-card">
-            <div class="kpi-value neg">{{ kpis['failed'] }}</div>
+            <div class="kpi-value">{{ kpis['failed'] }}</div>
             <div class="kpi-label">Failed Breakouts</div>
         </div>
     </div>
 
-    <div class="meta scan-note">
-        Descriptive only: these statuses and scores are not validated as an entry signal.
-    </div>
 
     {% if status_mix %}
     <div class="chip-row">
@@ -45,12 +45,12 @@
     </div>
     {% endif %}
 
-    <div class="meta" style="margin-top: 4px;">
-        Showing <strong>{{ row_count }}</strong> row(s)
+    <div class="meta">
+        <span class="label">Showing</span> <strong>{{ row_count }}</strong> row(s)
         {%- if active_status %} for status <code>{{ active_status }}</code>
         {%- elif show_all %} (every scanned ticker)
-        {%- else %}: every pre-breakout, confirmed and triggered setup, plus DEVELOPING with readiness ≥ {{ score_floor['DEVELOPING'] }} (WATCH rows: use the WATCH or All chip)
-        {%- endif %}.
+        {%- else %} <span class="tip" title="Every pre-breakout, confirmed and triggered setup, plus DEVELOPING with readiness of {{ score_floor['DEVELOPING'] }} or more. WATCH rows: use the WATCH or All chip.">?</span>
+        {%- endif %}
     </div>
 
     <div class="table-container">

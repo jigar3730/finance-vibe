@@ -521,7 +521,7 @@ def cobra_view(mode: str, date: str) -> str | tuple[str, int]:
             date=date,
             file_name=os.path.basename(path),
             row_count=int(len(table_df)),
-            table_html=_table_html(table_df, live, surge_pct=LIVE_SURGE_PCT),
+            table_html=_table_html(table_df, live),
         )
     except Exception as e:  # route boundary: show the error page, keep the traceback in the log
         logger.exception("Failed to render %s", request.path)
