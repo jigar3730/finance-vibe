@@ -1,15 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Setups (unproven) - Finance Vibe{% endblock %}
-{% block extra_head %}
-    <script defer src="{{ url_for('static', filename='vendor/lightweight-charts-4.2.3.standalone.production.js') }}"></script>
-    <script defer src="{{ url_for('static', filename='js/level-charts.js') }}"></script>
-{% endblock %}
+{% from "_macros.html" import position_bar %}
 {% block content %}
-    <h1>🏆 Setups (unproven)</h1>
-    <div class="meta scan-note">
-        Sorted by what the backtest found (RESEARCH.md). Weekly BREAKOUT_CONFIRMED passed the in-sample test;
-        its holdout test runs on 2035-09-07, so it stays unproven until then. Coiled Cobra has never been tested.
-        Every other breakout signal failed. Signals to review, not advice.
+    <div class="page-head">
+        <h1>🏆 Setups (unproven)</h1>
+        {% if as_of %}<span class="asof-badge">{{ as_of }}</span>{% endif %}
     </div>
 
     <div class="market-facts">
@@ -21,10 +16,10 @@
 
     <section class="top-section tested-section">
         <h2>📅 Weekly CONFIRMED
-            {% if week_date %}<span class="top-date">run {{ week_date }}</span>{% endif %}
+            <span class="tip" title="Passed the in-sample backtest (2018-05 to 2026-03: +2.3% vs SPY over 4 weeks, p 0.049; p 0.40 without the 28 split-flagged events). Unproven until its one holdout run on 2035-09-07. Tested as: buy next open, hold 4 weeks, no stop.">?</span>
         </h2>
         {% if not cards %}
-            <p style="color: var(--finviz-text-muted);">No weekly CONFIRMED setups in the latest run.</p>
+            <p class="label">No weekly CONFIRMED setups in the latest run.</p>
         {% else %}
         <div class="card-grid">
             {% for card in cards %}
@@ -32,23 +27,20 @@
             <article class="setup-card">
                 <header class="setup-head">
                     <a class="ticker-link setup-symbol" href="https://finviz.com/quote.ashx?t={{ card.symbol }}" target="_blank" rel="noopener noreferrer">{{ card.symbol }}</a>
-                    <span class="status-pill status-unproven">Unproven: passed old-data test only</span>
+                    <span class="card-close">{{ card.price|num }}</span>
                     {% if card.dq %}<span class="warn dq-flag" title="Bar-quality errors in the latest data_quality report">⚠ data: {{ card.dq|join(', ')|replace('_', ' ') }}</span>{% endif %}
                 </header>
-                <p class="setup-note tested-as">Tested as: buy next open, hold 4 weeks, no stop.</p>
                 {% if r.get('Confirmed Last Run') %}
-                <p class="setup-note muted continuation">Also CONFIRMED last week: a continuation, not the first-week event that was tested.</p>
+                <p class="setup-note continuation">Also CONFIRMED last week</p>
                 {% endif %}
-
-                <div class="level-chart" data-mode="weekly" data-symbol="{{ card.symbol }}"
-                     data-levels='{{ card.levels|tojson }}'></div>
-
-                <table class="table levels-table">
-                    <tr><th>{{ 'Live' if card.price_is_live else 'Close' }}</th><td>{{ card.price|num }}</td><th>ATR</th><td>{{ r.get('ATR')|num }}</td></tr>
-                    <tr><th>Resistance</th><td>{{ r.get('Resistance')|num }}</td><th>Support</th><td>{{ r.get('Support')|num }}</td></tr>
-                    <tr><th>Extension</th><td>{{ r.get('Extension ATR')|num(1) }} ATR</td><th>RVOL20</th><td>{{ r.get('RVOL20')|num }}</td></tr>
-                    <tr><th>SMA50</th><td>{{ r.get('SMA50')|num }}</td><th>MTF</th><td>{{ r.get('MTF')|text }}</td></tr>
-                </table>
+                {{ position_bar(card.bar, 'weekly') }}
+                <p class="sma-line">
+                    <span class="label">SMA 50</span> {{ r.get('SMA50')|num }} ·
+                    <span class="label">ATR</span> {{ r.get('ATR')|num }} ·
+                    <span class="label">Extension</span> {{ r.get('Extension ATR')|num(2) }} ATR ·
+                    <span class="label">RVOL20</span> {{ r.get('RVOL20')|num }} ·
+                    <span class="label">MTF</span> {{ r.get('MTF')|text }}
+                </p>
             </article>
             {% endfor %}
         </div>
@@ -58,12 +50,12 @@
     <section class="top-section">
         {% set n_cobra = cobra|map(attribute='rows')|map('length')|sum %}
         <details class="failed-section untested-section">
-            <summary>Untested: Coiled Cobra setups <span class="chip-count">{{ n_cobra }}</span></summary>
-            <p class="meta">Never backtested. A watchlist, not evidence.</p>
+            <summary>Coiled Cobra setups <span class="chip-count">{{ n_cobra }}</span>
+                <span class="tip" title="Never backtested: a watchlist, not evidence.">?</span></summary>
             {% for group in cobra %}
-            <h3>{{ group.mode|capitalize }}{% if group.date %} <span class="top-date">run {{ group.date }}</span>{% endif %}</h3>
+            <h3>{{ group.mode|capitalize }}</h3>
             {% if not group.rows %}
-                <p style="color: var(--finviz-text-muted);">No {{ group.mode }} Cobra setups.</p>
+                <p class="label">No {{ group.mode }} Cobra setups.</p>
             {% else %}
             <table class="table cobra-untested-table">
                 <tr><th>Symbol</th><th>Score</th><th>Grade</th><th>Close</th><th>Breakout status</th></tr>
@@ -77,20 +69,23 @@
                 </tr>
                 {% endfor %}
             </table>
-            <p class="meta"><a href="{{ url_for('cobra_view', mode=group.mode, date=group.date) }}">Full {{ group.mode }} Cobra page</a></p>
+            <p><a href="{{ url_for('cobra_view', mode=group.mode, date=group.date) }}">Full {{ group.mode }} Cobra page</a></p>
             {% endif %}
             {% endfor %}
         </details>
     </section>
 
     <section class="top-section since-last-run" id="since-last-run">
-        <h2>Since last run</h2>
+        <h2>Since last run
+            <span class="tip" title="The two newest runs of each mode compared: weekly {{ changes.weekly.prev or '—' }} → {{ changes.weekly.now or '—' }}, daily {{ changes.daily.prev or '—' }} → {{ changes.daily.now or '—' }}.">?</span>
+        </h2>
         {% include "_since_last_run.html" %}
     </section>
 
     <section class="top-section failed-counts">
-        <h2>Failed the old-data test</h2>
-        <p class="meta">These breakout signals did no better than SPY or random entries in the in-sample backtest.</p>
+        <h2>Failed the old-data test
+            <span class="tip" title="These breakout signals did no better than SPY or random entries in the in-sample backtest (RESEARCH.md).">?</span>
+        </h2>
         {% for group in failed %}
         <p class="setup-note">
             <strong>{{ group.mode|capitalize }}:</strong>

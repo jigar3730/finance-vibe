@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Market - Finance Vibe{% endblock %}
+{% from "_macros.html" import position_bar %}
 {% macro pct(v) %}{% if v is not none %}{{ (v * 100)|signed(2) }}%{% else %}—{% endif %}{% endmacro %}
 {% macro sign_class(v) %}{{ 'pos' if v is not none and v > 0 else ('neg' if v is not none and v < 0 else '') }}{% endmacro %}
 {% macro flags(items) %}{% for f in items %}<span class="warn">⚠ {{ f|replace('_', ' ') }}</span> {% endfor %}{% endmacro %}
@@ -87,18 +88,7 @@
                     <span class="card-close">{{ d.get('Close')|num }}</span>
                     {{ flags(m.flags) }}
                 </header>
-                {% if bar %}
-                <div class="pos-bar">
-                    <div class="pos-track"><span class="pos-dot" style="left: {{ bar.pct|round(1) }}%"></span></div>
-                    <div class="pos-labels">
-                        <span><span class="label">Support</span> {{ bar.support|num }}</span>
-                        <span class="pos-close">{% if bar.outside %}{{ bar.outside }}{% else %}<span class="label">Close</span> {{ bar.close|num }}{% endif %}</span>
-                        <span><span class="label">Resistance</span> {{ bar.resistance|num }}</span>
-                    </div>
-                </div>
-                {% else %}
-                <p class="label">No support / resistance in the latest daily scan.</p>
-                {% endif %}
+                {{ position_bar(bar) }}
                 <p class="sma-line">
                     {% for n in [20, 50, 200] %}<span class="label">SMA {{ n }}</span> {{ d.get('SMA' ~ n)|num }}{% if not loop.last %} · {% endif %}{% endfor %}
                 </p>

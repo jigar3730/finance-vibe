@@ -362,28 +362,35 @@ def market_strip_context() -> dict[str, Any]:
     return {"market_strip": None if request.endpoint == "market" else _market_strip()}
 
 
+def _runs_badge(week: str | None, day: str | None) -> str | None:
+    """Setups badge: one date when both runs share it, else both run dates."""
+    if week and week == day:
+        return f"as of {_page_as_of(week)}"
+    parts = [
+        f"{label} run {_page_as_of(d)}" for label, d in (("weekly", week), ("daily", day)) if d
+    ]
+    return " · ".join(parts) or None
+
+
 @app.route("/setups")
 def setups() -> str:
-    """Setups (unproven): weekly CONFIRMED cards, untested Cobra setups, failed counts."""
+    """Setups (unproven): weekly CONFIRMED cards, untested Cobra setups, since last run,
+    failed counts. Run closes only (no live prices), so the page has one date."""
     latest = _latest_runs()
     week_date, _, week_bo = latest["weekly"]
     previous = playbook.load_previous_breakout(LOG_DIRS["weekly"], week_date)
     confirmed = playbook.weekly_confirmed(week_bo, previous)
-    live = _fetch_live_prices(list(confirmed["Symbol"]) if not confirmed.empty else [])
     dq_errors = insights.quality_errors(LOG_DIRS["weekly"])
-    cards = []
-    for row in confirmed.to_dict("records"):
-        price = playbook.live_price_or_none(live.get(row["Symbol"]))
-        cards.append(
-            {
-                "symbol": row["Symbol"],
-                "row": row,
-                "price": price if price is not None else playbook.num(row.get("Close")),
-                "price_is_live": price is not None,
-                "levels": playbook.range_levels(row),  # type: ignore[arg-type]
-                "dq": dq_errors.get(row["Symbol"], []),
-            }
-        )
+    cards = [
+        {
+            "symbol": row["Symbol"],
+            "row": row,
+            "price": playbook.num(row.get("Close")),
+            "bar": playbook.position_bar(row),  # type: ignore[arg-type]
+            "dq": dq_errors.get(row["Symbol"], []),
+        }
+        for row in confirmed.to_dict("records")
+    ]
     cobra = [
         {"mode": mode, "date": date, "rows": playbook.untested_cobra(cb, bo).to_dict("records")}
         for mode, (date, cb, bo) in latest.items()
@@ -398,7 +405,7 @@ def setups() -> str:
         "setups.html",
         changes={mode: insights.run_changes(folder) for mode, folder in LOG_DIRS.items()},
         show_all=request.args.get("show") == "all",
-        week_date=week_date,
+        as_of=_runs_badge(week_date, latest["daily"][0]),
         cards=cards,
         cobra=cobra,
         failed=failed,

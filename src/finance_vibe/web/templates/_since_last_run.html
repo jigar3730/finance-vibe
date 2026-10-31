@@ -2,38 +2,34 @@
 {% set labels = {'weekly': '📅 Weekly', 'daily': '⚡ Daily'} %}
 {% set w = changes.weekly %}
     <section class="top-section new-confirmed">
-        <h3>📅 New weekly CONFIRMED {% if w.prev %}<span class="top-date">{{ w.prev }} → {{ w.now }}</span>{% endif %}</h3>
+        <h3>📅 New weekly CONFIRMED</h3>
         {% if not w.prev %}
-            <p class="muted">Need two weekly runs to compare.</p>
+            <p class="label">Need two weekly runs to compare.</p>
         {% else %}
-            <h3>New this week ({{ w.confirmed.new|length }})</h3>
+            <h4>New this week ({{ w.confirmed.new|length }}) <span class="tip" title="CONFIRMED this week and scanned last week with another status: the first-week event that was tested.">?</span></h4>
             {% if w.confirmed.new %}
             <ul class="change-list">
                 {% for sym in w.confirmed.new %}
-                <li><a class="ticker-link" href="https://finviz.com/quote.ashx?t={{ sym }}" target="_blank" rel="noopener noreferrer">{{ sym }}</a>
-                    <span class="status-pill status-unproven">Unproven: passed old-data test only</span></li>
+                <li><a class="ticker-link" href="https://finviz.com/quote.ashx?t={{ sym }}" target="_blank" rel="noopener noreferrer">{{ sym }}</a></li>
                 {% endfor %}
             </ul>
-            <p class="meta">CONFIRMED this week and scanned last week with another status: the first-week event that was tested.</p>
-            {% else %}<p class="muted">None.</p>{% endif %}
+            {% else %}<p class="label">None.</p>{% endif %}
 
-            <h3>Confirmed now, but not scanned last week ({{ w.confirmed.unscanned|length }})</h3>
+            <h4>Confirmed now, but not scanned last week ({{ w.confirmed.unscanned|length }}) <span class="tip" title="No row in last week's file, so we can't tell if this is the first week.">?</span></h4>
             {% if w.confirmed.unscanned %}
             <p class="setup-note unscanned">
                 {% for sym in w.confirmed.unscanned %}<a class="ticker-link" href="https://finviz.com/quote.ashx?t={{ sym }}" target="_blank" rel="noopener noreferrer">{{ sym }}</a>{% if not loop.last %}, {% endif %}{% endfor %}
             </p>
-            <p class="meta">Confirmed now, but not scanned last week, so we can't tell if this is the first week.</p>
-            {% else %}<p class="muted">None.</p>{% endif %}
+            {% else %}<p class="label">None.</p>{% endif %}
         {% endif %}
     </section>
 
     <section class="top-section universe-changes">
-        <h3>📋 Stock list changes</h3>
-        <p class="meta">Tickers that entered or left the scanned list. A ticker that entered isn't new to the market; it just wasn't scanned last run.</p>
+        <h3>📋 Stock list changes <span class="tip" title="Tickers that entered or left the scanned list. One that entered isn't new to the market; it just wasn't scanned last run.">?</span></h3>
         {% for mode in ['weekly', 'daily'] %}{% set c = changes[mode] %}
-        <h3>{{ labels[mode] }}{% if c.prev %} <span class="top-date">{{ c.prev }} → {{ c.now }}</span>{% endif %}</h3>
+        <h4>{{ labels[mode] }}</h4>
         {% if not c.prev %}
-            <p class="muted">Need two {{ mode }} runs to compare.</p>
+            <p class="label">Need two {{ mode }} runs to compare.</p>
         {% else %}
         <table class="table changes-table">
             {% for key, title in [('entered', 'Entered'), ('left', 'Left')] %}{% set syms = c.universe[key] %}
@@ -48,9 +44,9 @@
         <details class="failed-section everything-else"{% if show_all %} open{% endif %}>
             <summary>Everything else: other status changes</summary>
             {% for mode in ['weekly', 'daily'] %}{% set c = changes[mode] %}
-            <h3>{{ labels[mode] }}{% if c.prev %} <span class="top-date">{{ c.prev }} → {{ c.now }}</span>{% endif %}</h3>
+            <h4>{{ labels[mode] }}</h4>
             {% if not c.prev %}
-                <p class="muted">Need two {{ mode }} runs to compare.</p>
+                <p class="label">Need two {{ mode }} runs to compare.</p>
             {% else %}
             <p class="setup-note change-counts">
                 Moved toward a breakout {{ c.status.upgrades|length }} · Failed breakouts {{ c.status.failures|length }}
@@ -59,7 +55,7 @@
             {% if show_all %}
                 {% for key, title in [('upgrades', '⬆ Moved toward a breakout'), ('failures', '✖ Failed breakouts'), ('other', 'Other status changes')] %}
                 {% set items = c.status[key] %}
-                <h4>{{ title }} ({{ items|length }})</h4>
+                <h5>{{ title }} ({{ items|length }})</h5>
                 {% if items %}
                 <table class="table changes-table">
                     <tr><th>Symbol</th><th>Previous</th><th>Now</th><th>Readiness</th></tr>
@@ -72,17 +68,17 @@
                     </tr>
                     {% endfor %}
                 </table>
-                {% else %}<p class="muted">None.</p>{% endif %}
+                {% else %}<p class="label">None.</p>{% endif %}
                 {% endfor %}
 
-                <h4>🐍 Coiled Cobra setups</h4>
+                <h5>🐍 Coiled Cobra setups</h5>
                 <table class="table changes-table">
                     <tr><th>New ({{ c.cobra.new|length }})</th>
                         <td>{% for r in c.cobra.new %}{{ r.Symbol }} {{ r.Score|num(0) }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</td></tr>
                     <tr><th>Dropped ({{ c.cobra.dropped|length }})</th>
                         <td>{% for r in c.cobra.dropped %}{{ r.Symbol }} (was {{ r['Score Prev']|num(0) }}){% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</td></tr>
                 </table>
-                <p class="muted">{% if c.cobra_ran %}<a href="{{ url_for('cobra_view', mode=mode, date=c.now) }}">Coiled Cobra {{ c.now }}</a> ·
+                <p class="label">{% if c.cobra_ran %}<a href="{{ url_for('cobra_view', mode=mode, date=c.now) }}">Coiled Cobra {{ c.now }}</a> ·
                     {% endif %}<a href="{{ url_for('breakout_view', mode=mode, date=c.now) }}">Breakout {{ c.now }}</a></p>
             {% endif %}
             {% endif %}

@@ -1,0 +1,15 @@
+{# Shared template pieces (market home, Setups). #}
+{% macro position_bar(bar, scan='daily') %}
+{% if bar %}
+<div class="pos-bar">
+    <div class="pos-track"><span class="pos-dot" style="left: {{ bar.pct|round(1) }}%"></span></div>
+    <div class="pos-labels">
+        <span><span class="label">Support</span> {{ bar.support|num }}</span>
+        <span class="pos-close">{% if bar.outside %}{{ bar.outside }}{% else %}<span class="label">Close</span> {{ bar.close|num }}{% endif %}</span>
+        <span><span class="label">Resistance</span> {{ bar.resistance|num }}</span>
+    </div>
+</div>
+{% else %}
+<p class="label">No support / resistance in the latest {{ scan }} scan.</p>
+{% endif %}
+{% endmacro %}

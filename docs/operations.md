@@ -194,43 +194,44 @@ highlighted.
 ### Setups (unproven) (`/setups`, `web/playbook.py`)
 
 The page sorts the newest runs by what the backtest found (`RESEARCH.md` §7, §11). Nothing
-is ranked or scored, and there are no trade levels.
+is ranked or scored, and there are no trade levels. Run closes only (no live prices). One
+badge at the top: "as of <date>" when the weekly and daily runs share a date, otherwise
+both run dates. How far each section can be trusted is a `?` tooltip on its heading.
+It opens with the SPY / QQQ facts box (`playbook.market_facts`: weekly `Trend`, weekly
+`MTF`, daily close vs SMA50; scanner names are allowed in the Setups area).
 
 1. **Weekly CONFIRMED** (`playbook.weekly_confirmed`): one card per weekly
-   `BREAKOUT_CONFIRMED` row, by symbol. Each says "Unproven: passed old-data test only"
-   (it passed in-sample; the holdout runs on 2035-09-07) and "Tested as: buy next open,
-   hold 4 weeks, no stop." A card also says "Also CONFIRMED last week" when the previous
-   weekly breakout CSV had the symbol CONFIRMED: a continuation, not the first-week event
-   that was tested. A symbol missing from the previous file (universe churn) is not marked.
-   Cards show the close or live price, ATR, `Resistance`, `Support`, extension, RVOL20,
-   SMA50 and MTF.
-2. **Untested: Coiled Cobra setups** (`playbook.untested_cobra`): collapsed by default; a
-   table per mode with Score, Grade, Close and the ticker's breakout status.
-3. **Failed the old-data test** (`playbook.failed_counts`): counts only, each linking to
-   the breakout page filtered to that status. Daily: `PRE_BREAKOUT`, `BREAKOUT_TRIGGERED`,
-   `BREAKOUT_CONFIRMED`. Weekly: `PRE_BREAKOUT`, `BREAKOUT_TRIGGERED`.
+   `BREAKOUT_CONFIRMED` row, by symbol. Tooltip: passed in-sample (+2.3% vs SPY over 4
+   weeks, p 0.049; p 0.40 without the split-flagged events), unproven until the
+   2035-09-07 holdout, tested as buy next open, hold 4 weeks, no stop. A card says "Also
+   CONFIRMED last week" when the previous weekly breakout CSV had the symbol CONFIRMED (a
+   continuation, not the tested first-week event; a symbol missing from the previous file
+   is not marked). Each card shows the close, the weekly position bar
+   (`playbook.position_bar`, `Support` to `Resistance`, as on the market home), then
+   SMA50, ATR, extension, RVOL20 and MTF.
+2. **Coiled Cobra setups** (`playbook.untested_cobra`), tooltip "Never backtested":
+   collapsed by default; a table per mode with Score, Grade, Close and the ticker's
+   breakout status.
+3. **Since last run** (`templates/_since_last_run.html`, `insights.run_changes`), the two
+   newest runs per mode (dates in the heading tooltip):
+   - **New weekly CONFIRMED** (`insights.new_confirmed`). *New this week*: CONFIRMED now
+     and scanned last week with another status, the first-week event that was tested.
+     *Confirmed now, but not scanned last week*: no row in last week's file, so the
+     first week is unknown. Names CONFIRMED both weeks are continuations and not listed.
+   - **Stock list changes** (`insights.universe_changes`): per mode, tickers that
+     entered or left the scanned list.
+   - **Everything else**, collapsed: per mode, counts of status changes (moved toward a
+     breakout, failed, other) and Coiled Cobra setups new / dropped. `?show=all` opens it
+     with the full tables (`insights.status_changes`, `cobra_changes`; Readiness shown,
+     no Readiness change column, since Readiness falls when a breakout happens).
+4. **Failed the old-data test** (`playbook.failed_counts`), tooltip "did no better than
+   SPY or random entries": counts only, each linking to the breakout page filtered to
+   that status. Daily: `PRE_BREAKOUT`, `BREAKOUT_TRIGGERED`, `BREAKOUT_CONFIRMED`.
+   Weekly: `PRE_BREAKOUT`, `BREAKOUT_TRIGGERED`.
 
-**Since last run** (`templates/_since_last_run.html`, `insights.run_changes`), the two
-newest runs per mode:
-1. **New weekly CONFIRMED** (`insights.new_confirmed`). *New this week*: CONFIRMED now
-   and scanned last week with another status, the first-week event that was tested.
-   *Confirmed now, but not scanned last week*: no row in last week's file, so the first
-   week is unknown. Names CONFIRMED both weeks are continuations and are not listed.
-2. **Stock list changes** (`insights.universe_changes`): per mode, tickers that entered
-   or left the scanned list.
-3. **Everything else**, collapsed: per mode, counts of status changes (moved toward a
-   breakout, failed, other) and Coiled Cobra setups new / dropped. `?show=all` opens it
-   with the full tables (`insights.status_changes`, `cobra_changes`; Readiness shown,
-   no Readiness change column, since Readiness falls when a breakout happens).
-
-Each card has a level chart: recent weekly candles from `/api/bars` with `Resistance` and
-`Support` drawn as price lines (`web/static/js/level-charts.js`). It uses
-TradingView Lightweight Charts v4.2.3 (Apache 2.0), vendored at
-`web/static/vendor/lightweight-charts-4.2.3.standalone.production.js` so the dashboard
-needs no internet access; to upgrade, replace that file and update the version in
-`setups.html` and `market.html`. Its attribution logo stays on, as the licence notice asks.
-
-Signals to review, not advice.
+No page loads a chart any more. `web/static/js/level-charts.js`, the vendored
+TradingView Lightweight Charts v4.2.3 (`web/static/vendor/`) and `/api/bars` are still in
+the tree, unused, until their removal is confirmed.
 
 ### Market home (`/`)
 

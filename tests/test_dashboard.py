@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import os
 import re
 from datetime import date
@@ -321,13 +320,20 @@ def _cards(body):
 def test_home_cards_are_weekly_confirmed_only(client, tmp_path, monkeypatch):
     body = _home_logs(client, tmp_path, monkeypatch)
     cards = _cards(body)
-    assert "run 2026-10-30" in cards
     assert cards.count('class="setup-card"') == 2
     assert cards.index("t=GMAB") < cards.index("t=GPN")  # alphabetical, not ranked
     for sym in ("DCONF", "DPRE", "VRNS", "WPRE", "WTRG", "DHR"):
         assert f"t={sym}" not in cards
-    assert cards.count("Unproven: passed old-data test only") == 2
-    assert cards.count("Tested as: buy next open, hold 4 weeks, no stop.") == 2
+    # Trust notes are one ? tooltip on the heading, not a pill or note per card.
+    for gone in ("Unproven: passed old-data test only", "status-pill", "advice"):
+        assert gone not in body
+    assert "Tested as:" not in cards.split("</h2>")[-1]
+    heading = body.split('tested-section">')[1].split("</h2>")[0]
+    assert (
+        'class="tip"' in heading and "Tested as: buy next open, hold 4 weeks, no stop." in heading
+    )
+    head = body.split('class="page-head"')[1].split("</div>")[0]
+    assert body.count("asof-badge") == 1 and "Fri 2026-10-30" in head
 
 
 def test_home_cards_have_no_trade_levels_or_rank(client, tmp_path, monkeypatch):
@@ -336,14 +342,10 @@ def test_home_cards_have_no_trade_levels_or_rank(client, tmp_path, monkeypatch):
     for gone in ("Trigger", "Stop", "Target", "2R", "3R", "wide stop"):
         assert gone not in cards
     assert "Rank" not in body
-    assert "50.31" in cards and "44.62" in cards  # resistance and support as context
-    chart = cards.split('class="level-chart"')[1].split("></div>")[0]
-    assert 'data-mode="weekly"' in chart and 'data-symbol="GMAB"' in chart
-    levels = json.loads(chart.split("data-levels='")[1].split("'")[0])
-    assert {line["label"]: line["price"] for line in levels} == {
-        "Resistance": 50.31,
-        "Support": 44.62,
-    }
+    gmab = cards.split("t=GPN")[0]
+    assert "Support</span> 44.62" in gmab and "Resistance</span> 50.31" in gmab  # position bar
+    assert "pos-dot" in gmab and "level-chart" not in body and "lightweight-charts" not in body
+    assert "Live" not in cards  # run closes only
 
 
 def test_home_card_flags_continuation_and_data_errors(client, tmp_path, monkeypatch):
@@ -358,7 +360,8 @@ def test_home_cobra_is_collapsed_and_untested(client, tmp_path, monkeypatch):
     body = _home_logs(client, tmp_path, monkeypatch)
     section = body.split('class="failed-section untested-section"')[1].split("</details>")[0]
     assert '<details class="failed-section untested-section">' in body  # closed by default
-    assert "Untested: Coiled Cobra setups" in section and "t=VRNS" in section
+    assert "Coiled Cobra setups" in section and "Never backtested" in section
+    assert "t=VRNS" in section and "Untested:" not in section
     assert "No weekly Cobra setups." in section and ">85<" in section
 
 
