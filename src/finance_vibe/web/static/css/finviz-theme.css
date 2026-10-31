@@ -345,20 +345,19 @@ table.table tr:has(.live-surge) {
 .change-list { margin: 6px 0 10px; padding-left: 20px; font-size: 0.88rem; }
 .change-list li { margin: 4px 0; }
 
-/* Market strip (base.html, every page) */
+/* Market strip (base.html, every page but the market home) */
 .market-strip {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px 22px;
-    padding: 6px 24px;
-    font-size: 0.78rem;
+    gap: 6px 26px;
+    padding: 8px 24px;
+    font-size: 0.9rem;
+    color: var(--finviz-text-strong);
     font-family: var(--finviz-font-mono);
     background: var(--finviz-bg-hover);
     border-bottom: 1px solid var(--finviz-border);
 }
 .strip-item { display: inline-flex; gap: 6px; align-items: baseline; }
-.market-strip .pos { color: var(--finviz-green-light); }
-.market-strip .neg { color: var(--finviz-red); }
 
 /* Shared: ? tooltips (title attribute), grey labels, up / down colours */
 .tip {

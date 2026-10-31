@@ -483,7 +483,10 @@ def test_market_strip_on_every_page(client, tmp_path, monkeypatch, url):
     for sym in ("SPY", "QQQ", "SCHG", "SCHD"):
         assert f"<strong>{sym}</strong>" in strip
     # Fixture: close 760.0 is below SMA50 767.26 but above Support 758.79; no SMA200.
-    assert "below 50d" in strip and "200d —" in strip and "Growth vs dividend:" in strip
+    assert 'below <span class="label">50d</span>' in strip
+    assert '<span class="label">200d</span> —' in strip
+    assert '<span class="label">Growth vs dividend</span> Mixed' in strip
+    assert "muted" not in strip and "leading" not in strip  # white facts, grey labels
     assert "closed below support" not in strip
 
 

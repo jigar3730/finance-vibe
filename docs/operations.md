@@ -278,7 +278,7 @@ badge next to the title: the newest daily close the page uses. Top to bottom:
 Explanations are `?` tooltips only. No charts, notes, scanner states or status names on
 this page.
 
-**Market strip (`web/insights.market_strip`).** A bar under the nav on every page except
+**Market strip (`web/insights.market_strip`).** A bar under the nav (0.9rem, facts in white, labels grey) on every page except
 `/`, where the same facts are in its table. For each of SPY / QQQ / SCHG / SCHD:
 - the last daily % change (last two closes in the daily raw file),
 - the daily close above or below its SMA50 and SMA200 (latest daily breakout row),
