@@ -90,6 +90,14 @@ If a doc disagrees with `pipeline.py` or `config.py`, the code wins.
   support / resistance as context only (no trigger, stop or targets); don't add
   options metadata or position sizing without being asked.
 
+## UI rules
+
+Follow `docs/UX_STANDARDS.md` for any template or CSS change (facts not verdicts,
+colors, one as-of date, tiles, number formats, no external libraries).
+`tests/test_ux_standards.py` checks the word and link rules.
+
+@docs/UX_STANDARDS.md
+
 ## Coding standards
 
 - Python 3.12 (the container is the reference environment: pandas 3.x,
