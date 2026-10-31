@@ -355,13 +355,13 @@ FLAT = _closes(np.full(150, 10.0))
 
 def test_rotation_growth_leading():
     got = insights.rotation(_closes(np.linspace(10, 20, 150)), FLAT)
-    assert got["label"] == insights.GROWTH_LEADING
+    assert got["label"] == insights.GROWTH_OUTPERFORMING
     assert got["ratio"] > got["ma"] and got["spread"] > 0 and got["as_of"] == "2026-10-30"
 
 
 def test_rotation_dividend_leading_is_the_mirror():
     got = insights.rotation(FLAT, _closes(np.linspace(10, 20, 150)))
-    assert got["label"] == insights.DIVIDEND_LEADING
+    assert got["label"] == insights.DIVIDEND_OUTPERFORMING
     assert got["ratio"] < got["ma"] and got["spread"] < 0
 
 
@@ -383,7 +383,7 @@ def test_rotation_aligns_on_dates():
     growth = _closes(np.linspace(10, 20, 150))
     dividend = FLAT.iloc[5:]  # starts later: only shared dates count
     got = insights.rotation(growth, dividend)
-    assert got["label"] == insights.GROWTH_LEADING and got["ratio"] == pytest.approx(2.0)
+    assert got["label"] == insights.GROWTH_OUTPERFORMING and got["ratio"] == pytest.approx(2.0)
 
 
 def test_etf_relative_returns_and_rs(raw_silo):
@@ -401,7 +401,7 @@ def test_etf_relative_returns_and_rs(raw_silo):
     assert rows["SCHG"]["rs"] > 0 and rows["SCHG"]["rs_ok"]
     assert rows["SCHD"]["returns"]["6M"] == pytest.approx(rows["SPY"]["returns"]["6M"])
     assert rows["SCHG"]["returns"]["6M"] is not None and rows["SCHG"]["returns"]["1W"] > 0
-    assert got["rotation"]["label"] == insights.GROWTH_LEADING
+    assert got["rotation"]["label"] == insights.GROWTH_OUTPERFORMING
 
 
 def test_etf_relative_without_raw_files(raw_silo):
@@ -443,7 +443,7 @@ def test_market_strip_facts(raw_silo):
     # No scan row: the % change still shows, the scan facts are unknown.
     assert rows["SCHD"]["change"] is not None and rows["SCHD"]["above_sma50"] is None
     assert not rows["SCHD"]["heavy_break"]
-    assert got["rotation"] == insights.GROWTH_LEADING
+    assert got["rotation"] == insights.GROWTH_OUTPERFORMING
 
 
 def test_market_strip_without_data(raw_silo):

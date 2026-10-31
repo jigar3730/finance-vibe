@@ -114,24 +114,32 @@ def credit(hyg: pd.DataFrame | None, ief: pd.DataFrame | None) -> dict[str, Any]
 
 
 def breadth(frames: dict[str, pd.DataFrame | None]) -> dict[str, Any]:
-    """Sector funds above / below their 50-day average, with plain sector names."""
-    above: list[dict[str, str]] = []
-    below: list[dict[str, str]] = []
-    unknown: list[dict[str, str]] = []
+    """Sector funds above / below their 50-day average, with plain sector names.
+
+    ``tiles`` lists every fund in ``config.MARKET_SECTOR_FUNDS`` order with its close,
+    50-day average and ``above`` (None without data); ``above`` / ``below`` /
+    ``unknown`` list ``{"symbol", "name"}``.
+    """
+    tiles: list[dict[str, Any]] = []
     dates = []
     for sym, name in config.MARKET_SECTOR_FUNDS.items():
         df = frames.get(sym)
         ma = None if df is None else _last_ma(df["Close"], SECTOR_MA_BARS)
-        item = {"symbol": sym, "name": name}
-        if df is None or ma is None:
-            unknown.append(item)
-            continue
-        dates.append(_as_of(df))
-        (above if float(df["Close"].iloc[-1]) > ma else below).append(item)
+        close = None if df is None else float(df["Close"].iloc[-1])
+        if df is not None and ma is not None:
+            dates.append(_as_of(df))
+        above_ma = None if close is None or ma is None else close > ma
+        tiles.append({"symbol": sym, "name": name, "close": close, "ma": ma, "above": above_ma})
+
+    def names(state: bool | None) -> list[dict[str, str]]:
+        return [{"symbol": t["symbol"], "name": t["name"]} for t in tiles if t["above"] is state]
+
+    above, below = names(True), names(False)
     return {
+        "tiles": tiles,
         "above": above,
         "below": below,
-        "unknown": unknown,
+        "unknown": names(None),
         "counted": len(above) + len(below),
         "total": len(config.MARKET_SECTOR_FUNDS),
         "as_of": max(dates).isoformat() if dates else None,

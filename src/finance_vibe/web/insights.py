@@ -302,7 +302,9 @@ def market_changes(daily_folder: str, weekly_folder: str) -> dict[str, Any] | No
 # Display windows in daily bars.
 RETURN_WINDOWS = {"1W": 5, "1M": 21, "3M": 63, "6M": 126}
 RS_LOOKBACK = 63
-GROWTH_LEADING, DIVIDEND_LEADING, MIXED = "Growth leading", "Dividend/value leading", "Mixed"
+GROWTH_OUTPERFORMING = f"Growth outperforming (last {config.ROTATION_LOOKBACK} days)"
+DIVIDEND_OUTPERFORMING = f"Dividend/value outperforming (last {config.ROTATION_LOOKBACK} days)"
+MIXED = "Mixed"
 
 
 def daily_closes(symbol: str) -> pd.DataFrame | None:
@@ -330,9 +332,9 @@ def _ret(close: pd.Series, bars: int) -> float | None:
 def rotation(growth: pd.DataFrame | None, dividend: pd.DataFrame | None) -> dict[str, Any]:
     """Growth vs dividend leadership from the growth / dividend close ratio.
 
-    "Growth leading" when the ratio is above its ``ROTATION_MA_BARS`` SMA and
+    :data:`GROWTH_OUTPERFORMING` when the ratio is above its ``ROTATION_MA_BARS`` SMA and
     the ``ROTATION_LOOKBACK`` return spread (growth − dividend) is positive;
-    "Dividend/value leading" when it is below the SMA and the spread is
+    :data:`DIVIDEND_OUTPERFORMING` when it is below the SMA and the spread is
     negative; "Mixed" otherwise or with too little history. Unvalidated context.
     """
     out: dict[str, Any] = {"label": MIXED, "ratio": None, "ma": None, "spread": None, "as_of": None}
@@ -354,9 +356,9 @@ def rotation(growth: pd.DataFrame | None, dividend: pd.DataFrame | None) -> dict
     if out["ma"] is None:
         return out
     if out["ratio"] > out["ma"] and spread > 0:
-        out["label"] = GROWTH_LEADING
+        out["label"] = GROWTH_OUTPERFORMING
     elif out["ratio"] < out["ma"] and spread < 0:
-        out["label"] = DIVIDEND_LEADING
+        out["label"] = DIVIDEND_OUTPERFORMING
     return out
 
 
@@ -438,3 +440,21 @@ def market_strip(
         )
     rot = rotation(frames[config.ROTATION_GROWTH], frames[config.ROTATION_DIVIDEND])
     return {"rows": rows, "rotation": rot["label"]}
+
+
+def market_table(daily_breakout: pd.DataFrame) -> dict[str, Any]:
+    """The market home's one table: :func:`market_strip` facts merged with the
+    :func:`etf_relative` returns and RS vs SPY, one row per ETF, plus the rotation."""
+    strip = market_strip(daily_breakout)
+    rel = etf_relative()
+    by_symbol = {r["symbol"]: r for r in rel["rows"]}
+    rows = [
+        {**r, "returns": by_symbol[r["symbol"]]["returns"], "rs": by_symbol[r["symbol"]]["rs"]}
+        for r in strip["rows"]
+    ]
+    return {
+        "rows": rows,
+        "windows": rel["windows"],
+        "benchmark": rel["benchmark"],
+        "rotation": rel["rotation"],
+    }

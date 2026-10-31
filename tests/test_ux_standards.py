@@ -17,8 +17,8 @@ VERDICT = re.compile(
     r"\b(bullish|bearish|strong|weak|elevated|fading|accelerat\w*|aligned|risk[\s-]?(?:on|off))\b",
     re.IGNORECASE,
 )
-# Known breaks, fixed by the home page redesign. Remove an entry once it is gone.
-KNOWN_VIOLATIONS = {"market.html": {"strong"}}
+# Known breaks still to fix: {template name: {word, ...}}. Remove an entry once it is gone.
+KNOWN_VIOLATIONS: dict[str, set[str]] = {}
 
 _JINJA = re.compile(r"\{#.*?#\}|\{%.*?%\}|\{\{.*?\}\}", re.DOTALL)
 _ATTR_TEXT = re.compile(r"""\b(?:title|aria-label|alt|placeholder)\s*=\s*["']([^"']*)["']""")

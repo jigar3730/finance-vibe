@@ -175,3 +175,22 @@ def test_market_rows_carry_facts_price_and_support_resistance_lines():
 def test_unusable_live_price_is_none(bad):
     assert pb.live_price_or_none(bad) is None
     assert pb.live_price_or_none(48.68) == 48.68
+
+
+@pytest.mark.parametrize(
+    ("close", "pct", "outside"),
+    [
+        (100.0, 50.0, None),
+        (85.5, 0.0, "below support by 5.00%"),  # pinned at the left end
+        (115.5, 100.0, "above resistance by 5.00%"),
+    ],
+)
+def test_position_bar_between_support_and_resistance(close, pct, outside):
+    bar = pb.position_bar({"Close": close, "Support": 90.0, "Resistance": 110.0})
+    assert bar["pct"] == pytest.approx(pct) and bar["outside"] == outside
+    assert (bar["support"], bar["resistance"], bar["close"]) == (90.0, 110.0, close)
+
+
+def test_position_bar_needs_all_three_levels():
+    assert pb.position_bar({"Close": 1.0, "Support": 2.0}) is None
+    assert pb.position_bar({"Close": 1.0, "Support": 2.0, "Resistance": 2.0}) is None

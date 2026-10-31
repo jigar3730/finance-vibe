@@ -404,24 +404,38 @@ def setups() -> str:
     )
 
 
+def _page_as_of(*dates: str | None) -> str | None:
+    """The page's one "as of" badge: the newest of the given ISO dates, e.g. "Fri 2026-10-30"."""
+    known = [d for d in dates if d]
+    if not known:
+        return None
+    newest = pd.Timestamp(max(known))
+    return f"{newest:%a} {newest.date().isoformat()}"
+
+
 @app.route("/")
 def market() -> str:
-    """Home: today's market facts, the relative view, then one card per ETF (states,
-    support / resistance chart)."""
-    live = _fetch_live_prices(list(playbook.MARKET_SYMBOLS))
-    rows = _market(_latest_runs(), live)
+    """Home: one table for SPY / QQQ / SCHG / SCHD, market health tiles, sector tiles,
+    then a card per ETF with a support-to-resistance position bar. Daily closes only."""
+    rows = _market(_latest_runs())
     expected = insights.expected_bars()
     for m in rows:
-        m["freshness"] = insights.etf_freshness(
+        m["flags"] = insights.etf_freshness(
             m["symbol"], {"daily": m["daily"], "weekly": m["weekly"]}, expected
-        )
-    return render_template(
-        "market.html",
-        rows=rows,
-        relative=insights.etf_relative(),
-        today=_market_strip(),
-        health=health.market_health(expected["daily"]),
+        )["daily"]["flags"]
+    daily_bo = playbook.load_latest(LOG_DIRS["daily"])[2]
+    table = insights.market_table(daily_bo)
+    market_health = health.market_health(expected["daily"])
+    newest = max((r["as_of"] for r in table["rows"] if r["as_of"]), default=None)
+    for r in table["rows"]:
+        r["stale"] = r["as_of"] is None or (newest is not None and r["as_of"] < newest)
+    as_of = _page_as_of(
+        newest,
+        (market_health["volatility"] or {}).get("as_of"),
+        (market_health["credit"] or {}).get("as_of"),
+        market_health["breadth"]["as_of"],
     )
+    return render_template("market.html", rows=rows, table=table, health=market_health, as_of=as_of)
 
 
 @app.route("/market")

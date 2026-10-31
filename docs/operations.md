@@ -219,67 +219,60 @@ needs no internet access; to upgrade, replace that file and update the version i
 
 Signals to review, not advice.
 
-### Market home (`/`, `playbook.market_facts`)
+### Market home (`/`)
 
-SPY, QQQ, SCHG and SCHD are in `STATIC_TICKERS`, so every run scans them. Each card
-shows plain facts from the breakout scan, with no LONG / SHORT / NEUTRAL label (that
-rule was untested and was removed on 2026-10-30): the weekly `Trend`, the weekly `MTF`,
-and whether the daily close is above or below its SMA50 (`playbook.market_facts`).
-Then the weekly and daily states, a daily chart with the scan's `Resistance` and
-`Support` lines, and the daily close, SMAs, ATR and RVOL20. There are no trade plans
-(no trigger, stop or targets) on this page.
+Daily closes only (no live prices), laid out per `docs/UX_STANDARDS.md`. One "as of"
+badge next to the title: the newest daily close the page uses. Top to bottom:
 
-The Setups page opens with the same facts for SPY and QQQ, always shown, in plain text.
+1. **One table** (`insights.market_table`) for SPY / QQQ / SCHG / SCHD: daily % change
+   (last two closes in the daily raw file), returns over 1W / 1M / 3M / 6M (5 / 21 / 63 /
+   126 bars) and RS vs SPY (`market.relative_strength`: 63-day return minus SPY's), all
+   with a sign and 2 decimals, green / red for up / down. A note column shows "⚠ closed
+   below support on heavy volume" (daily close below `Support` with RVOL20 ≥
+   `config.BREAKOUT_RVOL_CONFIRM`, 1.5; `insights.heavy_break`) and "⚠ stale" / "⚠ no
+   data" when a fund's newest close is older than the badge or missing. Under it, the
+   growth-vs-dividend label (`insights.rotation`, `config.ROTATION_*`):
+   - *Growth outperforming (last 63 days)*: the SCHG / SCHD close ratio is above its
+     50-day SMA and SCHG's 63-day return beats SCHD's.
+   - *Dividend/value outperforming (last 63 days)*: below the SMA and SCHD beats SCHG.
+   - *Mixed*: anything else, or too little history.
+
+   Raw prices are Yahoo adjusted closes (`auto_adjust=True`), so returns include
+   dividends.
+2. **Market health** (`web/health.market_health`), three tiles with a large number, from
+   the market-context files (`data/raw/market/`):
+   - **VIX:** the close, its change in points since the previous close, and above or
+     below its 20-day average.
+   - **Credit: HYG / IEF:** the close ratio (high-yield company bonds vs 7–10 year
+     Treasuries), above or below its 50-day average, and its % change over 21 sessions.
+     IEF rather than TLT: its bonds are closer in length to HYG's, so the ratio moves
+     mostly with credit worry, not with long-term interest rates.
+   - **Breadth:** "N of 11" sector funds (`config.MARKET_SECTOR_FUNDS`) closed above
+     their 50-day average. Then 11 small tiles, green above / red below / grey no data,
+     with the plain sector name, close and 50-day average on hover. A fund without a
+     file or enough history is left out of the count.
+
+   A tile shows "⚠ HYG stale" (or missing, or a bar-quality check) when a file is
+   missing, older than the last closed session, or has an error row in the newest
+   `data/logs/market/data_quality_<date>.csv`. The tiles themselves stay uncoloured.
+3. **Support and resistance**, a card per ETF (`playbook.position_bar`): the daily close,
+   and a bar from the daily scan's `Support` (left) to `Resistance` (right) with a dot
+   at the close. A close outside the range pins the dot to that end and says "below
+   support by 1.20%" / "above resistance by …". SMA 20 / 50 / 200 underneath. A card
+   header shows the ETF's daily freshness flags (`insights.etf_freshness`: missing or
+   stale scan row, raw bar-quality issue).
+
+Explanations are `?` tooltips only. No charts, notes, scanner states or status names on
+this page.
 
 **Market strip (`web/insights.market_strip`).** A bar under the nav on every page except
-`/`, where the same facts are the "Today" table at the top. For each of SPY / QQQ / SCHG / SCHD:
+`/`, where the same facts are in its table. For each of SPY / QQQ / SCHG / SCHD:
 - the last daily % change (last two closes in the daily raw file),
 - the daily close above or below its SMA50 and SMA200 (latest daily breakout row),
 - "closed below support on heavy volume" when the daily close is below `Support` and
   RVOL20 ≥ `config.BREAKOUT_RVOL_CONFIRM` (1.5),
 
 then the growth-vs-dividend label. Facts only: it adds no rule.
-
-**Market health (`web/health.market_health`).** Under the Today table, from the
-market-context files (`data/raw/market/`, last daily closes, no live prices):
-- **Volatility:** the VIX close, its change in points since the previous close, and
-  whether it is above or below its 20-day average.
-- **Credit:** the HYG / IEF close ratio (high-yield company bonds vs 7–10 year
-  Treasuries), above or below its 50-day average, and its change over 21 sessions. IEF
-  rather than TLT: its bonds are closer in length to HYG's, so the ratio moves mostly
-  with credit worry, not with long-term interest rates.
-- **Breadth:** how many of the 11 sector funds (`config.MARKET_SECTOR_FUNDS`) closed
-  above their 50-day average ("7 of 11"), then the funds above and below, each with its
-  plain name ("XLK Technology"). A fund without a file or enough history is listed as
-  no data and left out of the count.
-
-Each row shows its date and a warning when a file is missing, older than the last
-closed session, or has an error row in the newest `data/logs/market/data_quality_<date>.csv`.
-Facts only, in plain text with no up/down colours: no score, no risk-on / risk-off
-label, and no rule built on them has been tested.
-
-**Relative view (`web/insights.etf_relative`).** A table above the cards, from each
-ETF's daily raw closes:
-- returns over 1W / 1M / 3M / 6M (5 / 21 / 63 / 126 bars),
-- 63-day relative strength vs SPY (`market.relative_strength`, "strong" when the ratio
-  is above its 20-bar MA and the return is ahead),
-- a growth-vs-dividend label from the SCHG / SCHD close ratio
-  (`config.ROTATION_*`):
-  - *Growth leading*: the ratio is above its 50-day SMA and SCHG's 63-day return beats
-    SCHD's.
-  - *Dividend/value leading*: below the SMA and SCHD beats SCHG.
-  - *Mixed*: anything else, or too little history.
-
-Raw prices are Yahoo adjusted closes (`auto_adjust=True`), so returns include
-dividends and SCHD's yield is not counted against it. The label is unvalidated
-context, not a signal.
-
-**Freshness (`web/insights.etf_freshness`).** Under each card's header a line gives the
-daily and weekly rows' `AsOf Date`, with a warning next to a mode when:
-- its row is `missing`,
-- the row is `stale` (older than the last closed session, or the Monday of the last
-  closed week),
-- the ETF's raw file has a bar-quality issue (`data.quality`, checked live).
 
 **Data warnings on Setups.** A weekly CONFIRMED card shows "⚠ data: …" when its
 ticker has an error-severity row in the newest weekly `data_quality_<date>.csv`. Warnings

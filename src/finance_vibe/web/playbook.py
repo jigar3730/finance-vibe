@@ -220,16 +220,41 @@ def range_levels(row: dict[str, Any]) -> list[dict[str, Any]]:
     return [line for line in lines if line is not None]
 
 
+def position_bar(row: dict[str, Any]) -> dict[str, Any] | None:
+    """Where the close sits between ``Support`` (0%) and ``Resistance`` (100%).
+
+    ``pct`` is clamped to 0-100 for drawing; ``outside`` says how far a close below
+    support or above resistance is (e.g. "below support by 1.20%"). None without a
+    close, support and resistance with resistance above support.
+    """
+    close, support, resistance = (num(row.get(k)) for k in ("Close", "Support", "Resistance"))
+    if close is None or support is None or resistance is None or resistance <= support:
+        return None
+    pct = (close - support) / (resistance - support) * 100.0
+    outside = None
+    if close < support:
+        outside = f"below support by {(support - close) / support * 100:.2f}%"
+    elif close > resistance:
+        outside = f"above resistance by {(close - resistance) / resistance * 100:.2f}%"
+    return {
+        "close": close,
+        "support": support,
+        "resistance": resistance,
+        "pct": min(max(pct, 0.0), 100.0),
+        "outside": outside,
+    }
+
+
 def market_rows(
     daily_breakout: pd.DataFrame,
     weekly_breakout: pd.DataFrame,
     live: dict[str, float | str] | None = None,
     symbols: tuple[str, ...] = MARKET_SYMBOLS,
 ) -> list[dict[str, Any]]:
-    """One dict per ETF: its scan rows, plain facts, price and chart lines.
+    """One dict per ETF: its scan rows, plain facts, price, chart lines and position bar.
 
     ``price`` is the live quote when usable, else the daily Close. A symbol
-    without a daily row gets ``levels`` = None.
+    without a daily row gets ``levels`` and ``bar`` = None.
     """
     rows = []
     for symbol in symbols:
@@ -245,6 +270,7 @@ def market_rows(
                 "price": live_price if live_price is not None else close,
                 "price_is_live": live_price is not None,
                 "levels": range_levels(daily) if daily else None,
+                "bar": position_bar(daily) if daily else None,
             }
         )
     return rows

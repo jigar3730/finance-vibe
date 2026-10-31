@@ -1,138 +1,110 @@
 {% extends "base.html" %}
 {% block title %}Market - Finance Vibe{% endblock %}
-{% block extra_head %}
-    <script defer src="{{ url_for('static', filename='vendor/lightweight-charts-4.2.3.standalone.production.js') }}"></script>
-    <script defer src="{{ url_for('static', filename='js/level-charts.js') }}"></script>
-{% endblock %}
+{% macro pct(v) %}{% if v is not none %}{{ (v * 100)|signed(2) }}%{% else %}—{% endif %}{% endmacro %}
+{% macro sign_class(v) %}{{ 'pos' if v is not none and v > 0 else ('neg' if v is not none and v < 0 else '') }}{% endmacro %}
+{% macro flags(items) %}{% for f in items %}<span class="warn">⚠ {{ f|replace('_', ' ') }}</span> {% endfor %}{% endmacro %}
 {% block content %}
-    <h1>🧭 Market</h1>
-    <p class="meta">What the market is doing, from the latest daily closes. Facts, not predictions or advice.</p>
+<div class="market-page">
+    <div class="page-head">
+        <h1>🧭 Market</h1>
+        {% if as_of %}<span class="asof-badge">as of {{ as_of }}</span>{% endif %}
+    </div>
 
-    {% if today %}
-    <section class="today-view">
-        <h2>Today</h2>
-        <table class="table today-table">
-            <tr><th>ETF</th><th>Daily change</th><th>50-day average</th><th>200-day average</th><th>Support</th><th>As of</th></tr>
-            {% for r in today.rows %}
-            <tr><td><strong>{{ r.symbol }}</strong></td>
-                <td class="{{ 'pos' if r.change is not none and r.change > 0 else ('neg' if r.change is not none and r.change < 0 else '') }}">{% if r.change is not none %}{{ (r.change * 100)|signed(2) }}%{% else %}—{% endif %}</td>
-                {% for above in [r.above_sma50, r.above_sma200] %}
-                <td>{% if above is none %}—{% else %}close {{ 'above' if above else 'below' }}{% endif %}</td>
+    {% set rot = table.rotation %}
+    <section class="overview">
+        <table class="table overview-table">
+            <tr><th>Ticker</th><th>Daily</th>{% for w in table.windows %}<th>{{ w }}</th>{% endfor %}
+                <th>RS vs {{ table.benchmark }} <span class="tip" title="63-day return minus {{ table.benchmark }}'s 63-day return">?</span></th><th></th></tr>
+            {% for r in table.rows %}
+            <tr>
+                <td class="ticker-cell">{{ r.symbol }}</td>
+                <td class="{{ sign_class(r.change) }}">{{ pct(r.change) }}</td>
+                {% for w in table.windows %}{% set v = r.returns.get(w) %}
+                <td class="{{ sign_class(v) }}">{{ pct(v) }}</td>
                 {% endfor %}
-                <td>{% if r.heavy_break %}<span class="warn" title="daily close below Support with RVOL20 {{ r.rvol|num }}">⚠ closed below support on heavy volume</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-                <td class="muted">{{ r.as_of or '—' }}</td>
+                <td class="{{ sign_class(r.rs) }}">{% if r.symbol == table.benchmark %}—{% else %}{{ pct(r.rs) }}{% endif %}</td>
+                <td class="note-cell">
+                    {% if r.heavy_break %}<span class="warn" title="Daily close below Support with RVOL20 {{ r.rvol|num }} (1.50 or more)">⚠ closed below support on heavy volume</span>{% endif %}
+                    {% if r.stale %}<span class="warn" title="Newest daily close {{ r.as_of or 'missing' }}">⚠ {{ 'stale' if r.as_of else 'no data' }}</span>{% endif %}
+                </td>
             </tr>
             {% endfor %}
         </table>
-        <p class="setup-note"><strong>Growth vs dividend:</strong> {{ today.rotation }}</p>
-    </section>
-    {% endif %}
-
-    {% if health %}
-    <section class="health-view">
-        <h2>Market health <span class="top-date">daily closes</span></h2>
-        <table class="table health-table">
-            {% set v = health.volatility %}
-            <tr class="health-volatility"><th>Volatility</th>
-                <td>{% if v %}VIX {{ v.level|num }}{% if v.change is not none %}, {{ v.change|signed(2) }} since the previous close{% endif %}{% if v.ma is not none %}, {{ 'above' if v.above_ma else 'below' }} its 20-day average ({{ v.ma|num }}){% endif %}{% else %}No data{% endif %}</td>
-                <td class="muted">{{ v.as_of if v else '—' }}</td>
-                <td>{% for f in health.volatility_flags %}<span class="warn">⚠ {{ f }}</span> {% endfor %}</td>
-            </tr>
-            {% set c = health.credit %}
-            <tr class="health-credit"><th>Credit</th>
-                <td>{% if c %}HYG/IEF ratio {{ c.ratio|num(4) }}{% if c.ma is not none %}, {{ 'above' if c.above_ma else 'below' }} its 50-day average ({{ c.ma|num(4) }}){% endif %}{% if c.month_change is not none %}, {{ (c.month_change * 100)|signed(1) }}% over 1 month{% endif %}{% else %}No data{% endif %}</td>
-                <td class="muted">{{ c.as_of if c else '—' }}</td>
-                <td>{% for f in health.credit_flags %}<span class="warn">⚠ {{ f }}</span> {% endfor %}</td>
-            </tr>
-            {% set b = health.breadth %}
-            <tr class="health-breadth"><th>Breadth</th>
-                <td>{% if b.counted %}<strong>{{ b.above|length }} of {{ b.counted }}</strong> sectors above their 50-day average
-                    <div class="sector-list">Above: {% for s in b.above %}<span class="sector">{{ s.symbol }} {{ s.name }}</span>{% if not loop.last %}, {% endif %}{% else %}none{% endfor %}</div>
-                    <div class="sector-list">Below: {% for s in b.below %}<span class="sector">{{ s.symbol }} {{ s.name }}</span>{% if not loop.last %}, {% endif %}{% else %}none{% endfor %}</div>
-                    {% if b.unknown %}<div class="sector-list muted">No data: {% for s in b.unknown %}{{ s.symbol }} {{ s.name }}{% if not loop.last %}, {% endif %}{% endfor %}</div>{% endif %}
-                    {% else %}No data{% endif %}</td>
-                <td class="muted">{{ b.as_of or '—' }}</td>
-                <td>{% for f in health.breadth_flags %}<span class="warn">⚠ {{ f }}</span> {% endfor %}</td>
-            </tr>
-        </table>
-        <p class="meta">Facts, not a signal: no rule here has been tested. HYG holds high-yield company bonds and IEF
-            7–10 year Treasuries, so their ratio falls when lenders want more for riskier companies. Breadth counts
-            the 11 S&amp;P 500 sector funds.</p>
-    </section>
-    {% endif %}
-
-    {% if relative %}{% set rot = relative.rotation %}
-    <section class="relative-view">
-        <h2>Relative view <span class="top-date">daily closes</span></h2>
-        <table class="table relative-table">
-            <tr><th>ETF</th>{% for w in relative.windows %}<th>{{ w }}</th>{% endfor %}<th>RS 63d vs {{ relative.benchmark }}</th><th>As of</th></tr>
-            {% for r in relative.rows %}
-            <tr><td>{{ r.symbol }}</td>
-                {% for w in relative.windows %}{% set v = r.returns.get(w) %}
-                <td class="{{ 'pos' if v is not none and v > 0 else ('neg' if v is not none and v < 0 else '') }}">{{ (v * 100)|signed(1) if v is not none else '—' }}{% if v is not none %}%{% endif %}</td>
-                {% endfor %}
-                <td>{% if r.rs is not none %}{{ (r.rs * 100)|signed(1) }}%{% if r.rs_ok %} <span class="muted" title="ratio to {{ relative.benchmark }} above its 20-bar MA and ahead over 63 days">strong</span>{% endif %}{% else %}—{% endif %}</td>
-                <td class="muted">{{ r.as_of or '—' }}</td>
-            </tr>
-            {% endfor %}
-        </table>
-        <p class="setup-note rotation">
-            <strong>Growth vs dividend:</strong> <span class="rotation-label">{{ rot.label }}</span>
-            {% if rot.ratio is not none %}
-            · SCHG/SCHD ratio {{ rot.ratio|num(4) }} vs 50-day SMA {{ rot.ma|num(4) }} · 63-day spread {{ (rot.spread * 100)|signed(1) }}% ({{ rot.as_of }})
-            {% endif %}
+        <p class="rotation-line">
+            <span class="label">Growth vs dividend</span> <strong>{{ rot.label }}</strong>
+            <span class="tip" title="SCHG / SCHD close ratio{% if rot.ratio is not none %} {{ rot.ratio|num(4) }} vs its 50-day average {{ rot.ma|num(4) }}, SCHG minus SCHD return over 63 days {{ pct(rot.spread) }}{% endif %}. Outperforming needs both the ratio and the return gap on the same side; otherwise Mixed.">?</span>
         </p>
-        <p class="meta">Unvalidated context, not a signal. Growth leading: ratio above its 50-day SMA and SCHG beat SCHD
-            over 63 days; Dividend/value leading: ratio below its SMA and SCHD beat SCHG; otherwise Mixed. Returns include
-            dividends (Yahoo adjusted closes).</p>
     </section>
-    {% endif %}
 
-    <h2>ETF details</h2>
-    <div class="meta scan-note">
-        States from the breakout scan. Chart lines are the daily scan's Resistance and Support. Context, not a call.
-    </div>
-    <div class="card-grid">
-    {% for m in rows %}
-        {% set d = m.daily or {} %}{% set w = m.weekly or {} %}
-        <article class="setup-card">
-            <header class="setup-head">
-                <a class="ticker-link setup-symbol" href="https://finviz.com/quote.ashx?t={{ m.symbol }}" target="_blank" rel="noopener noreferrer">{{ m.symbol }}</a>
-            </header>
-            {% if m.freshness %}
-            <p class="setup-note freshness">
-                {% for mode in ['daily', 'weekly'] %}{% set f = m.freshness[mode] %}
-                {{ mode|capitalize }} as of {{ f.as_of or '—' }}{% for flag in f.flags %} <span class="warn" title="expected {{ f.expected }}">{{ flag|replace('_', ' ') }}</span>{% endfor %}{% if not loop.last %} · {% endif %}
-                {% endfor %}
-            </p>
-            {% endif %}
-            <p class="setup-note market-card-facts">{{ m.facts|join(' · ') }}</p>
+    <section class="health">
+        <h2>Market health</h2>
+        <div class="tile-row">
+            {% set v = health.volatility %}
+            <div class="metric-tile tile-volatility">
+                <div class="tile-label">VIX <span class="tip" title="CBOE Volatility Index: the S&amp;P 500 move options are pricing over the next 30 days, in % a year">?</span></div>
+                {% if v %}
+                <div class="tile-value">{{ v.level|num }}</div>
+                <div class="tile-sub">{{ v.change|signed(2) }} since previous close</div>
+                {% if v.ma is not none %}<div class="tile-sub">{{ 'above' if v.above_ma else 'below' }} its 20-day average {{ v.ma|num }}</div>{% endif %}
+                {% else %}<div class="tile-value">—</div><div class="tile-sub">No data</div>{% endif %}
+                {{ flags(health.volatility_flags) }}
+            </div>
+            {% set c = health.credit %}
+            <div class="metric-tile tile-credit">
+                <div class="tile-label">Credit: HYG / IEF <span class="tip" title="HYG = high-yield company bonds, IEF = 7–10 year Treasuries. The ratio falls when lenders want more to lend to riskier companies.">?</span></div>
+                {% if c %}
+                <div class="tile-value">{{ c.ratio|num(4) }}</div>
+                {% if c.ma is not none %}<div class="tile-sub">{{ 'above' if c.above_ma else 'below' }} its 50-day average {{ c.ma|num(4) }}</div>{% endif %}
+                {% if c.month_change is not none %}<div class="tile-sub">{{ pct(c.month_change) }} over 1 month</div>{% endif %}
+                {% else %}<div class="tile-value">—</div><div class="tile-sub">No data</div>{% endif %}
+                {{ flags(health.credit_flags) }}
+            </div>
+            {% set b = health.breadth %}
+            <div class="metric-tile tile-breadth">
+                <div class="tile-label">Breadth <span class="tip" title="The 11 S&amp;P 500 sector funds: how many closed above their 50-day average. Hover a sector tile for its name.">?</span></div>
+                {% if b.counted %}
+                <div class="tile-value">{{ b.above|length }} of {{ b.counted }}</div>
+                <div class="tile-sub">sectors above their 50-day average</div>
+                {% else %}<div class="tile-value">—</div><div class="tile-sub">No data</div>{% endif %}
+                {{ flags(health.breadth_flags) }}
+            </div>
+        </div>
+        <div class="sector-tiles">
+            {% for t in b.tiles %}
+            <span class="sector-tile {{ 'up' if t.above else ('down' if t.above is not none else 'nodata') }}"
+                  title="{{ t.name }}: {% if t.above is none %}no data{% else %}close {{ t.close|num }}, 50-day average {{ t.ma|num }}{% endif %}">{{ t.symbol }}</span>
+            {% endfor %}
+        </div>
+    </section>
 
-            <table class="table states-table">
-                <tr><th></th><th>Trend</th><th>MTF</th><th>Momentum</th><th>Structure</th><th>Status</th></tr>
-                {% for label, r in [('Weekly', w), ('Daily', d)] %}
-                <tr><th>{{ label }}</th>
-                    {% for col in ['Trend', 'MTF', 'Momentum', 'Structure', 'Status'] %}
-                    <td>{{ r.get(col)|text|replace('_', ' ') }}</td>
-                    {% endfor %}
-                </tr>
-                {% endfor %}
-            </table>
-
-            {% if m.levels is not none %}
-            <div class="level-chart" data-mode="daily" data-symbol="{{ m.symbol }}"
-                 data-levels='{{ m.levels|tojson }}'></div>
-
-            <table class="table levels-table">
-                <tr><th>{{ 'Live' if m.price_is_live else 'Close' }}</th><td>{{ m.price|num }}</td><th>ATR</th><td>{{ d.get('ATR')|num }}</td></tr>
-                <tr><th>SMA20</th><td>{{ d.get('SMA20')|num }}</td><th>SMA50</th><td>{{ d.get('SMA50')|num }}</td></tr>
-                <tr><th>SMA200</th><td>{{ d.get('SMA200')|num }}</td><th>RVOL20</th><td>{{ d.get('RVOL20')|num }}</td></tr>
-                <tr><th>Resistance</th><td>{{ d.get('Resistance')|num }}</td><th>Support</th><td>{{ d.get('Support')|num }}</td></tr>
-            </table>
-            {% else %}
-            <p style="color: var(--finviz-text-muted);">No daily scan row for {{ m.symbol }} yet.</p>
-            {% endif %}
-        </article>
-    {% endfor %}
-    </div>
+    <section class="etf-cards">
+        <h2>Support and resistance <span class="tip" title="From the daily breakout scan: the dot is the latest daily close between Support (left) and Resistance (right).">?</span></h2>
+        <div class="card-grid">
+        {% for m in rows %}{% set d = m.daily or {} %}{% set bar = m.bar %}
+            <article class="setup-card etf-card">
+                <header class="setup-head">
+                    <a class="ticker-link setup-symbol" href="https://finviz.com/quote.ashx?t={{ m.symbol }}" target="_blank" rel="noopener noreferrer">{{ m.symbol }}</a>
+                    <span class="card-close">{{ d.get('Close')|num }}</span>
+                    {{ flags(m.flags) }}
+                </header>
+                {% if bar %}
+                <div class="pos-bar">
+                    <div class="pos-track"><span class="pos-dot" style="left: {{ bar.pct|round(1) }}%"></span></div>
+                    <div class="pos-labels">
+                        <span><span class="label">Support</span> {{ bar.support|num }}</span>
+                        <span class="pos-close">{% if bar.outside %}{{ bar.outside }}{% else %}<span class="label">Close</span> {{ bar.close|num }}{% endif %}</span>
+                        <span><span class="label">Resistance</span> {{ bar.resistance|num }}</span>
+                    </div>
+                </div>
+                {% else %}
+                <p class="label">No support / resistance in the latest daily scan.</p>
+                {% endif %}
+                <p class="sma-line">
+                    {% for n in [20, 50, 200] %}<span class="label">SMA {{ n }}</span> {{ d.get('SMA' ~ n)|num }}{% if not loop.last %} · {% endif %}{% endfor %}
+                </p>
+            </article>
+        {% endfor %}
+        </div>
+    </section>
+</div>
 {% endblock %}

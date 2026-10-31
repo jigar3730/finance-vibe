@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import os
+import re
 from datetime import date
 
 import pandas as pd
@@ -475,26 +476,6 @@ def _market_logs(tmp_path, monkeypatch, weekly_trend):
     pd.DataFrame(weekly).to_csv(dirs["weekly"] / "breakout_setups_2026-10-20.csv", index=False)
 
 
-def test_market_cards_show_facts_not_a_bias_pill(client, tmp_path, monkeypatch):
-    _market_logs(tmp_path, monkeypatch, weekly_trend="BEARISH")
-    body = client.get("/").get_data(as_text=True)
-    spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
-    facts = spy.split('class="setup-note market-card-facts"')[1].split("</p>")[0]
-    assert facts == (
-        ">weekly trend BEARISH · weekly MTF PARTIAL · daily close below its 50-day average (767.26)"
-    )
-    assert "bias" not in body.lower()  # no pill, no bias-* class, no rule text
-    assert "LONG" not in body and "SHORT" not in body  # Trend's NEUTRAL state stays
-    for gone in ("Long: break above", "Short: break below", "plan-block", "2R", "Stop", "Trigger"):
-        assert gone not in spy
-    assert "758.79" in spy and "781.62" in spy
-    levels = json.loads(spy.split("data-levels='")[1].split("'")[0])
-    assert [line["label"] for line in levels] == ["Resistance", "Support"]
-    assert "Relative view" in body and "Growth vs dividend:" in body
-    assert "Returns include" in body and "dividends (Yahoo adjusted closes)" in body
-    assert "No daily scan row for SCHG" in body and "No daily scan row for SCHD" in body
-
-
 @pytest.mark.parametrize("url", ["/setups", "/changes", "/runs"])
 def test_market_strip_on_every_page(client, tmp_path, monkeypatch, url):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
@@ -505,20 +486,6 @@ def test_market_strip_on_every_page(client, tmp_path, monkeypatch, url):
     # Fixture: close 760.0 is below SMA50 767.26 but above Support 758.79; no SMA200.
     assert "below 50d" in strip and "200d —" in strip and "Growth vs dividend:" in strip
     assert "closed below support" not in strip
-
-
-def test_market_home_shows_today_table_instead_of_strip(client, tmp_path, monkeypatch):
-    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
-    body = client.get("/").get_data(as_text=True)
-    assert 'class="market-strip"' not in body
-    today = body.split('class="today-view"')[1].split("</section>")[0]
-    for sym in ("SPY", "QQQ", "SCHG", "SCHD"):
-        assert f"<strong>{sym}</strong>" in today
-    spy = today.split("<strong>SPY</strong>")[1].split("</tr>")[0]
-    assert spy.count("close below") == 1 and "—" in spy  # below SMA50; no SMA200
-    assert "Growth vs dividend:" in today
-    # Most important facts first: Today, then the relative view, then the ETF cards.
-    assert body.index("today-view") < body.index("relative-view") < body.index("setup-card")
 
 
 def _write_market_context(profile, rising: set[str]):
@@ -534,33 +501,152 @@ def _write_market_context(profile, rising: set[str]):
         frame.to_csv(app_module.config.get_raw_path(sym, profile), index=False)
 
 
-def test_market_health_section_with_plain_sector_names(
+BANNED = (
+    "elevated",
+    "risk-off",
+    "risk-on",
+    "bullish",
+    "bearish",
+    "strong",
+    "weak",
+    "fading",
+    "accelerating",
+    "aligned",
+    "failed",
+    "triggered",
+    "confirmed",
+)
+
+
+def _home(client, tmp_path, monkeypatch, market_context_silo, **kw):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _write_market_context(market_context_silo, rising=kw.get("rising", {"VIX", "XLK", "XLE"}))
+    return client.get("/").get_data(as_text=True)
+
+
+def _visible(html):
+    return re.sub(r"<[^>]*>", " ", html.replace("<strong>", "").replace("</strong>", ""))
+
+
+def test_home_has_one_as_of_badge_and_no_notes(client, tmp_path, monkeypatch, market_context_silo):
+    body = _home(client, tmp_path, monkeypatch, market_context_silo)
+    head = body.split('class="page-head"')[1].split("</div>")[0]
+    assert "as of Fri 2026-10-30" in head
+    assert body.count("asof-badge") == 1 and "As of" not in body
+    for gone in ("not a signal", "Not a signal", "not a call", "advice", "Unvalidated", "Facts,"):
+        assert gone not in body
+    assert 'class="market-strip"' not in body
+    assert "level-chart" not in body and "lightweight-charts" not in body  # no charts
+
+
+def test_home_text_has_no_verdict_or_status_words(
     client, tmp_path, monkeypatch, market_context_silo
 ):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BEARISH")
+    daily = tmp_path / "d" / "breakout_setups_2026-10-20.csv"
+    df = pd.read_csv(daily)
+    df["Status"], df["Momentum"], df["MTF"] = "FAILED_BREAKOUT", "ACCELERATING", "ALIGNED"
+    df.to_csv(daily, index=False)
+    _write_market_context(market_context_silo, rising={"VIX"})
+    text = _visible(client.get("/").get_data(as_text=True)).lower()
+    assert [w for w in BANNED if w in text] == []
+
+
+def test_home_one_table_with_returns_and_rs(client, tmp_path, monkeypatch, market_context_silo):
+    body = _home(client, tmp_path, monkeypatch, market_context_silo)
+    table = body.split('class="table overview-table"')[1].split("</table>")[0]
+    headers = re.findall(r"<th>([^<]*)", table)
+    assert [h.strip() for h in headers] == [
+        "Ticker",
+        "Daily",
+        "1W",
+        "1M",
+        "3M",
+        "6M",
+        "RS vs SPY",
+        "",
+    ]
+    assert body.count("<table") == 1  # Today and the relative view are merged
+    for sym in ("SPY", "QQQ", "SCHG", "SCHD"):
+        assert f'<td class="ticker-cell">{sym}</td>' in table
+    assert "63-day return minus SPY" in table  # the ? tooltip
+    assert "Growth vs dividend" in body and "Mixed" in body
+
+
+def test_home_table_formats_and_warnings(client, tmp_path, monkeypatch, market_context_silo):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
-    _write_market_context(market_context_silo, rising={"VIX", "XLK", "XLE"})
+    daily = tmp_path / "d" / "breakout_setups_2026-10-20.csv"
+    df = pd.read_csv(daily)
+    df["RVOL20"], df["Close"] = 2.16, 750.0
+    df.to_csv(daily, index=False)
+    raw = tmp_path / "raw" / "daily"
+    raw.mkdir(parents=True)
+    dates = pd.bdate_range(end="2026-10-30", periods=140).strftime("%Y-%m-%d")
+    for sym in ("SPY", "QQQ"):
+        close = [100 + i * (0.5 if sym == "QQQ" else 0.25) for i in range(140)]
+        frame = pd.DataFrame(
+            {"Date": dates, "Open": close, "High": close, "Low": close, "Close": close, "Volume": 1}
+        )
+        frame.to_csv(raw / f"{sym}_5y_1d.csv", index=False)
     body = client.get("/").get_data(as_text=True)
-    sec = body.split('class="health-view"')[1].split("</section>")[0]
-    assert body.index("today-view") < body.index("health-view") < body.index("relative-view")
-    vol = sec.split('class="health-volatility"')[1].split("</tr>")[0]
-    assert "VIX 17.90, +0.10 since the previous close, above its 20-day average" in vol
-    credit = sec.split('class="health-credit"')[1].split("</tr>")[0]
-    assert "HYG/IEF ratio 1.0000" in credit and "% over 1 month" in credit
-    breadth = sec.split('class="health-breadth"')[1].split("</tr>")[0]
-    assert "<strong>2 of 11</strong> sectors above their 50-day average" in breadth
-    above = breadth.split("Above:")[1].split("</div>")[0]
-    assert "XLK Technology" in above and "XLE Energy" in above
-    assert "XLU Utilities" in breadth.split("Below:")[1].split("</div>")[0]
-    # Facts only: no up/down colours, no verdict words.
-    for word in ('class="pos"', 'class="neg"', "risk on", "risk off", "bullish", "bearish"):
-        assert word not in sec.lower()
+    table = body.split('class="table overview-table"')[1].split("</table>")[0]
+    qqq = table.split('ticker-cell">QQQ')[1].split("</tr>")[0]
+    assert '<td class="pos">+0.30%</td>' in qqq  # 2 decimals with a sign
+    assert "⚠ closed below support on heavy volume" in qqq
+    schg = table.split('ticker-cell">SCHG')[1].split("</tr>")[0]
+    assert "⚠ no data" in schg
 
 
-def test_market_health_without_data_says_no_data(client, tmp_path, monkeypatch):
+def test_home_health_tiles_and_sector_tiles(client, tmp_path, monkeypatch, market_context_silo):
+    body = _home(client, tmp_path, monkeypatch, market_context_silo)
+    vix = body.split('class="metric-tile tile-volatility"')[1].split('class="metric-tile')[0]
+    assert '<div class="tile-value">17.90</div>' in vix
+    assert "+0.10 since previous close" in vix and "above its 20-day average" in vix
+    credit = body.split('class="metric-tile tile-credit"')[1].split('class="metric-tile')[0]
+    assert '<div class="tile-value">1.0000</div>' in credit and "over 1 month" in credit
+    assert "HYG = high-yield company bonds" in credit
+    breadth = body.split('class="metric-tile tile-breadth"')[1].split("sector-tiles")[0]
+    assert '<div class="tile-value">2 of 11</div>' in breadth
+    tiles = re.findall(r'class="sector-tile (\w+)"\s+title="([^"]+)">(\w+)<', body)
+    assert len(tiles) == 11
+    by_sym = {sym: (state, title) for state, title, sym in tiles}
+    assert by_sym["XLK"][0] == "up" and by_sym["XLK"][1].startswith("Technology: close ")
+    assert by_sym["XLU"] == ("down", by_sym["XLU"][1]) and by_sym["XLU"][1].startswith("Utilities:")
+    health = body.split('class="health"')[1].split('class="sector-tiles"')[0]
+    assert 'class="pos"' not in health and 'class="neg"' not in health  # tiles stay neutral
+
+
+def test_home_health_without_data(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
-    sec = client.get("/").get_data(as_text=True).split('class="health-view"')[1]
-    assert sec.split("</section>")[0].count("No data") == 3
-    assert "VIX missing" in sec and "XLK missing" in sec
+    body = client.get("/").get_data(as_text=True)
+    sec = body.split('class="health"')[1].split("</section>")[0]
+    assert sec.count("No data") == 3 and "⚠ VIX missing" in sec and "⚠ XLK missing" in sec
+    assert sec.count('class="sector-tile nodata"') == 11
+
+
+def test_home_cards_have_position_bar_and_smas(client, tmp_path, monkeypatch, market_context_silo):
+    body = _home(client, tmp_path, monkeypatch, market_context_silo)
+    spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
+    # Fixture: Support 758.79, Resistance 781.62, Close 760.0 -> 5.3% along the bar.
+    assert 'style="left: 5.3%"' in spy
+    assert "Support</span> 758.79" in spy and "Resistance</span> 781.62" in spy
+    assert "Close</span> 760.00" in spy
+    assert (
+        "SMA 20</span> 770.62" in spy
+        and "SMA 50</span> 767.26" in spy
+        and "SMA 200</span> —" in spy
+    )
+    assert "⚠ stale" in spy.split("</header>")[0]  # daily row is a session behind
+    assert "states-table" not in body and "weekly trend" not in body
+    assert "No support / resistance" in body.split("quote.ashx?t=SCHG")[1].split("</article>")[0]
+
+
+def test_home_without_runs(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        app_module, "LOG_DIRS", {"weekly": str(tmp_path / "x"), "daily": str(tmp_path / "y")}
+    )
+    body = client.get("/").get_data(as_text=True)
+    assert body.count("No support / resistance in the latest daily scan.") == 4
 
 
 def test_old_market_link_redirects_home(client):
@@ -600,18 +686,6 @@ def test_market_strip_has_no_bias_pill(client, tmp_path, monkeypatch):
     assert "bias-" not in strip.split("</div>")[0]
 
 
-def test_market_cards_show_freshness(client, tmp_path, monkeypatch):
-    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
-    body = client.get("/").get_data(as_text=True)
-    spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
-    fresh = spy.split('class="setup-note freshness"')[1].split("</p>")[0]
-    # Daily row is a session behind; the weekly row is current.
-    assert "Daily as of 2026-10-20" in fresh and "stale" in fresh.split("Weekly")[0]
-    assert "Weekly as of 2026-10-20" in fresh and "warn" not in fresh.split("Weekly")[1]
-    qqq = body.split("quote.ashx?t=QQQ")[1].split("</article>")[0]
-    assert "missing" in qqq.split("Weekly")[1].split("</p>")[0]  # no weekly QQQ row
-
-
 @pytest.mark.parametrize("trend", ["BEARISH", "BULLISH"])
 def test_setups_page_always_shows_spy_qqq_facts(client, tmp_path, monkeypatch, trend):
     _market_logs(tmp_path, monkeypatch, weekly_trend=trend)
@@ -621,15 +695,6 @@ def test_setups_page_always_shows_spy_qqq_facts(client, tmp_path, monkeypatch, t
     assert "<strong>QQQ:</strong> no weekly scan row · daily close below" in box
     assert "SCHG" not in box and 'href="/"' in box
     assert "headwind" not in body and "bias" not in body.lower()
-
-
-def test_market_page_without_runs(client, tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        app_module, "LOG_DIRS", {"weekly": str(tmp_path / "x"), "daily": str(tmp_path / "y")}
-    )
-    monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {})
-    body = client.get("/").get_data(as_text=True)
-    assert body.count("No daily scan row") == 4
 
 
 def test_nan_quote_from_yfinance_is_not_a_price(monkeypatch):
