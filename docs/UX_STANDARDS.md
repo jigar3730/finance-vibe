@@ -9,11 +9,11 @@ Rules for every dashboard template and stylesheet (`src/finance_vibe/web/templat
 - Show numbers and plain facts: "VIX 19.42, above its 20-day average".
 - Never judgment words: Bullish, Bearish, Strong, Weak, Elevated, Risk-On, Risk-Off,
   Fading, Accelerating, Aligned (any case, any page text or tooltip).
-- **Exception: the Setups area** (`setups.html`, `breakout_view.html`,
-  `cobra_view.html`) may show raw scanner status and state names as data
-  (BREAKOUT_CONFIRMED, FAILED_BREAKOUT, Trend BULLISH, MTF ALIGNED). Everything about
-  individual stocks lives there, including "Since last run" changes; `/changes` is
-  market facts only.
+- **Exception: the Setups area** (`setups.html` and its `_since_last_run.html`
+  partial, `breakout_view.html`, `cobra_view.html`) may show raw scanner status and
+  state names as data (BREAKOUT_CONFIRMED, FAILED_BREAKOUT, Trend BULLISH, MTF
+  ALIGNED). Everything about individual stocks lives there, including "Since last
+  run" changes; `/changes` is market facts only.
 - Comparisons say what was compared and over what window: "Growth outperforming
   (last 63 days)", "Dividend/value outperforming (last 63 days)", "Mixed".
 

@@ -198,25 +198,6 @@ def test_run_changes_needs_two_runs(tmp_path):
     assert got["status"]["upgrades"] == [] and got["cobra"]["new"] == []
 
 
-def test_weekly_state_changes_pair_each_day_with_its_weekly_run(tmp_path):
-    daily, weekly = tmp_path / "d", tmp_path / "w"
-    daily.mkdir()
-    weekly.mkdir()
-    row = {"Symbol": "SPY", "Close": 110.0, "SMA50": 100.0}
-    for day in ("2026-10-29", "2026-10-30"):
-        pd.DataFrame([row]).to_csv(daily / f"breakout_setups_{day}.csv", index=False)
-    # 10-29 pairs with the 10-23 weekly run, 10-30 with the 10-30 one.
-    for week, trend in (("2026-10-23", "NEUTRAL"), ("2026-10-30", "BULLISH")):
-        rows = [
-            {"Symbol": "SPY", "Trend": trend, "MTF": "ALIGNED"},
-            {"Symbol": "QQQ", "Trend": "BULLISH", "MTF": "ALIGNED"},
-        ]
-        pd.DataFrame(rows).to_csv(weekly / f"breakout_setups_{week}.csv", index=False)
-    got = insights.weekly_state_changes(str(daily), str(weekly))
-    assert got["SPY"] == ["weekly trend NEUTRAL → BULLISH"]
-    assert got["QQQ"] == [] and "SCHD" not in got  # unchanged / no rows
-
-
 def test_universe_changes_entered_and_left():
     now, prev = (
         _bo([("A", "WATCH", 1), ("NEW", "WATCH", 1)]),
@@ -279,7 +260,7 @@ def test_market_changes_lists_only_etfs_with_new_facts(tmp_path, raw_silo):
         _etf("SCHG", 93.0, RVOL20=2.0),  # still broken: not new
         _etf("SCHD", 106.0),
     ]
-    got = insights.market_changes(*_market_runs(tmp_path, prev, now))
+    got = insights.market_changes(_market_runs(tmp_path, prev, now)[0])
     assert (got["prev"], got["now"]) == ("2026-10-29", "2026-10-30")
     facts = {r["symbol"]: r["facts"] for r in got["rows"]}
     assert facts["SPY"] == ["closed below its 50-day average (was above)"]
@@ -292,20 +273,13 @@ def test_market_changes_lists_only_etfs_with_new_facts(tmp_path, raw_silo):
     assert got["rotation"] == {"now": insights.MIXED, "prev": insights.MIXED, "changed": False}
 
 
-def test_market_changes_weekly_states_and_cross_back_above(tmp_path, raw_silo):
-    prev = [_etf("SPY", 99.0)]
-    now = [_etf("SPY", 101.0)]
-    daily, weekly = _market_runs(tmp_path, prev, now)
-    for week, mtf in (("2026-10-23", "PARTIAL"), ("2026-10-30", "ALIGNED")):
-        pd.DataFrame([{"Symbol": "SPY", "Trend": "BULLISH", "MTF": mtf}]).to_csv(
-            f"{weekly}/breakout_setups_{week}.csv", index=False
-        )
-    facts = {r["symbol"]: r["facts"] for r in insights.market_changes(daily, weekly)["rows"]}
-    assert facts["SPY"] == [
-        "weekly MTF PARTIAL → ALIGNED",
-        "closed above its 50-day average (was below)",
-    ]
-    assert not any("bias" in f for f in facts["SPY"])
+def test_market_changes_cross_back_above_and_no_scanner_states(tmp_path, raw_silo):
+    prev = [_etf("SPY", 99.0, Trend="NEUTRAL")]
+    now = [_etf("SPY", 101.0, Trend="BULLISH")]
+    got = insights.market_changes(_market_runs(tmp_path, prev, now)[0])
+    facts = {r["symbol"]: r["facts"] for r in got["rows"]}
+    assert facts["SPY"] == ["closed above its 50-day average (was below)"]
+    assert (got["now_label"], got["prev_label"]) == ("Fri 2026-10-30", "Thu 2026-10-29")
 
 
 def test_market_changes_rotation_flip_uses_closes_up_to_each_run(tmp_path, raw_silo):
@@ -320,7 +294,7 @@ def test_market_changes_rotation_flip_uses_closes_up_to_each_run(tmp_path, raw_s
     df.loc[df.index[-1], "High"] = 81.0
     df.to_csv(path, index=False)
     got = insights.market_changes(
-        *_market_runs(tmp_path, [_etf("SPY", 105.0)], [_etf("SPY", 105.0)])
+        _market_runs(tmp_path, [_etf("SPY", 105.0)], [_etf("SPY", 105.0)])[0]
     )
     assert got["rows"] == []
     assert got["rotation"]["prev"] != got["rotation"]["now"] and got["rotation"]["changed"]
@@ -328,7 +302,7 @@ def test_market_changes_rotation_flip_uses_closes_up_to_each_run(tmp_path, raw_s
 
 def test_market_changes_needs_two_daily_runs(tmp_path):
     (tmp_path / "d").mkdir()
-    assert insights.market_changes(str(tmp_path / "d"), str(tmp_path / "w")) is None
+    assert insights.market_changes(str(tmp_path / "d")) is None
 
 
 def test_heavy_break_rule():

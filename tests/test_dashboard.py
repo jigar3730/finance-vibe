@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import html
 import json
 import os
 import re
@@ -722,6 +721,7 @@ def _changes_logs(tmp_path, monkeypatch):
     for m in profiles:
         profiles[m]["raw_dir"] = str(tmp_path / "raw" / m)  # no raw files
     monkeypatch.setattr(app_module.config, "TIMEFRAME_PROFILES", profiles)
+    monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {s: "N/A" for s in syms})
     etf = {"SMA50": 100.0, "SMA200": 90.0, "Support": 95.0, "RVOL20": 1.0}
 
     def scan(mode, day, rows):
@@ -775,65 +775,69 @@ def _section(body, cls):
     return body.split(f'class="top-section {cls}"')[1].split("</section>")[0]
 
 
-def test_changes_page_order_and_dates(client, tmp_path, monkeypatch):
+def test_changes_is_market_facts_only(client, tmp_path, monkeypatch):
     _changes_logs(tmp_path, monkeypatch)
     body = client.get("/changes").get_data(as_text=True)
-    top = body.split('class="compare-dates"')[1].split("</p>")[0]
-    assert "2026-10-29 → 2026-10-30" in top and "2026-10-23 → 2026-10-30" in top
-    order = ["market-changes", "new-confirmed", "universe-changes", "everything-else"]
-    assert [body.index(c) for c in order] == sorted(body.index(c) for c in order)
-    assert "Market bias" not in body  # the old bias table is gone
-
-
-def test_changes_market_section_lists_only_new_facts(client, tmp_path, monkeypatch):
-    _changes_logs(tmp_path, monkeypatch)
-    market = _section(client.get("/changes").get_data(as_text=True), "market-changes")
+    head = body.split('class="page-head"')[1].split("</div>")[0]
+    assert "Fri 2026-10-30 vs Thu 2026-10-29" in head and body.count("asof-badge") == 1
+    for gone in (
+        "new-confirmed",
+        "universe-changes",
+        "everything-else",
+        "CONFIRMED",
+        "buy or sell",
+    ):
+        assert gone not in body
+    market = _section(body, "market-changes")
     qqq = market.split("<strong>QQQ:</strong>")[1].split("</li>")[0]
     assert "closed below its 50-day average (was above)" in qqq
     assert "newly closed below support on heavy volume" in qqq
-    assert "SPY:" not in market and "Growth vs dividend unchanged" in market
+    assert "SPY:" not in market and "Growth vs dividend unchanged:" in market
 
 
-def test_changes_new_weekly_confirmed_split(client, tmp_path, monkeypatch):
+def test_old_changes_full_list_link_goes_to_setups(client, tmp_path, monkeypatch):
     _changes_logs(tmp_path, monkeypatch)
-    sec = _section(client.get("/changes").get_data(as_text=True), "new-confirmed")
+    response = client.get("/changes?show=all")
+    assert response.status_code == 302
+    assert response.headers["Location"].endswith("/setups?show=all#since-last-run")
+
+
+def _since(body):
+    return body.split('id="since-last-run"')[1].split('class="top-section failed-counts"')[0]
+
+
+def test_setups_since_last_run_new_weekly_confirmed(client, tmp_path, monkeypatch):
+    _changes_logs(tmp_path, monkeypatch)
+    sec = _section(_since(client.get("/setups").get_data(as_text=True)), "new-confirmed")
     new, unscanned = sec.split("Confirmed now, but not scanned last week (")
     assert "New this week (1)" in new and "t=FIRST" in new
-    assert "Unproven: passed old-data test only" in new
     assert unscanned.startswith("1)") and "t=GPN" in unscanned
-    assert "so we can't tell if this is the first week" in html.unescape(unscanned)
     assert "GMAB" not in sec  # CONFIRMED both weeks: a continuation
 
 
-def test_changes_stock_list_entered_and_left(client, tmp_path, monkeypatch):
+def test_setups_since_last_run_stock_list(client, tmp_path, monkeypatch):
     _changes_logs(tmp_path, monkeypatch)
-    sec = _section(client.get("/changes").get_data(as_text=True), "universe-changes")
+    sec = _section(_since(client.get("/setups").get_data(as_text=True)), "universe-changes")
     weekly, daily = sec.split("⚡ Daily")
     assert "Entered (1)</th><td>GPN" in weekly and "Left (1)</th><td>LEFTW" in weekly
     assert "Entered (1)</th><td>NEWD" in daily and "Left (1)</th><td>LEFTD" in daily
 
 
-def test_changes_everything_else_is_collapsed_counts(client, tmp_path, monkeypatch):
+def test_setups_since_last_run_counts_then_full_list(client, tmp_path, monkeypatch):
     _changes_logs(tmp_path, monkeypatch)
-    body = client.get("/changes").get_data(as_text=True)
+    body = _since(client.get("/setups").get_data(as_text=True))
     assert '<details class="failed-section everything-else">' in body  # closed
-    rest = body.split("everything-else")[1]
-    daily = rest.split("⚡ Daily")[1]
+    daily = body.split("everything-else")[1].split("⚡ Daily")[1]
     assert "Moved toward a breakout 1 · Failed breakouts 1" in daily
     assert "Cobra setups new 1 / dropped 0" in daily
     assert "t=AAA" not in body and "t=BBB" not in body  # counts only
-    assert 'href="/changes?show=all"' in rest
-
-
-def test_changes_full_list(client, tmp_path, monkeypatch):
-    _changes_logs(tmp_path, monkeypatch)
-    body = client.get("/changes?show=all").get_data(as_text=True)
-    assert '<details class="failed-section everything-else" open>' in body
-    daily = body.split("everything-else")[1].split("⚡ Daily")[1]
+    assert 'href="/setups?show=all#since-last-run"' in body
+    full = _since(client.get("/setups?show=all").get_data(as_text=True))
+    assert '<details class="failed-section everything-else" open>' in full
+    daily = full.split("everything-else")[1].split("⚡ Daily")[1]
     assert "Moved toward a breakout (1)" in daily and "quote.ashx?t=AAA" in daily
     assert "Failed breakouts (1)" in daily and "quote.ashx?t=BBB" in daily
     assert "New (1)" in daily and "CCC 80" in daily
-    assert "Change</th>" not in body  # no Readiness change column
 
 
 def test_changes_page_without_runs(client, tmp_path, monkeypatch):
@@ -841,5 +845,6 @@ def test_changes_page_without_runs(client, tmp_path, monkeypatch):
         app_module, "LOG_DIRS", {"weekly": str(tmp_path / "x"), "daily": str(tmp_path / "y")}
     )
     body = client.get("/changes").get_data(as_text=True)
-    assert "Need two daily runs to compare." in body and "Need two weekly runs to compare." in body
-    assert "Comparing <strong>daily</strong> — → —" in body
+    assert "Need two daily runs to compare." in body and "asof-badge" not in body
+    setups = client.get("/setups").get_data(as_text=True)
+    assert "Need two weekly runs to compare." in setups

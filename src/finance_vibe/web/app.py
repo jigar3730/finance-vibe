@@ -396,6 +396,8 @@ def setups() -> str:
     market_rows = _market(latest, symbols=playbook.SETUPS_MARKET_SYMBOLS)
     return render_template(
         "setups.html",
+        changes={mode: insights.run_changes(folder) for mode, folder in LOG_DIRS.items()},
+        show_all=request.args.get("show") == "all",
         week_date=week_date,
         cards=cards,
         cobra=cobra,
@@ -481,13 +483,12 @@ def api_bars(mode: str, symbol: str) -> Response:
 
 
 @app.route("/changes")
-def changes() -> str:
-    """What's new since the previous run: market facts, new weekly CONFIRMED, stock list in /
-    out, then counts of other changes (``?show=all`` lists them in full)."""
-    by_mode = {mode: insights.run_changes(folder) for mode, folder in LOG_DIRS.items()}
-    market = insights.market_changes(LOG_DIRS["daily"], LOG_DIRS["weekly"])
-    show_all = request.args.get("show") == "all"
-    return render_template("changes.html", changes=by_mode, market=market, show_all=show_all)
+def changes() -> str | RedirectResponse:
+    """Market facts that changed since the previous daily run. Stock changes live on
+    Setups ("Since last run"); the old ``?show=all`` link goes there."""
+    if request.args.get("show") == "all":
+        return redirect(url_for("setups", show="all", _anchor="since-last-run"))
+    return render_template("changes.html", market=insights.market_changes(LOG_DIRS["daily"]))
 
 
 @app.route("/runs")

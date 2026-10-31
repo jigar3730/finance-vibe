@@ -213,41 +213,15 @@ def run_changes(folder: str) -> dict[str, Any]:
     }
 
 
-def weekly_state_changes(daily_folder: str, weekly_folder: str) -> dict[str, list[str]]:
-    """Per market ETF: weekly Trend / MTF changes between the weekly runs paired with
-    the two newest daily runs (the newest weekly run on or before each day)."""
-    days, weeks = _breakout_dates(daily_folder), _breakout_dates(weekly_folder)
-    if len(days) < 2:
-        return {}
-    bo = playbook.BREAKOUT_PREFIX
-
-    def weekly_at(day: str) -> pd.DataFrame:
-        week = max((w for w in weeks if w <= day), default=None)
-        return _scan(weekly_folder, bo, week) if week else pd.DataFrame()
-
-    now_df, prev_df = weekly_at(days[-1]), weekly_at(days[-2])
-    out: dict[str, list[str]] = {}
-    for sym in playbook.MARKET_SYMBOLS:
-        now, prev = playbook.row_for(now_df, sym), playbook.row_for(prev_df, sym)
-        if not now or not prev:
-            continue
-        out[sym] = [
-            f"weekly {label} {prev.get(col)} → {now.get(col)}"
-            for col, label in (("Trend", "trend"), ("MTF", "MTF"))
-            if prev.get(col) != now.get(col)
-        ]
-    return out
-
-
 def _side(close: Any, level: Any) -> str | None:
     c, lv = playbook.num(close), playbook.num(level)
     return None if c is None or lv is None else ("above" if c > lv else "below")
 
 
-def market_changes(daily_folder: str, weekly_folder: str) -> dict[str, Any] | None:
+def market_changes(daily_folder: str) -> dict[str, Any] | None:
     """Market ETF facts that changed between the two newest daily runs; None until two runs.
 
-    Per ETF, plain-English facts: the weekly Trend or MTF changed, the daily close crossed its
+    Per ETF, plain-English facts: the daily close crossed its
     SMA50 or SMA200, or it newly closed below support on heavy volume
     (:func:`heavy_break`). ``rows`` lists only ETFs with a fact. ``rotation`` is the
     growth-vs-dividend label from daily closes up to each run's date.
@@ -258,12 +232,11 @@ def market_changes(daily_folder: str, weekly_folder: str) -> dict[str, Any] | No
     prev_day, now_day = days[-2], days[-1]
     bo = playbook.BREAKOUT_PREFIX
     now_df, prev_df = _scan(daily_folder, bo, now_day), _scan(daily_folder, bo, prev_day)
-    weekly = weekly_state_changes(daily_folder, weekly_folder)
     rows = []
     for sym in playbook.MARKET_SYMBOLS:
         now = playbook.row_for(now_df, sym) or {}
         prev = playbook.row_for(prev_df, sym) or {}
-        facts = list(weekly.get(sym, []))
+        facts = []
         for col, label in (("SMA50", "50-day"), ("SMA200", "200-day")):
             was, is_ = (
                 _side(prev.get("Close"), prev.get(col)),
@@ -290,6 +263,8 @@ def market_changes(daily_folder: str, weekly_folder: str) -> dict[str, Any] | No
     return {
         "now": now_day,
         "prev": prev_day,
+        "now_label": f"{pd.Timestamp(now_day):%a} {now_day}",
+        "prev_label": f"{pd.Timestamp(prev_day):%a} {prev_day}",
         "rows": rows,
         "rotation": {"now": rot_now, "prev": rot_prev, "changed": rot_now != rot_prev},
     }

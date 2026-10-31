@@ -180,8 +180,8 @@ dashboard and the next scheduled run pick it up.
 | ----- | -------- |
 | `/` | Market home: a "Today" table for SPY / QQQ / SCHG / SCHD (daily change, close vs 50- and 200-day averages, heavy-volume support break, growth vs dividend), Market health (VIX, HYG/IEF credit ratio, sectors above their 50-day average), the relative view (returns, RS vs SPY), then a card per ETF (weekly trend / MTF and close vs 50-day average, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
 | `/market` | Redirects (301) to `/` |
-| `/setups` | Setups (unproven), by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), counts of signals that failed in-sample |
-| `/changes` | What's new since the previous run: Market ETF changes, new weekly CONFIRMED, stock list entered / left, then other changes as counts (`?show=all` for the full list) |
+| `/setups` | Setups (unproven), by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), since last run (new weekly CONFIRMED, stock list in / out, status-change counts), counts of signals that failed in-sample |
+| `/changes` | Market facts that changed since the previous daily run (SMA50 / SMA200 crossings, new heavy-volume support breaks, growth-vs-dividend label) |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
 | `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, live price vs Close |
@@ -209,6 +209,19 @@ is ranked or scored, and there are no trade levels.
 3. **Failed the old-data test** (`playbook.failed_counts`): counts only, each linking to
    the breakout page filtered to that status. Daily: `PRE_BREAKOUT`, `BREAKOUT_TRIGGERED`,
    `BREAKOUT_CONFIRMED`. Weekly: `PRE_BREAKOUT`, `BREAKOUT_TRIGGERED`.
+
+**Since last run** (`templates/_since_last_run.html`, `insights.run_changes`), the two
+newest runs per mode:
+1. **New weekly CONFIRMED** (`insights.new_confirmed`). *New this week*: CONFIRMED now
+   and scanned last week with another status, the first-week event that was tested.
+   *Confirmed now, but not scanned last week*: no row in last week's file, so the first
+   week is unknown. Names CONFIRMED both weeks are continuations and are not listed.
+2. **Stock list changes** (`insights.universe_changes`): per mode, tickers that entered
+   or left the scanned list.
+3. **Everything else**, collapsed: per mode, counts of status changes (moved toward a
+   breakout, failed, other) and Coiled Cobra setups new / dropped. `?show=all` opens it
+   with the full tables (`insights.status_changes`, `cobra_changes`; Readiness shown,
+   no Readiness change column, since Readiness falls when a breakout happens).
 
 Each card has a level chart: recent weekly candles from `/api/bars` with `Resistance` and
 `Support` drawn as price lines (`web/static/js/level-charts.js`). It uses
@@ -278,29 +291,15 @@ then the growth-vs-dividend label. Facts only: it adds no rule.
 ticker has an error-severity row in the newest weekly `data_quality_<date>.csv`. Warnings
 (`big_move`, …) are not shown there.
 
-### Changes (`/changes`, `web/insights.run_changes`, `market_changes`)
+### Changes (`/changes`, `web/insights.market_changes`)
 
-The top of the page shows the two run dates compared per mode (newest vs the one
-before). Facts only; no section adds a buy or sell rule. Top to bottom:
-
-1. **Market changes** (`insights.market_changes`, newest daily run vs the previous one).
-   For SPY / QQQ / SCHG / SCHD, only ETFs where something changed: the weekly `Trend`
-   or `MTF` (`insights.weekly_state_changes`, each daily run paired with the newest
-   weekly run on or before it, e.g. "weekly trend BULLISH → NEUTRAL"), the daily close crossing its SMA50 or SMA200, or a *new* close below
-   `Support` with RVOL20 ≥ 1.5 (`insights.heavy_break`, the market strip's rule; already
-   broken the run before does not count). Plus whether the growth-vs-dividend label
-   flipped, from daily closes up to each run's date.
-2. **New weekly CONFIRMED** (`insights.new_confirmed`). *New this week*: CONFIRMED now
-   and scanned last week with another status, the first-week event that was tested,
-   labelled "Unproven: passed old-data test only". *Confirmed now, but not scanned last
-   week*: no row in last week's file, so the first week is unknown. Names CONFIRMED both
-   weeks are continuations and are not listed.
-3. **Stock list changes** (`insights.universe_changes`): per mode, tickers that entered
-   or left the scanned list.
-4. **Everything else**, collapsed: per mode, counts of status changes (moved toward a
-   breakout, failed, other) and Coiled Cobra setups new / dropped. `?show=all` opens it
-   with the full tables (`insights.status_changes`, `cobra_changes`; Readiness shown,
-   no Readiness change column, since Readiness falls when a breakout happens).
+Market facts only, newest daily run vs the previous one; the badge names both dates
+("Fri 2026-10-30 vs Thu 2026-10-29"). For SPY / QQQ / SCHG / SCHD, only ETFs where
+something changed: the daily close crossing its SMA50 or SMA200, or a *new* close below
+`Support` with RVOL20 ≥ 1.5 (`insights.heavy_break`; already broken the run before does
+not count). Then whether the growth-vs-dividend label changed, from daily closes up to
+each run's date. No scanner states or stock lists: those are on Setups ("Since last
+run"). The old `/changes?show=all` link redirects to `/setups?show=all#since-last-run`.
 
 ## Maintenance
 

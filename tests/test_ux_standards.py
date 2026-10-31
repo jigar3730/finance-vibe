@@ -12,7 +12,7 @@ TEMPLATES = sorted((WEB / "templates").glob("*.html"))
 STYLESHEETS = sorted((WEB / "static" / "css").glob("*.css"))
 
 # The Setups area may show raw scanner status / state names as data.
-SETUPS_AREA = {"setups.html", "breakout_view.html", "cobra_view.html"}
+SETUPS_AREA = {"setups.html", "_since_last_run.html", "breakout_view.html", "cobra_view.html"}
 VERDICT = re.compile(
     r"\b(bullish|bearish|strong|weak|elevated|fading|accelerat\w*|aligned|risk[\s-]?(?:on|off))\b",
     re.IGNORECASE,
