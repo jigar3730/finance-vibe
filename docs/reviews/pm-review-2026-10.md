@@ -78,9 +78,9 @@ raw file's own previous bar via `scan_history()`. That way first-bar detection d
 on yesterday's universe. The columns are descriptive only, with no change to Status or score.
 Drop the 2R/3R targets and the Rank Score. Keep trigger and support as chart lines.
 
-**Step 0 (research, not product): run the §11 weekly holdout once**, as pre-registered. If it
-fails, band 1 says "no signal with out-of-sample evidence", which is itself the most useful
-thing the dashboard can tell me. If it passes, the evidence line upgrades to "holdout: PASS".
+**Holdout status.** The §11 weekly holdout is scheduled for 2035-09-07 (`RESEARCH.md` §11).
+Until then, weekly CONFIRMED is **unproven**: it passed in-sample only, and band 1 should
+label it that way.
 
 **Why this beats the alternatives.** Tweaking the Rank Score weights would be tuning an
 untested composite, the exact overfit the research plan forbids. Adding indicators or scanners
@@ -211,7 +211,7 @@ event grouping; add universe in/out), `templates/changes.html`, `tests/test_dash
    the golden baseline, and #3 gets most of the morning-read benefit for S.
 3. **Forward signal log** (realized 4-week return vs SPY for each weekly CONFIRMED event since
    the seal). It would keep the evidence line in #1 live after the holdout. It isn't top 3
-   because it only becomes meaningful after Step 0. It must stay a *signal* record (event date,
+   because it only becomes meaningful after the holdout. It must stay a *signal* record (event date,
    R4W, SPY R4W): no positions, no sizing, no P&L.
 4. **Remove the Live Price column and the 5% "surge" row highlight** (`app.py:92`, `LIVE_SURGE_PCT`).
    Pre-open, "live" is a stale or after-hours print sitting beside close-based states, and the
