@@ -12,13 +12,14 @@ import logging
 import os
 import sys
 import time
-from datetime import datetime
+from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 import pandas as pd
 import yfinance as yf
 
 from finance_vibe import config
+from finance_vibe.data import quality
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -115,6 +116,18 @@ def weekly_bar_is_complete(bar_date, now=None) -> bool:
     week_end = (day.normalize() - pd.Timedelta(days=day.weekday()) + pd.Timedelta(days=4)).date()
     today = now.date()
     return today > week_end or (today == week_end and now.hour >= WEEK_FINAL_HOUR_ET)
+
+
+def last_complete_week(now: datetime | None = None) -> date:
+    """Monday of the newest week whose weekly bar is complete at ``now``."""
+    now = now or datetime.now(MARKET_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=MARKET_TZ)
+    now = now.astimezone(MARKET_TZ)
+    monday = pd.Timestamp(now.date()) - pd.Timedelta(days=now.weekday())
+    if not weekly_bar_is_complete(monday, now=now):
+        monday -= pd.Timedelta(weeks=1)
+    return monday.date()
 
 
 def drop_incomplete_weeks(df: pd.DataFrame, now: datetime | None = None) -> pd.DataFrame:
@@ -269,6 +282,9 @@ def main(argv: list[str] | None = None) -> int:
         else:
             logger.warning(f"Unknown mode '{arg_mode}'. Defaulting to 'weekly'.")
     ingest_market_data(mode=selected_mode)
+    # Daily writes its report in daily_ingest, after today's in-progress bar is dropped.
+    if selected_mode == "weekly":
+        quality.write_report(selected_mode, expected_last=last_complete_week())
     return 0
 
 

@@ -210,6 +210,13 @@ REQUIRED_OHLCV = ["Date", "Open", "High", "Low", "Close", "Volume"]
 # Minimum usable rows before a raw CSV is worth saving/scanning.
 MIN_SAVE_ROWS = 60
 
+# Bar-level quality flags (data.quality), written to data_quality_<date>.csv after
+# ingest. They flag suspect bars for review; they never change what is scanned.
+DQ_RECENT_BARS = 20  # window for the per-bar checks (newest bars only)
+DQ_FLAT_RUN = 5  # this many identical closes in a row looks like placeholder data
+DQ_JUMP_PCT = 0.40  # a close-to-close move this large may be a split or a bad print
+DQ_PRICE_TOL = 1e-6  # relative slack when checking High/Low against Open/Close
+
 # Breakout confirmation volume: RVOL20 at or above this on a close through
 # resistance confirms a breakout. Shared by scanners.breakout and the
 # dashboard's trigger rule (web.playbook).

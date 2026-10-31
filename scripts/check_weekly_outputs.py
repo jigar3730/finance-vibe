@@ -19,7 +19,9 @@ from datetime import datetime
 import pandas as pd
 
 from finance_vibe import config
-from finance_vibe.data.ingest import MARKET_TZ, weekly_bar_is_complete
+from finance_vibe.data import quality
+from finance_vibe.data.ingest import MARKET_TZ, last_complete_week
+from finance_vibe.web.playbook import MARKET_SYMBOLS
 
 MODE = "weekly"
 MAX_INGEST_ERROR_SHARE = 0.20
@@ -28,12 +30,6 @@ EXPECTED_PREFIXES = (
     "coiled_cobra_setups_",
     "breakout_setups_",
 )
-
-
-def expected_last_monday(now: datetime) -> pd.Timestamp:
-    """Monday of the newest week that should be complete at ``now``."""
-    monday = pd.Timestamp(now.date()) - pd.Timedelta(days=now.weekday())
-    return monday if weekly_bar_is_complete(monday, now=now) else monday - pd.Timedelta(weeks=1)
 
 
 def main() -> int:
@@ -48,7 +44,7 @@ def main() -> int:
         if not os.path.exists(path):
             problems.append(f"missing output: {os.path.basename(path)}")
 
-    want = expected_last_monday(now)
+    want = pd.Timestamp(last_complete_week(now))
     for sym in BENCHMARKS:
         hits = glob.glob(os.path.join(raw, f"{sym}_*.csv"))
         if not hits:
@@ -66,13 +62,26 @@ def main() -> int:
             f"ingest errors {errors}/{tickers} tickers (> {MAX_INGEST_ERROR_SHARE:.0%})"
         )
 
+    # Bar-quality errors on the Market tab ETFs fail the run; others are counted.
+    dq_path = quality.report_path(logs, stamp)
+    if not os.path.exists(dq_path):
+        problems.append(f"missing output: {os.path.basename(dq_path)}")
+        dq_errors = 0
+    else:
+        dq = pd.read_csv(dq_path, dtype=str)
+        dq = dq[dq["Severity"] == quality.ERROR]
+        dq_errors = len(dq)
+        for r in dq[dq["Symbol"].isin(MARKET_SYMBOLS)].itertuples(index=False):
+            problems.append(f"{r.Symbol} data quality {r.Check} ({r.Date}): {r.Detail}")
+
     if problems:
         print("HEALTH CHECK FAILED:")
         for p in problems:
             print(f"  - {p}")
         return 1
     print(
-        f"health check ok: outputs for {stamp}, newest bar {want.date()}, ingest errors {errors}/{tickers}"
+        f"health check ok: outputs for {stamp}, newest bar {want.date()}, ingest errors {errors}/{tickers}, "
+        f"data-quality errors {dq_errors}"
     )
     return 0
 

@@ -67,6 +67,18 @@ python -m finance_vibe.scanners.breakout weekly
   today's bar from every daily CSV while the session is still trading (final from
   17:00 ET, `DAY_FINAL_HOUR_ET`), so a mid-session run scans yesterday's close. It also
   holds the NYSE holiday calendar (`last_complete_session`) used by the daily health check.
+- **Bar-quality report (`data.quality`).** After each ingest (weekly: `ingest.main`;
+  daily: `daily_ingest.ingest_daily`, after today's bar is dropped) every raw CSV is
+  checked and each issue is written to `data_quality_<date>.csv`
+  (`Symbol, Check, Severity, Date, Detail`; header only when clean). It flags and never
+  changes what is scanned. Thresholds are the `DQ_*` constants in `config.py`:
+  - `stale` (error): the newest bar is older than the last closed session / week.
+  - `ohlc_incoherent` (error): in the last 20 bars, High below max(Open, Close), Low
+    above min(Open, Close), or a price ≤ 0. Usually Yahoo's provisional last bar.
+  - `zero_volume` (warn): a bar with no volume in the last 20.
+  - `flat_closes` (warn): 5+ identical closes in a row (placeholder bars).
+  - `big_move` (warn): a one-bar close move of 40% or more (a split or bad print, or a
+    real gap).
 - **`scanners.coiled_cobra`**: 100-point coil → expansion scorecard with four hard
   gates. Specification: [`coiled_cobra.md`](coiled_cobra.md).
 - **`scanners.breakout`**: breakout readiness states, statuses and a 100-point score
@@ -126,8 +138,9 @@ New York, so the cron line only has to cover that hour in the host's clock:
 
 After the pipeline exits 0, `scripts/check_{daily,weekly}_outputs.py` checks the run's
 outputs: both scanners' CSVs for today exist, SPY/QQQ's newest bar is the last closed
-session (daily) or the week that just closed (weekly), and at most 20% of tickers failed
-to ingest. Run one by hand with
+session (daily) or the week that just closed (weekly), at most 20% of tickers failed
+to ingest, and `data_quality_<date>.csv` exists with no error rows for the Market tab
+ETFs (other tickers' errors are only counted). Run one by hand with
 `docker exec -i finance_vibe python - < scripts/check_daily_outputs.py`.
 
 `scripts/notify_email.py` (stdlib only, runs on the host) emails an alert with the end
@@ -238,5 +251,6 @@ banner. The ranking is unchanged.
 | Missing `active_tickers.csv` | `python -m finance_vibe.data.tickers` |
 | Ingest skips a symbol | No yfinance data for that ticker; check `ingest_errors_<date>.csv` |
 | Empty `coiled_cobra_setups_*.csv` | No ticker passed the gates (expected in quiet markets) |
+| Health check: `<ETF> data quality ohlc_incoherent` | Yahoo's provisional bar; re-run with `--now` later, or check the bar on Yahoo |
 | Daily health check: stale SPY/QQQ bar | Yahoo has not published the close yet; the 22:30 retry handles it |
 | Dashboard shows old behaviour | The container runs its image; rebuild with `docker compose up -d --build` |

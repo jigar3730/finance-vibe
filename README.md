@@ -34,7 +34,7 @@ schedule (weekly Fridays 18:00 ET, daily 18:30 ET with a 22:30 retry), and
 
 1. Wipe `data/raw/{mode}/` (skipped with `--reuse-raw` / `--as-of`)
 2. `data.tickers` → `data/active_tickers.csv`
-3. `data.ingest` (weekly) / `data.daily_ingest` (daily) → `data/raw/{mode}/<TICKER>_<period>_<interval>.csv`
+3. `data.ingest` (weekly) / `data.daily_ingest` (daily) → `data/raw/{mode}/<TICKER>_<period>_<interval>.csv`, plus a bar-quality report `data/logs/{mode}/data_quality_<date>.csv`
 4. `scanners.coiled_cobra` → `data/logs/{mode}/coiled_cobra_setups_<date>.csv`
 5. `scanners.breakout` → `data/logs/{mode}/breakout_setups_<date>.csv`
 
@@ -52,7 +52,7 @@ src/finance_vibe/
   indicators.py       EMA/SMA/RSI/ATR/MACD/BB/KC/OBV (pandas-ta 0.4.71b0 semantics)
   market.py           QQQ benchmark frame, relative strength, Cobra market gate
   pipeline.py         orchestrator (python -m finance_vibe.pipeline)
-  data/               tickers.py, ingest.py, daily_ingest.py, raw.py, ticker_manifest.csv
+  data/               tickers.py, ingest.py, daily_ingest.py, raw.py, quality.py, ticker_manifest.csv
   scanners/           coiled_cobra.py, breakout.py
   web/                app.py, playbook.py (top setups + levels), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers

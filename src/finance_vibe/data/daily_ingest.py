@@ -35,7 +35,7 @@ from pandas.tseries.holiday import (
 from pandas.tseries.offsets import CustomBusinessDay
 
 from finance_vibe import config
-from finance_vibe.data import ingest
+from finance_vibe.data import ingest, quality
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -143,6 +143,7 @@ def ingest_daily(now: datetime | None = None) -> None:
             f"⏳ Dropped today's in-progress bar from {trimmed} files "
             f"(daily bars are final after {DAY_FINAL_HOUR_ET}:00 ET)."
         )
+    quality.write_report(MODE, expected_last=last_complete_session(now))
 
 
 def main(argv: list[str] | None = None) -> int:

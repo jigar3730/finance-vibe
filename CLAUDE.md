@@ -15,7 +15,7 @@ dashboard. It produces *signals* for review, not trades.
 - `src/finance_vibe/` — `config`, `log`, `indicators`, `market` (QQQ benchmark,
   RS, Cobra market gate), `pipeline` (orchestrator)
 - `src/finance_vibe/data/` — `tickers`, `ingest` (Yahoo download, both modes),
-  `daily_ingest`, `raw` (the raw CSV loader)
+  `daily_ingest`, `raw` (the raw CSV loader), `quality` (bar-quality flags → `data_quality_<date>.csv`, never changes scores)
 - `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout` (`scan_history()` gives
   every bar's breakout states/status/score, same rules as the scan)
 - `src/finance_vibe/research/` — research only (RESEARCH.md): `universe` (point-in-time
