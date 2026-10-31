@@ -336,10 +336,10 @@ def market_chart_levels(
 
 
 # ---------------------------------------------------------------------------
-# Market tab: SPY / QQQ / SCHG bias from the breakout scanner's states
+# Market tab: SPY / QQQ / SCHG / SCHD bias from the breakout scanner's states
 # ---------------------------------------------------------------------------
 
-MARKET_SYMBOLS = ("SPY", "QQQ", "SCHG")
+MARKET_SYMBOLS = ("SPY", "QQQ", "SCHG", "SCHD")
 HEADWIND_SYMBOLS = ("SPY", "QQQ")  # a SHORT bias here puts a banner on Top Setups
 _LONG_MTF = {"ALIGNED", "PARTIAL"}
 

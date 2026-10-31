@@ -370,7 +370,7 @@ def index() -> str:
 
 @app.route("/market")
 def market() -> str:
-    """SPY / QQQ / SCHG: bias from the breakout states, with long and short levels."""
+    """SPY / QQQ / SCHG / SCHD: bias from the breakout states, with long and short levels."""
     live = _fetch_live_prices(list(playbook.MARKET_SYMBOLS))
     return render_template("market.html", rows=_market(_latest_runs(), live))
 

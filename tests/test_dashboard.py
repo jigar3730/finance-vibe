@@ -373,7 +373,7 @@ def test_market_page_shows_bias_and_both_plans(client, tmp_path, monkeypatch):
     assert "758.79" in spy and "781.62" in spy
     levels = json.loads(spy.split("data-levels='")[1].split("'")[0])
     assert levels[0]["label"] == "Short Trigger" and levels[-1]["label"] == "Long trigger"
-    assert "No daily scan row for SCHG" in body
+    assert "No daily scan row for SCHG" in body and "No daily scan row for SCHD" in body
 
 
 def test_top_setups_banner_when_spy_is_short(client, tmp_path, monkeypatch):
@@ -393,7 +393,7 @@ def test_market_page_without_runs(client, tmp_path, monkeypatch):
     )
     monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {})
     body = client.get("/market").get_data(as_text=True)
-    assert body.count("No daily scan row") == 3
+    assert body.count("No daily scan row") == 4
 
 
 def test_nan_quote_from_yfinance_is_not_a_price(monkeypatch):

@@ -224,10 +224,11 @@ def test_market_rows_build_both_plans_per_symbol():
     daily = pd.DataFrame([_spy(), _spy(Symbol="QQQ")])
     weekly = pd.DataFrame([_spy(Trend="BULLISH", MTF="ALIGNED")])
     rows = {r["symbol"]: r for r in pb.market_rows(daily, weekly, {"SPY": 790.0})}
-    assert list(rows) == ["SPY", "QQQ", "SCHG"]
+    assert list(rows) == ["SPY", "QQQ", "SCHG", "SCHD"]
     assert rows["SPY"]["bias"] == "LONG" and rows["SPY"]["plans"]["long"]["status"] == "EXTENDED"
     assert rows["QQQ"]["bias"] == "NEUTRAL" and rows["QQQ"]["plans"] is not None  # no weekly row
     assert rows["SCHG"]["plans"] is None and rows["SCHG"]["levels"] is None
+    assert rows["SCHD"]["plans"] is None
 
 
 # ---------------------------------------------------------------------------

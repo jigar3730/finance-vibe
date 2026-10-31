@@ -151,7 +151,7 @@ dashboard and the next scheduled run pick it up.
 | Route | Contents |
 | ----- | -------- |
 | `/` | Top setups: the best 3 of both scanners per mode, with key levels and an action plan |
-| `/market` | SPY / QQQ / SCHG: long / short / neutral bias with long and short range-break levels |
+| `/market` | SPY / QQQ / SCHG / SCHD: long / short / neutral bias with long and short range-break levels |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
 | `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, live price vs Close |
@@ -195,7 +195,7 @@ The rules are mechanical and unvalidated: a plan to review, not advice.
 
 ### Market tab (`/market`, `playbook.market_bias`)
 
-SPY, QQQ and SCHG are in `STATIC_TICKERS`, so every run scans them. Their bias comes
+SPY, QQQ, SCHG and SCHD are in `STATIC_TICKERS`, so every run scans them. Their bias comes
 from the breakout scan's states:
 
 - **LONG:** the weekly `Trend` is BULLISH, the weekly `MTF` is ALIGNED or PARTIAL, and
