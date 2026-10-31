@@ -11,12 +11,18 @@ Rules for every dashboard template and stylesheet (`src/finance_vibe/web/templat
   Fading, Accelerating, Aligned (any case, any page text or tooltip).
 - **Exception: the Setups area** (`setups.html`, `breakout_view.html`,
   `cobra_view.html`) may show raw scanner status and state names as data
-  (BREAKOUT_CONFIRMED, FAILED_BREAKOUT, Trend BULLISH, MTF ALIGNED).
+  (BREAKOUT_CONFIRMED, FAILED_BREAKOUT, Trend BULLISH, MTF ALIGNED). Everything about
+  individual stocks lives there, including "Since last run" changes; `/changes` is
+  market facts only.
+- Comparisons say what was compared and over what window: "Growth outperforming
+  (last 63 days)", "Dividend/value outperforming (last 63 days)", "Mixed".
 
 ## Colors
 
 - Green and red only for up / down or above / below. Nothing else gets a color
   that reads as a call.
+- Orange only for ⚠ warnings (stale or missing data, a close below support on heavy
+  volume, bar-quality errors). Nothing else is orange.
 - No glowing, pulsing or highlighted cards or rows.
 - Numbers white (`--finviz-text-strong`); labels grey (`--finviz-text-muted`).
 
@@ -27,6 +33,8 @@ Rules for every dashboard template and stylesheet (`src/finance_vibe/web/templat
   older than that date gets a short ⚠ note (e.g. "⚠ HYG stale").
 - Explanations only as short `?` tooltips (the `title` attribute), and only where a
   term needs explaining (HYG/IEF, RS vs SPY).
+- How far to trust a section (backtest result, untested, failed) is one `?` tooltip
+  on that section's heading, not a note or a pill.
 
 ## Layout
 
