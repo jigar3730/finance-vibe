@@ -264,7 +264,7 @@ badge next to the title: the newest daily close the page uses. Under it one fact
      IEF rather than TLT: its bonds are closer in length to HYG's, so the ratio moves
      mostly with credit worry, not with long-term interest rates.
    - **Breadth:** "N of 11" sector funds (`config.MARKET_SECTOR_FUNDS`) closed above
-     their 50-day average. Inside the tile, 11 small tiles (green above / red below /
+     their 50-day average. Inside the tile, 11 small tiles on one row (green above / red below /
      grey no data), each with the ticker, a short name (`config.MARKET_SECTOR_SHORT`,
      "Tech") and its % from the 50-day average, sorted by that %, highest first; the full
      name, close and average on hover. A fund without a file or enough history is left
@@ -276,9 +276,10 @@ badge next to the title: the newest daily close the page uses. Under it one fact
 3. **Support and resistance**, a card per ETF (`playbook.position_bar`, macro in
    `templates/_macros.html`): the daily close, and a bar from the daily scan's `Support`
    (left end) to `Resistance` (right end) with a dot at the close. Every card has the
-   same layout: the bar, Support and Resistance under its ends, then the close on its
-   own line. A close out of range draws a hollow dot just outside that end of the bar
-   and adds "below support by 1.20%" (line in red) or "above resistance by …" (green).
+   same layout: the bar, Support and Resistance under its ends, then one status line
+   (the price is in the card header): "between support and resistance", or, with a
+   hollow dot just outside that end of the bar, "below support by 1.20%" (red) or
+   "above resistance by …" (green).
    SMA 20 / 50 / 200 underneath. A card
    header shows the ETF's daily freshness flags (`insights.etf_freshness`: missing or
    stale scan row, raw bar-quality issue).

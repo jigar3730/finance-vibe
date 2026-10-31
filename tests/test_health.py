@@ -77,6 +77,7 @@ def test_breadth_counts_sectors_with_plain_names(silo):
     pcts = [t["pct"] for t in b["ranked"]]
     assert pcts == sorted(pcts, reverse=True)
     xlk = next(t for t in b["tiles"] if t["symbol"] == "XLK")
+    assert max(len(v) for v in config.MARKET_SECTOR_SHORT.values()) <= 9  # one row of 11
     assert xlk["short"] == "Tech" and xlk["pct"] == pytest.approx(xlk["close"] / xlk["ma"] - 1)
 
 

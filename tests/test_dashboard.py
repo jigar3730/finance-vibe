@@ -660,7 +660,9 @@ def test_home_cards_have_position_bar_and_smas(client, tmp_path, monkeypatch, ma
     assert 'style="left: 5.3%"' in spy
     labels = spy.split('class="pos-labels"')[1].split("</div>")[0]
     assert labels.index("Support</span> 758.79") < labels.index("Resistance</span> 781.62")
-    assert '<div class="pos-status">' in spy and "Close</span> 760.00" in spy
+    status = spy.split('<div class="pos-status">')[1].split("</div>")[0]
+    assert status.strip() == "between support and resistance"  # price is in the header
+    assert '<span class="card-close">760.00</span>' in spy
     assert (
         "SMA 20</span> 770.62" in spy
         and "SMA 50</span> 767.26" in spy
@@ -682,7 +684,8 @@ def test_home_card_close_outside_the_range(client, tmp_path, monkeypatch, market
     spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
     qqq = body.split("quote.ashx?t=QQQ")[1].split("</article>")[0]
     assert 'class="pos-dot pos-dot-out" style="left: -14px"' in spy
-    assert '<div class="pos-status neg">' in spy and "below support by 1.16%" in spy
+    status = spy.split('<div class="pos-status neg">')[1].split("</div>")[0]
+    assert status.strip() == "below support by 1.16%"
     assert 'style="left: calc(100% + 14px)"' in qqq
     assert '<div class="pos-status pos">' in qqq and "above resistance by 2.35%" in qqq
 

@@ -1,7 +1,7 @@
 {# Shared template pieces (market home, Setups). #}
-{# Support at the left end, Resistance at the right end, the close on its own line. A close
-   out of range puts the dot just outside the bar and colours the line (red below support,
-   green above resistance). #}
+{# Support at the left end, Resistance at the right end, where the close sits on its own line
+   (the price is in the card header). A close out of range puts the dot just outside the bar
+   and colours the line (red below support, green above resistance). #}
 {% macro position_bar(bar, scan='daily') %}
 {% if bar %}
 {% set dot = {'below': 'left: -14px', 'above': 'left: calc(100% + 14px)'}.get(bar.side, 'left: %.1f%%' % bar.pct) %}
@@ -12,7 +12,7 @@
         <span><span class="label">Resistance</span> {{ bar.resistance|num }}</span>
     </div>
     <div class="pos-status{% if bar.side == 'below' %} neg{% elif bar.side == 'above' %} pos{% endif %}">
-        <span class="label">Close</span> {{ bar.close|num }}{% if bar.outside %} · {{ bar.outside }}{% endif %}
+        {{ bar.outside or 'between support and resistance' }}
     </div>
 </div>
 {% else %}
