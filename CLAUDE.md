@@ -22,7 +22,7 @@ dashboard. It produces *signals* for review, not trades.
   membership, `config.RESEARCH_*`), `events` (§3 E1/E2/E3, `history_panel`), `labels` (§4–§5
   forward labels + random/SPY benchmarks, holdout sealed), `stats` + `insample` (§7 scorecard).
   Not used by the pipeline.
-- `src/finance_vibe/web/` — Flask app, `playbook.py` (home page sections by evidence, Market tab bias and levels), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market relative view, market strip), `templates/`, `static/`
+- `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home bias and levels), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market relative view, market strip), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
 - `data/` — gitignored. `data/raw/{weekly|daily}/`, `data/logs/{weekly|daily}/`, `data/active_tickers.csv`, `data/research/`
@@ -83,8 +83,9 @@ If a doc disagrees with `pipeline.py` or `config.py`, the code wins.
   `SETUP_ROW_COLUMNS`. Reject malformed input loudly rather than mis-scoring.
   Read raw files only through `data.raw.load_raw` (contract, date cleanup,
   float64 prices and the as-of cut in one place), never a bare `read_csv`.
-- **Signals, not advice.** Keep scanner output informational. The dashboard's
-  home page (`web/playbook.py`) sorts signals by research evidence and shows
+- **Signals, not advice.** Keep scanner output informational. The home page
+  (`/`) is market facts only: no buy/sell or risk-on/off rule without a backtest.
+  The Setups page (`/setups`, `web/playbook.py`) sorts signals by research evidence and shows
   support / resistance as context only (no trigger, stop or targets); don't add
   options metadata or position sizing without being asked.
 

@@ -185,7 +185,7 @@ def _line(price: float | None, label: str, color: str, style: int) -> dict[str, 
 # ---------------------------------------------------------------------------
 
 MARKET_SYMBOLS = ("SPY", "QQQ", "SCHG", "SCHD")
-HEADWIND_SYMBOLS = ("SPY", "QQQ")  # a SHORT bias here puts a banner on Top Setups
+HEADWIND_SYMBOLS = ("SPY", "QQQ")  # a SHORT bias here puts a banner on Setups
 _LONG_MTF = {"ALIGNED", "PARTIAL"}
 
 

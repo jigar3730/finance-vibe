@@ -328,7 +328,7 @@ Tested in-sample under `RESEARCH.md` (§7 daily, §11 weekly):
   BREAKOUT_CONFIRMED, and weekly PRE_BREAKOUT and BREAKOUT_TRIGGERED.
 - Breakout Readiness was dropped from the research plan and is untested.
 
-The home page (`/`) follows this split: weekly CONFIRMED cards first, failed signals as
+The Setups page (`/setups`) follows this split: weekly CONFIRMED cards first, failed signals as
 counts only. Nothing is ranked by Readiness.
 
 ## Open work

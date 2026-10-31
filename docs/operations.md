@@ -139,7 +139,7 @@ New York, so the cron line only has to cover that hour in the host's clock:
 After the pipeline exits 0, `scripts/check_{daily,weekly}_outputs.py` checks the run's
 outputs: both scanners' CSVs for today exist, SPY/QQQ's newest bar is the last closed
 session (daily) or the week that just closed (weekly), at most 20% of tickers failed
-to ingest, and `data_quality_<date>.csv` exists with no error rows for the Market tab
+to ingest, and `data_quality_<date>.csv` exists with no error rows for the market
 ETFs (other tickers' errors are only counted). Run one by hand with
 `docker exec -i finance_vibe python - < scripts/check_daily_outputs.py`.
 
@@ -163,8 +163,9 @@ dashboard and the next scheduled run pick it up.
 
 | Route | Contents |
 | ----- | -------- |
-| `/` | Top setups by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), counts of signals that failed in-sample |
-| `/market` | SPY / QQQ / SCHG / SCHD: relative view (returns, RS vs SPY, growth-vs-dividend label), long / short / neutral bias with the weekly and daily states, a daily chart with Support / Resistance, row freshness |
+| `/` | Market home: a "Today" table for SPY / QQQ / SCHG / SCHD (daily change, close vs 50- and 200-day averages, heavy-volume support break, growth vs dividend), the relative view (returns, RS vs SPY), then a card per ETF (bias, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
+| `/market` | Redirects (301) to `/` |
+| `/setups` | Setups (unproven), by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), counts of signals that failed in-sample |
 | `/changes` | What's new since the previous run: Market ETF changes, new weekly CONFIRMED, stock list entered / left, then other changes as counts (`?show=all` for the full list) |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
@@ -175,7 +176,7 @@ Live prices come from `yfinance` `fast_info`, fetched 16 at a time and cached fo
 seconds. A Coiled Cobra row whose live price is more than 5% above its close is
 highlighted.
 
-### Top setups (`/`, `web/playbook.py`)
+### Setups (unproven) (`/setups`, `web/playbook.py`)
 
 The page sorts the newest runs by what the backtest found (`RESEARCH.md` §7, §11). Nothing
 is ranked or scored, and there are no trade levels.
@@ -199,11 +200,11 @@ Each card has a level chart: recent weekly candles from `/api/bars` with `Resist
 TradingView Lightweight Charts v4.2.3 (Apache 2.0), vendored at
 `web/static/vendor/lightweight-charts-4.2.3.standalone.production.js` so the dashboard
 needs no internet access; to upgrade, replace that file and update the version in
-`top.html`. Its attribution logo stays on, as the licence notice asks.
+`setups.html` and `market.html`. Its attribution logo stays on, as the licence notice asks.
 
 Signals to review, not advice.
 
-### Market tab (`/market`, `playbook.market_bias`)
+### Market home (`/`, `playbook.market_bias`)
 
 SPY, QQQ, SCHG and SCHD are in `STATIC_TICKERS`, so every run scans them. Their bias comes
 from the breakout scan's states:
@@ -216,11 +217,11 @@ from the breakout scan's states:
 
 Each card shows the weekly and daily states, a daily chart with the scan's
 `Resistance` and `Support` lines, and the daily close, SMAs, ATR and RVOL20. There are no
-trade plans (no trigger, stop or targets) on this page. When SPY or QQQ is SHORT, Top
-Setups shows a "market headwind" banner. The ranking is unchanged.
+trade plans (no trigger, stop or targets) on this page. When SPY or QQQ is SHORT, the
+Setups page shows a "market headwind" banner. The ranking is unchanged.
 
-**Market strip (`web/insights.market_strip`, every page).** A bar under the nav with,
-for each of SPY / QQQ / SCHG / SCHD:
+**Market strip (`web/insights.market_strip`).** A bar under the nav on every page except
+`/`, where the same facts are the "Today" table at the top. For each of SPY / QQQ / SCHG / SCHD:
 - the last daily % change (last two closes in the daily raw file),
 - the daily close above or below its SMA50 and SMA200 (latest daily breakout row),
 - "closed below support on heavy volume" when the daily close is below `Support` and
@@ -251,7 +252,7 @@ daily and weekly rows' `AsOf Date`, with a warning next to a mode when:
   closed week),
 - the ETF's raw file has a bar-quality issue (`data.quality`, checked live).
 
-**Data warnings on Top Setups.** A weekly CONFIRMED card shows "⚠ data: …" when its
+**Data warnings on Setups.** A weekly CONFIRMED card shows "⚠ data: …" when its
 ticker has an error-severity row in the newest weekly `data_quality_<date>.csv`. Warnings
 (`big_move`, …) are not shown there.
 

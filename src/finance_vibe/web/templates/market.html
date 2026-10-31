@@ -6,12 +6,27 @@
 {% endblock %}
 {% block content %}
     <h1>🧭 Market</h1>
-    <div class="meta scan-note">
-        Bias from the breakout scan: LONG when the weekly trend is bullish with MTF aligned or partial and the
-        daily close is above its SMA50; SHORT when the weekly trend or MTF is bearish and the daily close is below
-        its SMA50; otherwise NEUTRAL. Chart lines are the daily scan's Resistance and Support. The rule is
-        unvalidated; treat it as market context, not a call.
-    </div>
+    <p class="meta">What the market is doing, from the latest daily closes. Facts, not predictions or advice.</p>
+
+    {% if today %}
+    <section class="today-view">
+        <h2>Today</h2>
+        <table class="table today-table">
+            <tr><th>ETF</th><th>Daily change</th><th>50-day average</th><th>200-day average</th><th>Support</th><th>As of</th></tr>
+            {% for r in today.rows %}
+            <tr><td><strong>{{ r.symbol }}</strong></td>
+                <td class="{{ 'pos' if r.change is not none and r.change > 0 else ('neg' if r.change is not none and r.change < 0 else '') }}">{% if r.change is not none %}{{ (r.change * 100)|signed(2) }}%{% else %}—{% endif %}</td>
+                {% for above in [r.above_sma50, r.above_sma200] %}
+                <td>{% if above is none %}—{% else %}close {{ 'above' if above else 'below' }}{% endif %}</td>
+                {% endfor %}
+                <td>{% if r.heavy_break %}<span class="warn" title="daily close below Support with RVOL20 {{ r.rvol|num }}">⚠ closed below support on heavy volume</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+                <td class="muted">{{ r.as_of or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <p class="setup-note"><strong>Growth vs dividend:</strong> {{ today.rotation }}</p>
+    </section>
+    {% endif %}
 
     {% if relative %}{% set rot = relative.rotation %}
     <section class="relative-view">
@@ -40,6 +55,13 @@
     </section>
     {% endif %}
 
+    <h2>ETF details</h2>
+    <div class="meta scan-note">
+        Bias from the breakout scan: LONG when the weekly trend is bullish with MTF aligned or partial and the
+        daily close is above its SMA50; SHORT when the weekly trend or MTF is bearish and the daily close is below
+        its SMA50; otherwise NEUTRAL. Chart lines are the daily scan's Resistance and Support. The rule is
+        unvalidated; treat it as market context, not a call.
+    </div>
     <div class="card-grid">
     {% for m in rows %}
         {% set d = m.daily or {} %}{% set w = m.weekly or {} %}

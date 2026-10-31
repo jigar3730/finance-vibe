@@ -1,11 +1,11 @@
 {% extends "base.html" %}
-{% block title %}Top setups - Finance Vibe{% endblock %}
+{% block title %}Setups (unproven) - Finance Vibe{% endblock %}
 {% block extra_head %}
     <script defer src="{{ url_for('static', filename='vendor/lightweight-charts-4.2.3.standalone.production.js') }}"></script>
     <script defer src="{{ url_for('static', filename='js/level-charts.js') }}"></script>
 {% endblock %}
 {% block content %}
-    <h1>🏆 Top Setups</h1>
+    <h1>🏆 Setups (unproven)</h1>
     <div class="meta scan-note">
         Sorted by what the backtest found (RESEARCH.md). Weekly BREAKOUT_CONFIRMED passed the in-sample test;
         its holdout test runs on 2035-09-07, so it stays unproven until then. Coiled Cobra has never been tested.
@@ -15,7 +15,7 @@
     {% for m in headwinds %}
     <div class="headwind-banner">
         ⚠ Market headwind: <strong>{{ m.symbol }}</strong> bias SHORT ({{ m.reasons|join(', ') }}).
-        Long setups fight the tape. <a href="{{ url_for('market') }}">Market tab</a>
+        Long setups fight the tape. <a href="{{ url_for('market') }}">Market page</a>
     </div>
     {% endfor %}
 

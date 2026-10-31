@@ -8,7 +8,9 @@ with a Flask dashboard to review their output:
 | **Coiled Cobra** | Compressed leaders likely to expand: four hard gates and a 100-point coil scorecard | `coiled_cobra_setups_<date>.csv` | [`docs/coiled_cobra.md`](docs/coiled_cobra.md) |
 | **Breakout readiness** | Each ticker's trend / volatility / volume / momentum / structure state and breakout status (descriptive) | `breakout_setups_<date>.csv` | [`docs/breakout.md`](docs/breakout.md) |
 
-Both produce *signals* for review, not trades.
+Both produce *signals* for review, not trades. The backtest found no proven edge in them
+(`RESEARCH.md`), so the dashboard's home page is daily market context (SPY / QQQ / SCHG /
+SCHD facts); the scans live on a back page, Setups (unproven).
 
 ## Quick start
 
@@ -18,7 +20,7 @@ uv run python -m finance_vibe.pipeline          # weekly: refresh tickers + data
 uv run python -m finance_vibe.pipeline --mode daily
 uv run python -m finance_vibe.pipeline --reuse-raw          # keep raw data; scanners only
 uv run python -m finance_vibe.pipeline --as-of 2025-11-07   # replay a past date
-uv run python -m finance_vibe.web.app           # dashboard: market strip, top setups, market bias, run changes, run pages at http://127.0.0.1:5000
+uv run python -m finance_vibe.web.app           # dashboard: market home, changes, setups (unproven), run pages at http://127.0.0.1:5000
 uv run pytest -q
 ```
 
@@ -54,7 +56,7 @@ src/finance_vibe/
   pipeline.py         orchestrator (python -m finance_vibe.pipeline)
   data/               tickers.py, ingest.py, daily_ingest.py, raw.py, quality.py, ticker_manifest.csv
   scanners/           coiled_cobra.py, breakout.py
-  web/                app.py, playbook.py (home page sections, Market rows), insights.py (freshness, changes, ETF relative view), templates/, static/
+  web/                app.py, playbook.py (Setups page sections, Market rows), insights.py (freshness, changes, ETF relative view), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers
 tests/                pytest suite
 docs/                 scanner specs and operations

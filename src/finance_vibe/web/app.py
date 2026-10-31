@@ -11,7 +11,8 @@ from typing import Any
 
 import pandas as pd
 import yfinance as yf
-from flask import Flask, Response, abort, jsonify, render_template, request
+from flask import Flask, Response, abort, jsonify, redirect, render_template, request, url_for
+from werkzeug.wrappers import Response as RedirectResponse
 
 from finance_vibe import config
 from finance_vibe.data import raw
@@ -326,7 +327,7 @@ def _sort_breakout_rows(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-# /api/bars: recent bars for the Top Setups level charts.
+# /api/bars: recent bars for the Setups and Market level charts.
 CHART_BARS = {"daily": 60, "weekly": 52}
 _SYMBOL = re.compile(r"^[A-Z0-9.\-]{1,10}$")
 
@@ -345,20 +346,25 @@ def _market(
     return playbook.market_rows(latest["daily"][2], latest["weekly"][2], live, symbols)
 
 
-@app.context_processor
-def market_strip_context() -> dict[str, Any]:
-    """The market strip in ``base.html``: facts for SPY / QQQ / SCHG / SCHD on every page."""
+def _market_strip() -> dict[str, Any] | None:
+    """Facts for SPY / QQQ / SCHG / SCHD from the latest daily run, or None if unavailable."""
     try:
-        strip = insights.market_strip(playbook.load_latest(LOG_DIRS["daily"])[2])
+        return insights.market_strip(playbook.load_latest(LOG_DIRS["daily"])[2])
     except (OSError, ValueError, KeyError):
         logger.exception("Market strip unavailable")
-        strip = None
-    return {"market_strip": strip}
+        return None
 
 
-@app.route("/")
-def index() -> str:
-    """Home: weekly CONFIRMED cards, untested Cobra setups, counts of failed signals."""
+@app.context_processor
+def market_strip_context() -> dict[str, Any]:
+    """The market strip in ``base.html`` on every page but the market home, which shows
+    the same facts as its "Today" table."""
+    return {"market_strip": None if request.endpoint == "market" else _market_strip()}
+
+
+@app.route("/setups")
+def setups() -> str:
+    """Setups (unproven): weekly CONFIRMED cards, untested Cobra setups, failed counts."""
     latest = _latest_runs()
     week_date, _, week_bo = latest["weekly"]
     previous = playbook.load_previous_breakout(LOG_DIRS["weekly"], week_date)
@@ -390,7 +396,7 @@ def index() -> str:
     market_rows = _market(latest, symbols=playbook.HEADWIND_SYMBOLS)
     headwinds = [m for m in market_rows if m["bias"] == "SHORT"]
     return render_template(
-        "top.html",
+        "setups.html",
         week_date=week_date,
         cards=cards,
         cobra=cobra,
@@ -399,9 +405,10 @@ def index() -> str:
     )
 
 
-@app.route("/market")
+@app.route("/")
 def market() -> str:
-    """SPY / QQQ / SCHG / SCHD: bias and states from the breakout scan, support / resistance."""
+    """Home: today's market facts, the relative view, then one card per ETF (states,
+    support / resistance chart)."""
     live = _fetch_live_prices(list(playbook.MARKET_SYMBOLS))
     rows = _market(_latest_runs(), live)
     expected = insights.expected_bars()
@@ -409,7 +416,15 @@ def market() -> str:
         m["freshness"] = insights.etf_freshness(
             m["symbol"], {"daily": m["daily"], "weekly": m["weekly"]}, expected
         )
-    return render_template("market.html", rows=rows, relative=insights.etf_relative())
+    return render_template(
+        "market.html", rows=rows, relative=insights.etf_relative(), today=_market_strip()
+    )
+
+
+@app.route("/market")
+def market_redirect() -> RedirectResponse:
+    """The market page moved to ``/``; keep old links working."""
+    return redirect(url_for("market"), code=301)
 
 
 @app.route("/api/bars/<mode>/<symbol>")

@@ -57,7 +57,8 @@ def breakout_logs(tmp_path, monkeypatch):
 
 def test_routes_registered():
     rules = {rule.rule: rule.endpoint for rule in app.url_map.iter_rules()}
-    assert rules.get("/") == "index"
+    assert rules.get("/") == "market"
+    assert rules.get("/setups") == "setups"
     assert rules.get("/runs") == "runs"
     assert rules.get("/changes") == "changes"
     assert rules.get("/cobra/<mode>/<date>") == "cobra_view"
@@ -300,7 +301,7 @@ def _home_logs(client, tmp_path, monkeypatch):
             {"Symbol": "GMAB", "Check": "big_move", "Severity": "warn", "Date": "2026-10-30"},
         ]
     ).to_csv(dirs["weekly"] / "data_quality_2026-10-30.csv", index=False)
-    return client.get("/").get_data(as_text=True)
+    return client.get("/setups").get_data(as_text=True)
 
 
 def _cards(body):
@@ -369,7 +370,7 @@ def test_home_without_weekly_confirmed(client, tmp_path, monkeypatch):
     monkeypatch.setattr(
         app_module, "LOG_DIRS", {"weekly": str(tmp_path / "w"), "daily": str(tmp_path / "d")}
     )
-    body = client.get("/").get_data(as_text=True)
+    body = client.get("/setups").get_data(as_text=True)
     assert "No weekly CONFIRMED setups in the latest run." in body
     assert "headwind-banner" not in body
 
@@ -466,7 +467,7 @@ def _market_logs(tmp_path, monkeypatch, weekly_trend):
 
 def test_market_page_shows_bias_and_no_trade_plans(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BEARISH")
-    body = client.get("/market").get_data(as_text=True)
+    body = client.get("/").get_data(as_text=True)
     spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
     assert "bias-short" in spy and "SHORT" in spy
     for gone in ("Long: break above", "Short: break below", "plan-block", "2R", "Stop", "Trigger"):
@@ -479,7 +480,7 @@ def test_market_page_shows_bias_and_no_trade_plans(client, tmp_path, monkeypatch
     assert "No daily scan row for SCHG" in body and "No daily scan row for SCHD" in body
 
 
-@pytest.mark.parametrize("url", ["/", "/market", "/changes", "/runs"])
+@pytest.mark.parametrize("url", ["/setups", "/changes", "/runs"])
 def test_market_strip_on_every_page(client, tmp_path, monkeypatch, url):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
     body = client.get(url).get_data(as_text=True)
@@ -489,6 +490,35 @@ def test_market_strip_on_every_page(client, tmp_path, monkeypatch, url):
     # Fixture: close 760.0 is below SMA50 767.26 but above Support 758.79; no SMA200.
     assert "below 50d" in strip and "200d —" in strip and "Growth vs dividend:" in strip
     assert "closed below support" not in strip
+
+
+def test_market_home_shows_today_table_instead_of_strip(client, tmp_path, monkeypatch):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    body = client.get("/").get_data(as_text=True)
+    assert 'class="market-strip"' not in body
+    today = body.split('class="today-view"')[1].split("</section>")[0]
+    for sym in ("SPY", "QQQ", "SCHG", "SCHD"):
+        assert f"<strong>{sym}</strong>" in today
+    spy = today.split("<strong>SPY</strong>")[1].split("</tr>")[0]
+    assert spy.count("close below") == 1 and "—" in spy  # below SMA50; no SMA200
+    assert "Growth vs dividend:" in today
+    # Most important facts first: Today, then the relative view, then the ETF cards.
+    assert body.index("today-view") < body.index("relative-view") < body.index("setup-card")
+
+
+def test_old_market_link_redirects_home(client):
+    response = client.get("/market")
+    assert response.status_code == 301
+    location = response.headers["Location"]
+    assert location.endswith("/") and "/market" not in location
+
+
+def test_nav_order_market_changes_setups_runs(client, tmp_path, monkeypatch):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    nav = client.get("/runs").get_data(as_text=True).split('class="top-nav"')[1].split("</nav>")[0]
+    labels = [part.split("</a>")[0].split(">")[-1] for part in nav.split('class="nav-link')[1:]]
+    assert labels == ["Market", "Changes", "Setups (unproven)", "Runs"]
+    assert 'href="/setups"' in nav
 
 
 def test_market_strip_warns_on_heavy_volume_support_break(client, tmp_path, monkeypatch):
@@ -515,7 +545,7 @@ def test_market_strip_has_no_bias_pill(client, tmp_path, monkeypatch):
 
 def test_market_cards_show_freshness(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
-    body = client.get("/market").get_data(as_text=True)
+    body = client.get("/").get_data(as_text=True)
     spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
     fresh = spy.split('class="setup-note freshness"')[1].split("</p>")[0]
     # Daily row is a session behind; the weekly row is current.
@@ -527,13 +557,13 @@ def test_market_cards_show_freshness(client, tmp_path, monkeypatch):
 
 def test_top_setups_banner_when_spy_is_short(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BEARISH")
-    body = client.get("/").get_data(as_text=True)
+    body = client.get("/setups").get_data(as_text=True)
     assert "headwind-banner" in body and "<strong>SPY</strong> bias SHORT" in body
 
 
 def test_no_banner_when_spy_is_not_short(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
-    assert "headwind-banner" not in client.get("/").get_data(as_text=True)
+    assert "headwind-banner" not in client.get("/setups").get_data(as_text=True)
 
 
 def test_market_page_without_runs(client, tmp_path, monkeypatch):
@@ -541,7 +571,7 @@ def test_market_page_without_runs(client, tmp_path, monkeypatch):
         app_module, "LOG_DIRS", {"weekly": str(tmp_path / "x"), "daily": str(tmp_path / "y")}
     )
     monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {})
-    body = client.get("/market").get_data(as_text=True)
+    body = client.get("/").get_data(as_text=True)
     assert body.count("No daily scan row") == 4
 
 
