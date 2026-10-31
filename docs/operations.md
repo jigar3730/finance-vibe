@@ -229,6 +229,17 @@ The plan matching the bias is highlighted and the other dimmed; NEUTRAL shows bo
 range-break levels. When SPY or QQQ is SHORT, Top Setups shows a "market headwind"
 banner. The ranking is unchanged.
 
+**Freshness (`web/insights.etf_freshness`).** Under each card's header a line gives the
+daily and weekly rows' `AsOf Date`, with a warning next to a mode when:
+- its row is `missing`,
+- the row is `stale` (older than the last closed session, or the Monday of the last
+  closed week),
+- the ETF's raw file has a bar-quality issue (`data.quality`, checked live).
+
+**Data warnings on Top Setups.** A card shows "⚠ data: …" when its ticker has an
+error-severity row in the mode's newest `data_quality_<date>.csv`. Warnings
+(`big_move`, …) are not shown there.
+
 ## Maintenance
 
 - **Re-download one mode:** `python -m finance_vibe.pipeline --mode weekly` (the run

@@ -54,7 +54,7 @@ src/finance_vibe/
   pipeline.py         orchestrator (python -m finance_vibe.pipeline)
   data/               tickers.py, ingest.py, daily_ingest.py, raw.py, quality.py, ticker_manifest.csv
   scanners/           coiled_cobra.py, breakout.py
-  web/                app.py, playbook.py (top setups + levels), templates/, static/
+  web/                app.py, playbook.py (top setups + levels), insights.py (freshness, changes, ETF relative view), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers
 tests/                pytest suite
 docs/                 scanner specs and operations

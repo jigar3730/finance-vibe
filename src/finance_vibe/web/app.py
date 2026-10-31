@@ -16,7 +16,7 @@ from flask import Flask, Response, abort, jsonify, render_template, request
 from finance_vibe import config
 from finance_vibe.data import raw
 from finance_vibe.log import setup_logging
-from finance_vibe.web import playbook
+from finance_vibe.web import insights, playbook
 from finance_vibe.web.playbook import (
     BREAKOUT_PREFIX,
     COBRA_PREFIX,
@@ -350,6 +350,7 @@ def index() -> str:
 
     sections = []
     for mode, top in tops.items():
+        dq_errors = insights.quality_errors(LOG_DIRS[mode])
         cards = []
         for _, row in top.iterrows():
             plan = playbook.action_plan(row, playbook.live_price_or_none(live.get(row["Symbol"])))
@@ -359,6 +360,7 @@ def index() -> str:
                     "row": row.to_dict(),
                     "plan": plan,
                     "levels": playbook.chart_levels(plan, with_support=True),
+                    "dq": dq_errors.get(row["Symbol"], []),
                 }
             )
         sections.append({"mode": mode, "date": latest[mode][0], "cards": cards})
@@ -372,7 +374,13 @@ def index() -> str:
 def market() -> str:
     """SPY / QQQ / SCHG / SCHD: bias from the breakout states, with long and short levels."""
     live = _fetch_live_prices(list(playbook.MARKET_SYMBOLS))
-    return render_template("market.html", rows=_market(_latest_runs(), live))
+    rows = _market(_latest_runs(), live)
+    expected = insights.expected_bars()
+    for m in rows:
+        m["freshness"] = insights.etf_freshness(
+            m["symbol"], {"daily": m["daily"], "weekly": m["weekly"]}, expected
+        )
+    return render_template("market.html", rows=rows)
 
 
 @app.route("/api/bars/<mode>/<symbol>")

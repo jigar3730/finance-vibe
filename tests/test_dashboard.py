@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import date
 
 import pandas as pd
 import pytest
@@ -264,9 +265,22 @@ def test_top_setups_page_shows_cards_per_mode(client, tmp_path, monkeypatch):
     pd.DataFrame(
         [{"Symbol": "VRNS", "Score": 85, "Grade": "A - Watch", "Swing Low": 45.65}]
     ).to_csv(tmp_path / "d" / "coiled_cobra_setups_2026-10-20.csv", index=False)
+    pd.DataFrame(
+        [
+            {
+                "Symbol": "VRNS",
+                "Check": "ohlc_incoherent",
+                "Severity": "error",
+                "Date": "2026-10-20",
+            },
+            {"Symbol": "MMM", "Check": "big_move", "Severity": "warn", "Date": "2026-10-20"},
+        ]
+    ).to_csv(tmp_path / "d" / "data_quality_2026-10-20.csv", index=False)
 
     body = client.get("/").get_data(as_text=True)
     assert "run 2026-10-20" in body
+    vrns, mmm = (body.split(f"quote.ashx?t={s}")[1].split("</header>")[0] for s in ("VRNS", "MMM"))
+    assert "data: ohlc incoherent" in vrns and "dq-flag" not in mmm  # errors only
     assert body.index("VRNS") < body.index("MMM")  # Cobra 85 ranks above 62 + 20
     assert "DHR" not in body  # failed breakouts are excluded
     assert "50.31" in body and "45.23" in body  # trigger and stop
@@ -351,7 +365,22 @@ def _market_logs(tmp_path, monkeypatch, weekly_trend):
         d.mkdir()
     monkeypatch.setattr(app_module, "LOG_DIRS", {m: str(d) for m, d in dirs.items()})
     monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {s: "N/A" for s in syms})
-    base = {"Status": "WATCH", "Breakout Readiness": 10, "Resistance": 781.62, "Support": 758.79}
+    profiles = {m: dict(p) for m, p in app_module.config.TIMEFRAME_PROFILES.items()}
+    for m in profiles:
+        profiles[m]["raw_dir"] = str(tmp_path / "raw" / m)  # no raw files: row dates only
+    monkeypatch.setattr(app_module.config, "TIMEFRAME_PROFILES", profiles)
+    monkeypatch.setattr(
+        app_module.insights,
+        "expected_bars",
+        lambda now=None: {"daily": date(2026, 10, 21), "weekly": date(2026, 10, 19)},
+    )
+    base = {
+        "AsOf Date": "2026-10-20",
+        "Status": "WATCH",
+        "Breakout Readiness": 10,
+        "Resistance": 781.62,
+        "Support": 758.79,
+    }
     base |= {"ATR": 7.08, "SMA20": 770.62, "SMA50": 767.26, "Momentum": "FADING"}
     daily = [
         {"Symbol": s, "Close": 760.0, "Trend": "NEUTRAL", "MTF": "PARTIAL", **base}
@@ -374,6 +403,18 @@ def test_market_page_shows_bias_and_both_plans(client, tmp_path, monkeypatch):
     levels = json.loads(spy.split("data-levels='")[1].split("'")[0])
     assert levels[0]["label"] == "Short Trigger" and levels[-1]["label"] == "Long trigger"
     assert "No daily scan row for SCHG" in body and "No daily scan row for SCHD" in body
+
+
+def test_market_cards_show_freshness(client, tmp_path, monkeypatch):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    body = client.get("/market").get_data(as_text=True)
+    spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
+    fresh = spy.split('class="setup-note freshness"')[1].split("</p>")[0]
+    # Daily row is a session behind; the weekly row is current.
+    assert "Daily as of 2026-10-20" in fresh and "stale" in fresh.split("Weekly")[0]
+    assert "Weekly as of 2026-10-20" in fresh and "warn" not in fresh.split("Weekly")[1]
+    qqq = body.split("quote.ashx?t=QQQ")[1].split("</article>")[0]
+    assert "missing" in qqq.split("Weekly")[1].split("</p>")[0]  # no weekly QQQ row
 
 
 def test_top_setups_banner_when_spy_is_short(client, tmp_path, monkeypatch):

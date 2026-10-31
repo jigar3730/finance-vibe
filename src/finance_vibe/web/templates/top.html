@@ -36,6 +36,7 @@
                     <span class="setup-rank">#{{ loop.index }}</span>
                     <a class="ticker-link setup-symbol" href="https://finviz.com/quote.ashx?t={{ card.symbol }}" target="_blank" rel="noopener noreferrer">{{ card.symbol }}</a>
                     <span class="status-pill status-{{ p.status|lower }}">{{ p.status }}</span>
+                    {% if card.dq %}<span class="warn dq-flag" title="Bar-quality errors in the latest data_quality report">⚠ data: {{ card.dq|join(', ')|replace('_', ' ') }}</span>{% endif %}
                 </header>
                 <div class="setup-badges">
                     <span class="badge-score">Rank {{ r.get('Rank Score')|num(1) }}</span>
