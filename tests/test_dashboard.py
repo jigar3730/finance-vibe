@@ -58,6 +58,7 @@ def test_routes_registered():
     rules = {rule.rule: rule.endpoint for rule in app.url_map.iter_rules()}
     assert rules.get("/") == "index"
     assert rules.get("/runs") == "runs"
+    assert rules.get("/changes") == "changes"
     assert rules.get("/cobra/<mode>/<date>") == "cobra_view"
     assert rules.get("/breakout/<mode>/<date>") == "breakout_view"
 
@@ -451,3 +452,36 @@ def test_nan_quote_from_yfinance_is_not_a_price(monkeypatch):
 )
 def test_text_filter_hides_blank_cells(value, shown):
     assert app_module._text_filter(value) == shown
+
+
+def test_changes_page_lists_transitions_and_cobra_changes(client, tmp_path, monkeypatch):
+    dirs = {"weekly": tmp_path / "w", "daily": tmp_path / "d"}
+    for d in dirs.values():
+        d.mkdir()
+    monkeypatch.setattr(app_module, "LOG_DIRS", {m: str(d) for m, d in dirs.items()})
+    for day, statuses in (
+        ("2026-10-29", {"AAA": "WATCH", "BBB": "BREAKOUT_TRIGGERED", "SPY": "WATCH"}),
+        ("2026-10-30", {"AAA": "PRE_BREAKOUT", "BBB": "FAILED_BREAKOUT", "SPY": "WATCH"}),
+    ):
+        pd.DataFrame(
+            [{"Symbol": s, "Status": st, "Breakout Readiness": 50} for s, st in statuses.items()]
+        ).to_csv(dirs["daily"] / f"breakout_setups_{day}.csv", index=False)
+    pd.DataFrame([{"Symbol": "CCC", "Score": 80}]).to_csv(
+        dirs["daily"] / "coiled_cobra_setups_2026-10-30.csv", index=False
+    )
+    body = client.get("/changes").get_data(as_text=True)
+    daily = body.split("⚡ Daily")[1]
+    assert "2026-10-29 → 2026-10-30" in daily
+    assert "Moved toward a breakout (1)" in daily and "quote.ashx?t=AAA" in daily
+    assert "Failed breakouts (1)" in daily and "quote.ashx?t=BBB" in daily
+    assert "New (1)" in daily and "CCC 80" in daily
+    assert "Need two weekly runs to compare" in body
+    assert "Market bias" in body and "SCHD" in body
+
+
+def test_changes_page_without_runs(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        app_module, "LOG_DIRS", {"weekly": str(tmp_path / "x"), "daily": str(tmp_path / "y")}
+    )
+    body = client.get("/changes").get_data(as_text=True)
+    assert body.count("Need two") == 2 and "Market bias" not in body

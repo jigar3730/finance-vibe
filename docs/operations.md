@@ -165,6 +165,7 @@ dashboard and the next scheduled run pick it up.
 | ----- | -------- |
 | `/` | Top setups: the best 3 of both scanners per mode, with key levels and an action plan |
 | `/market` | SPY / QQQ / SCHG / SCHD: long / short / neutral bias with long and short range-break levels |
+| `/changes` | What changed since the previous run, per mode: breakout status moves, Coiled Cobra setups new / dropped / kept, Market ETF bias |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
 | `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, live price vs Close |
@@ -239,6 +240,22 @@ daily and weekly rows' `AsOf Date`, with a warning next to a mode when:
 **Data warnings on Top Setups.** A card shows "⚠ data: …" when its ticker has an
 error-severity row in the mode's newest `data_quality_<date>.csv`. Warnings
 (`big_move`, …) are not shown there.
+
+### Changes (`/changes`, `web/insights.run_changes`)
+
+Compares each mode's newest breakout run with the one before it:
+
+- **Status changes**, for tickers in both runs. Tickers that entered or left the
+  universe are not listed.
+  - *Moved toward a breakout*: forward along PRE_BREAKOUT → BREAKOUT_TRIGGERED →
+    BREAKOUT_CONFIRMED, from any other status into one of them.
+  - *Failed breakouts*: into FAILED_BREAKOUT.
+  - *Other*: every other change.
+  - Each row shows the Breakout Readiness and its change.
+- **Coiled Cobra setups**: new since the previous run, dropped, and kept with their
+  Score change.
+- **Market bias**: each Market tab ETF's bias at the newest daily run vs the previous
+  one. Each daily run is paired with the newest weekly run on or before its date.
 
 ## Maintenance
 

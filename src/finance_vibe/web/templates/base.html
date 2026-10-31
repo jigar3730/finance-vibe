@@ -15,6 +15,7 @@
         <a class="brand" href="{{ url_for('index') }}">🚀 Finance Vibe</a>
         <a class="nav-link {% if request.endpoint == 'index' %}active{% endif %}" href="{{ url_for('index') }}">Top setups</a>
         <a class="nav-link {% if request.endpoint == 'market' %}active{% endif %}" href="{{ url_for('market') }}">Market</a>
+        <a class="nav-link {% if request.endpoint == 'changes' %}active{% endif %}" href="{{ url_for('changes') }}">Changes</a>
         <a class="nav-link {% if request.endpoint in ['runs', 'cobra_view', 'breakout_view'] %}active{% endif %}" href="{{ url_for('runs') }}">Runs</a>
     </nav>
     <div class="page-body">

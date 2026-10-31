@@ -114,6 +114,13 @@ def _num_filter(value: object, digits: int = 2) -> str:
     return "—" if pd.isna(v) else f"{float(v):,.{digits}f}"
 
 
+@app.template_filter("signed")
+def _signed_filter(value: object, digits: int = 0) -> str:
+    """A change with its sign (+3, -2, 0); blanks and NaN become an em dash."""
+    v = pd.to_numeric(value, errors="coerce")  # type: ignore[call-overload]
+    return "—" if pd.isna(v) else f"{float(v):+,.{digits}f}"
+
+
 # ---------------------------------------------------------------------------
 # Run discovery and file resolution
 # ---------------------------------------------------------------------------
@@ -417,6 +424,14 @@ def api_bars(mode: str, symbol: str) -> Response:
     response = jsonify(payload)
     response.headers["Cache-Control"] = "max-age=60"
     return response
+
+
+@app.route("/changes")
+def changes() -> str:
+    """What changed since the previous run, per mode: statuses, Cobra setups, ETF bias."""
+    by_mode = {mode: insights.run_changes(folder) for mode, folder in LOG_DIRS.items()}
+    bias = insights.bias_changes(LOG_DIRS["daily"], LOG_DIRS["weekly"])
+    return render_template("changes.html", changes=by_mode, bias=bias)
 
 
 @app.route("/runs")

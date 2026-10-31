@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Changes - Finance Vibe{% endblock %}
+{% block content %}
+    <h1>🔄 Changes since the last run</h1>
+    <div class="meta scan-note">
+        The newest run of each timeframe compared with the one before it. Status changes cover
+        tickers in both runs; tickers that entered or left the universe are not listed.
+    </div>
+
+    {% if bias %}
+    <section class="top-section">
+        <h2>🧭 Market bias <span class="top-date">daily run vs previous</span></h2>
+        <table class="table">
+            <tr><th>ETF</th><th>Previous</th><th>Now</th></tr>
+            {% for b in bias %}
+            <tr{% if b.changed %} class="changed-row"{% endif %}>
+                <td>{{ b.symbol }}</td>
+                <td><span class="bias-pill bias-{{ b.prev|lower }}">{{ b.prev }}</span></td>
+                <td><span class="bias-pill bias-{{ b.bias|lower }}">{{ b.bias }}</span>{% if b.changed %} <span class="warn">changed</span>{% endif %}</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </section>
+    {% endif %}
+
+    {% set labels = {'weekly': '📅 Weekly', 'daily': '⚡ Daily'} %}
+    {% set groups = [('upgrades', '⬆ Moved toward a breakout'), ('failures', '✖ Failed breakouts'), ('other', 'Other status changes')] %}
+    {% for mode, c in changes.items() %}
+    <section class="top-section">
+        <h2>{{ labels.get(mode, mode|capitalize) }}
+            {% if c.now %}<span class="top-date">{{ c.prev or '—' }} → {{ c.now }}</span>{% endif %}
+        </h2>
+        {% if not c.prev %}
+            <p style="color: var(--finviz-text-muted);">Need two {{ mode }} runs to compare.</p>
+        {% else %}
+            {% for key, title in groups %}
+            {% set items = c.status[key] %}
+            <h3>{{ title }} ({{ items|length }})</h3>
+            {% if items %}
+            <table class="table changes-table">
+                <tr><th>Symbol</th><th>Previous</th><th>Now</th><th>Readiness</th><th>Change</th></tr>
+                {% for r in items %}
+                <tr>
+                    <td><a class="ticker-link" href="https://finviz.com/quote.ashx?t={{ r.Symbol }}" target="_blank" rel="noopener noreferrer">{{ r.Symbol }}</a></td>
+                    <td>{{ r['Status Prev']|replace('_', ' ') }}</td>
+                    <td><a href="{{ url_for('breakout_view', mode=mode, date=c.now, status=r.Status) }}">{{ r.Status|replace('_', ' ') }}</a></td>
+                    <td>{{ r.get('Breakout Readiness')|num(0) }}</td>
+                    <td>{{ r.get('Readiness Change')|signed }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% else %}<p class="muted">None.</p>{% endif %}
+            {% endfor %}
+
+            <h3>🐍 Coiled Cobra setups</h3>
+            <table class="table changes-table">
+                <tr><th></th><th>Symbols</th></tr>
+                <tr><th>New ({{ c.cobra.new|length }})</th>
+                    <td>{% for r in c.cobra.new %}{{ r.Symbol }} {{ r.Score|num(0) }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</td></tr>
+                <tr><th>Dropped ({{ c.cobra.dropped|length }})</th>
+                    <td>{% for r in c.cobra.dropped %}{{ r.Symbol }} (was {{ r['Score Prev']|num(0) }}){% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</td></tr>
+                <tr><th>Kept ({{ c.cobra.kept|length }})</th>
+                    <td>{% for r in c.cobra.kept %}{{ r.Symbol }} {{ r.Score|num(0) }} ({{ r['Score Change']|signed }}){% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</td></tr>
+            </table>
+            <p class="muted">{% if c.cobra_ran %}<a href="{{ url_for('cobra_view', mode=mode, date=c.now) }}">Coiled Cobra {{ c.now }}</a> ·
+                {% endif %}<a href="{{ url_for('breakout_view', mode=mode, date=c.now) }}">Breakout {{ c.now }}</a></p>
+        {% endif %}
+    </section>
+    {% endfor %}
+{% endblock %}

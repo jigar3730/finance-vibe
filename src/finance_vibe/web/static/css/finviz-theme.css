@@ -351,6 +351,9 @@ table.table tr:has(.live-surge) {
 .plan-table th, .levels-table th { width: 1%; }
 .plan-table td.muted { color: var(--finviz-text-muted); white-space: normal; }
 .warn { color: #ffb74d; font-weight: 700; }
+.muted { color: var(--finviz-text-muted); }
+.changes-table { margin-bottom: 14px; }
+.changed-row td:first-child { font-weight: 700; }
 
 /* Market tab */
 .bias-pill {
