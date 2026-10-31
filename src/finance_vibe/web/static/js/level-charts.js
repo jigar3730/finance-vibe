@@ -1,6 +1,6 @@
-// Level charts: recent candles with a card's plan levels as price lines.
+// Level charts: recent candles with a card's key levels as price lines.
 // Each <div class="level-chart"> carries data-mode, data-symbol and data-levels, a
-// JSON list of {price, label, color, style} built by playbook.chart_levels (style is
+// JSON list of {price, label, color, style} built by playbook.range_levels (style is
 // a LightweightCharts LineStyle: 0 solid, 1 dotted, 2 dashed). Bars come from
 // /api/bars/<mode>/<symbol>. Needs the vendored LightweightCharts global (v4).
 (function () {

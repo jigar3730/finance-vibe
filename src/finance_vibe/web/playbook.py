@@ -1,12 +1,11 @@
-"""Top setups: rank both scanners' rows together and derive rule-based key levels.
+"""Home page sections by evidence, rule-based key levels, and the Market tab rows.
 
 Pure pandas, no Flask, so it can be unit-tested. The dashboard's ``/`` page calls
-:func:`load_latest`, :func:`top_setups` and :func:`action_plan`.
-
-Every ticker the breakout scanner saw has a row with ``Resistance``, ``Support`` and
-``ATR``, so a Coiled Cobra setup gets its levels from the same ticker's breakout row.
-The levels are mechanical (the breakout confirmation rule and a structural stop);
-neither scanner has a validated edge, so they are a plan to review, not advice.
+:func:`load_latest`, :func:`weekly_confirmed`, :func:`untested_cobra` and
+:func:`failed_counts`, which sort the scans by what the research found
+(``RESEARCH.md`` §7, §11): weekly BREAKOUT_CONFIRMED passed in-sample (holdout not
+yet run), Coiled Cobra was never tested, and every other breakout event failed.
+Nothing here ranks or scores.
 """
 
 from __future__ import annotations
@@ -27,20 +26,17 @@ COBRA_PREFIX = "coiled_cobra_setups_"
 BREAKOUT_PREFIX = "breakout_setups_"
 _DATED_CSV = re.compile(r"^(?P<prefix>.+_)(?P<date>\d{4}-\d{2}-\d{2})\.csv$")
 
-# Breakout statuses that are events (FAILED_BREAKOUT is excluded on purpose).
-BREAKOUT_EVENT_BONUS = {
-    "BREAKOUT_CONFIRMED": 20,
-    "PRE_BREAKOUT": 15,
-    "BREAKOUT_TRIGGERED": 10,
-}
 FAILED_STATUS = "FAILED_BREAKOUT"
 CONFIRMED_STATUS = "BREAKOUT_CONFIRMED"
-AGREEMENT_BONUS = 10  # a Cobra setup the breakout scan also flags
+# Breakout events that failed the in-sample test, per mode (RESEARCH.md §7, §11).
+FAILED_IN_SAMPLE = {
+    "daily": ("PRE_BREAKOUT", "BREAKOUT_TRIGGERED", CONFIRMED_STATUS),
+    "weekly": ("PRE_BREAKOUT", "BREAKOUT_TRIGGERED"),
+}
 
 RVOL_CONFIRM = config.BREAKOUT_RVOL_CONFIRM
 STOP_BUFFER_ATR = 0.25
 EXTENDED_ATR = 1.0  # above trigger + this many ATR: don't chase
-TARGET_R = (2.0, 3.0)
 WIDE_STOP_PCT = 8.0
 
 
@@ -97,16 +93,23 @@ def load_latest(folder: str) -> tuple[str | None, pd.DataFrame, pd.DataFrame]:
     return date, cobra, breakout
 
 
-# ---------------------------------------------------------------------------
-# Ranking
-# ---------------------------------------------------------------------------
+def load_previous_breakout(folder: str, date: str | None) -> pd.DataFrame:
+    """The newest breakout CSV in ``folder`` dated before ``date``; empty if none."""
+    dated = [
+        d
+        for d, prefixes in run_dates(folder).items()
+        if BREAKOUT_PREFIX in prefixes and d < (date or "")
+    ]
+    if not dated:
+        return pd.DataFrame()
+    return relabel_triggered_watch(
+        read_scan(os.path.join(folder, f"{BREAKOUT_PREFIX}{max(dated)}.csv"))
+    )
 
 
-def _num_col(df: pd.DataFrame, name: str) -> pd.Series:
-    """Numeric view of column ``name``; all-NaN when the column is absent."""
-    if name in df.columns:
-        return pd.to_numeric(df[name], errors="coerce")
-    return pd.Series(float("nan"), index=df.index, dtype="float64")
+# ---------------------------------------------------------------------------
+# Home page sections
+# ---------------------------------------------------------------------------
 
 
 def live_price_or_none(value: object) -> float | None:
@@ -121,74 +124,49 @@ def num(value: Any) -> float | None:
     return None if pd.isna(v) else float(v)
 
 
-def candidates(cobra: pd.DataFrame, breakout: pd.DataFrame) -> pd.DataFrame:
-    """Every Cobra setup and breakout event, one row per symbol, ranked best first.
+def _symbols_upper(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["Symbol"] = df["Symbol"].astype(str).str.strip().str.upper()
+    return df.drop_duplicates("Symbol")
 
-    Columns: the breakout row's fields, Cobra fields prefixed ``Cobra `` (``Cobra
-    Score``, ``Cobra Grade`` ...), ``Sources`` (tuple) and ``Rank Score``.
-    Symbols whose breakout status is FAILED_BREAKOUT, and rows without usable
-    Resistance / Support / ATR, are dropped; so are Cobra setups the breakout
-    scan has no row for (logged at INFO), since their levels come from that row.
+
+def weekly_confirmed(breakout: pd.DataFrame, previous: pd.DataFrame) -> pd.DataFrame:
+    """Weekly BREAKOUT_CONFIRMED rows, by symbol, with ``Confirmed Last Run``.
+
+    ``Confirmed Last Run`` is True when ``previous`` (the prior weekly scan) had
+    the symbol CONFIRMED too: a continuation, not the first-bar event that was
+    tested. A symbol absent from ``previous`` counts as False.
     """
-    if breakout.empty or "Symbol" not in breakout.columns:
+    if breakout.empty or "Status" not in breakout.columns:
         return pd.DataFrame()
-    bo = breakout.copy()
-    bo["Symbol"] = bo["Symbol"].astype(str).str.strip().str.upper()
-    bo = bo.drop_duplicates("Symbol").set_index("Symbol")
+    rows = _symbols_upper(breakout[breakout["Status"] == CONFIRMED_STATUS])
+    before: set[str] = set()
+    if not previous.empty and {"Symbol", "Status"} <= set(previous.columns):
+        prev = _symbols_upper(previous)
+        before = set(prev.loc[prev["Status"] == CONFIRMED_STATUS, "Symbol"])
+    rows["Confirmed Last Run"] = rows["Symbol"].isin(before)
+    return rows.sort_values("Symbol").reset_index(drop=True)
 
-    cb = pd.DataFrame()
-    if not cobra.empty and "Symbol" in cobra.columns:
-        cb = cobra.copy()
-        cb["Symbol"] = cb["Symbol"].astype(str).str.strip().str.upper()
-        cb = cb.drop_duplicates("Symbol").set_index("Symbol").add_prefix("Cobra ")
 
-    if "Status" not in bo.columns:
-        bo["Status"] = None
-    status = bo["Status"]
-    events = set(status[status.isin(BREAKOUT_EVENT_BONUS)].index)
-    unmatched = sorted(set(cb.index) - set(bo.index))
-    if unmatched:
-        logger.info(
-            "Top setups: %d Coiled Cobra setup(s) have no breakout row and no levels: %s",
-            len(unmatched),
-            ", ".join(unmatched),
-        )
-    pool = (set(cb.index) | events) & set(bo.index)
-    pool -= set(status[status == FAILED_STATUS].index)
-    if not pool:
+def untested_cobra(cobra: pd.DataFrame, breakout: pd.DataFrame) -> pd.DataFrame:
+    """Coiled Cobra setups by symbol, with the same ticker's breakout ``Status``."""
+    if cobra.empty or "Symbol" not in cobra.columns:
         return pd.DataFrame()
-
-    rows = bo.loc[sorted(pool)].join(cb, how="left")
-    has_levels = _num_col(rows, "Resistance").notna() & _num_col(rows, "Support").notna()
-    rows = rows[has_levels & (_num_col(rows, "ATR") > 0)]
-    if rows.empty:
-        return pd.DataFrame()
-
-    cobra_score = _num_col(rows, "Cobra Score")
-    readiness = _num_col(rows, "Breakout Readiness").fillna(0)
-    bonus = rows["Status"].map(BREAKOUT_EVENT_BONUS)
-    is_cobra, is_event = cobra_score.notna(), bonus.notna()
-    breakout_rank = readiness + bonus.fillna(0)
-
-    rank = cobra_score.where(is_cobra, breakout_rank)
-    both = is_cobra & is_event
-    rank[both] = pd.concat([cobra_score, breakout_rank], axis=1).max(axis=1)[both] + AGREEMENT_BONUS
-
-    rows = rows.assign(**{"Rank Score": rank.round(1)})
-    rows["Sources"] = [
-        tuple(s for s, on in (("cobra", c), ("breakout", e)) if on)
-        for c, e in zip(is_cobra, is_event, strict=True)
-    ]
-    rows = rows.assign(_cobra=cobra_score.fillna(-1), _ready=readiness).reset_index()
-    rows = rows.sort_values(
-        ["Rank Score", "_cobra", "_ready", "Symbol"], ascending=[False, False, False, True]
-    )
-    return rows.drop(columns=["_cobra", "_ready"]).reset_index(drop=True)
+    rows = _symbols_upper(cobra)
+    status = pd.Series(dtype=object)
+    if not breakout.empty and {"Symbol", "Status"} <= set(breakout.columns):
+        status = _symbols_upper(breakout).set_index("Symbol")["Status"]
+    rows["Breakout Status"] = rows["Symbol"].map(status)
+    return rows.sort_values("Symbol").reset_index(drop=True)
 
 
-def top_setups(cobra: pd.DataFrame, breakout: pd.DataFrame, n: int = 3) -> pd.DataFrame:
-    """The ``n`` best-ranked candidates (see :func:`candidates`)."""
-    return candidates(cobra, breakout).head(n)
+def failed_counts(breakout: pd.DataFrame, mode: str) -> dict[str, int]:
+    """Row count per breakout status that failed in-sample for ``mode`` (zeros kept)."""
+    statuses = FAILED_IN_SAMPLE[mode]
+    if breakout.empty or "Status" not in breakout.columns:
+        return dict.fromkeys(statuses, 0)
+    counts = breakout["Status"].value_counts()
+    return {s: int(counts.get(s, 0)) for s in statuses}
 
 
 # ---------------------------------------------------------------------------
@@ -199,15 +177,14 @@ def top_setups(cobra: pd.DataFrame, breakout: pd.DataFrame, n: int = 3) -> pd.Da
 def action_plan(
     row: pd.Series | dict[str, Any], live_price: float | None = None, side: str = "long"
 ) -> dict[str, Any]:
-    """Trigger / stop / targets and a status for one row, long or short.
+    """Trigger / stop and a status for one row, long or short.
 
     Long: trigger is the breakout Resistance (a close above it on RVOL20 >=
     RVOL_CONFIRM and above SMA20 confirms); stop is the higher of Support and Cobra
     Swing Low (when below the trigger) minus ``STOP_BUFFER_ATR`` x ATR.
     Short (the mirror): trigger is Support (a close below it); stop is the lower of
     Resistance and SMA20 (when above the trigger) plus the same buffer.
-    Targets are ``TARGET_R`` multiples of the risk beyond the trigger. Status uses
-    the live price when given, else the scan's Close.
+    Status uses the live price when given, else the scan's Close.
     """
     if side not in ("long", "short"):
         raise ValueError(f"side must be 'long' or 'short', not {side!r}")
@@ -267,7 +244,6 @@ def action_plan(
         "resistance": None if resistance is None else round(resistance, 2),
         "risk": round(risk, 2),
         "risk_pct": round(risk_pct, 1),
-        "targets": [round(entry + d * r * risk, 2) for r in TARGET_R],
         "price": None if price is None else round(price, 2),
         "price_is_live": live_price is not None,
         "status": state,
@@ -282,16 +258,15 @@ def action_plan(
 
 
 # ---------------------------------------------------------------------------
-# Chart levels (Top Setups plans; Market cards use the same colours)
+# Chart levels
 # ---------------------------------------------------------------------------
 
 LEVEL_COLORS = {
     "trigger": "#2962ff",
     "stop": "#f23645",
-    "target": "#26a69a",
     "support": "#787b86",
 }
-SOLID, DOTTED, DASHED = 0, 1, 2  # Lightweight Charts LineStyle
+SOLID, DOTTED = 0, 1  # Lightweight Charts LineStyle
 
 
 def _line(price: float | None, label: str, color: str, style: int) -> dict[str, Any] | None:
@@ -301,13 +276,11 @@ def _line(price: float | None, label: str, color: str, style: int) -> dict[str, 
 
 
 def chart_levels(plan: dict[str, Any], *, with_support: bool = False) -> list[dict[str, Any]]:
-    """Price lines for one plan: trigger, stop and both targets (and Support if asked)."""
+    """Price lines for one plan: trigger and stop (and Support if asked)."""
     prefix = "" if plan["side"] == "long" else "Short "
     lines = [
         _line(plan["trigger"], f"{prefix}Trigger", LEVEL_COLORS["trigger"], SOLID),
         _line(plan["stop"], f"{prefix}Stop", LEVEL_COLORS["stop"], SOLID),
-        _line(plan["targets"][0], f"{prefix}T1", LEVEL_COLORS["target"], DASHED),
-        _line(plan["targets"][1], f"{prefix}T2", LEVEL_COLORS["target"], DASHED),
     ]
     if with_support:
         lines.append(_line(plan.get("support"), "Support", LEVEL_COLORS["support"], DOTTED))
@@ -355,11 +328,11 @@ def row_for(df: pd.DataFrame, symbol: str) -> dict[str, Any] | None:
     return None if hit.empty else {str(k): v for k, v in hit.iloc[0].items()}
 
 
-def market_levels(daily: dict[str, Any]) -> list[dict[str, Any]]:
-    """Market card chart lines: the daily row's Resistance and Support, nothing else."""
+def range_levels(row: dict[str, Any]) -> list[dict[str, Any]]:
+    """Chart lines for a scan row's Resistance and Support, nothing else."""
     lines = [
-        _line(num(daily.get("Resistance")), "Resistance", LEVEL_COLORS["trigger"], SOLID),
-        _line(num(daily.get("Support")), "Support", LEVEL_COLORS["support"], DOTTED),
+        _line(num(row.get("Resistance")), "Resistance", LEVEL_COLORS["trigger"], SOLID),
+        _line(num(row.get("Support")), "Support", LEVEL_COLORS["support"], DOTTED),
     ]
     return [line for line in lines if line is not None]
 
@@ -390,7 +363,7 @@ def market_rows(
                 "reasons": reasons,
                 "price": live_price if live_price is not None else close,
                 "price_is_live": live_price is not None,
-                "levels": market_levels(daily) if daily else None,
+                "levels": range_levels(daily) if daily else None,
             }
         )
     return rows

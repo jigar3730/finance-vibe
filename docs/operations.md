@@ -163,7 +163,7 @@ dashboard and the next scheduled run pick it up.
 
 | Route | Contents |
 | ----- | -------- |
-| `/` | Top setups: the best 3 of both scanners per mode, with key levels and an action plan |
+| `/` | Top setups by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), counts of signals that failed in-sample |
 | `/market` | SPY / QQQ / SCHG / SCHD: relative view (returns, RS vs SPY, growth-vs-dividend label), long / short / neutral bias with the weekly and daily states, a daily chart with Support / Resistance, row freshness |
 | `/changes` | What changed since the previous run, per mode: breakout status moves, Coiled Cobra setups new / dropped / kept, Market ETF bias |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
@@ -177,35 +177,31 @@ highlighted.
 
 ### Top setups (`/`, `web/playbook.py`)
 
-For each mode it reads the newest run and ranks both scanners together:
+The page sorts the newest runs by what the backtest found (`RESEARCH.md` §7, §11). Nothing
+is ranked or scored, and there are no trade levels.
 
-- **Pool:** every Coiled Cobra setup, plus breakout rows that are `PRE_BREAKOUT`,
-  `BREAKOUT_CONFIRMED` or `BREAKOUT_TRIGGERED`. Tickers whose breakout status is
-  `FAILED_BREAKOUT` are excluded.
-- **Rank score:** the Cobra Score; or, for breakout-only rows, the Breakout Readiness
-  plus a status bonus (confirmed +20, pre-breakout +15, triggered +10). A Cobra setup
-  that is also a breakout event gets the higher of the two, +10.
-- **Levels** come from the ticker's breakout row (every scanned ticker has one):
-  - **Trigger:** `Resistance`. A close above it with RVOL20 ≥ 1.5 and above SMA20
-    confirms, which is the scanner's own rule (`config.BREAKOUT_RVOL_CONFIRM`).
-  - **Stop:** the higher of `Support` and the Cobra swing low (if below the trigger),
-    minus 0.25 × ATR.
-  - **Targets:** 2R and 3R above the trigger.
-  - **Wide stop:** flagged when the risk is above 8% of the trigger.
-- **Status**, from the live price (else the close):
-  - `WAITING`: below the trigger.
-  - `TRIGGERED`: within 1 ATR above it.
-  - `EXTENDED`: more than 1 ATR above it; don't chase.
-  - `INVALIDATED`: below the stop.
+1. **Weekly CONFIRMED** (`playbook.weekly_confirmed`): one card per weekly
+   `BREAKOUT_CONFIRMED` row, by symbol. Each says "Unproven: passed old-data test only"
+   (it passed in-sample; the holdout runs on 2035-09-07) and "Tested as: buy next open,
+   hold 4 weeks, no stop." A card also says "Also CONFIRMED last week" when the previous
+   weekly breakout CSV had the symbol CONFIRMED: a continuation, not the first-week event
+   that was tested. A symbol missing from the previous file (universe churn) is not marked.
+   Cards show the close or live price, ATR, `Resistance`, `Support`, extension, RVOL20,
+   SMA50 and MTF.
+2. **Untested: Coiled Cobra setups** (`playbook.untested_cobra`): collapsed by default; a
+   table per mode with Score, Grade, Close and the ticker's breakout status.
+3. **Failed the old-data test** (`playbook.failed_counts`): counts only, each linking to
+   the breakout page filtered to that status. Daily: `PRE_BREAKOUT`, `BREAKOUT_TRIGGERED`,
+   `BREAKOUT_CONFIRMED`. Weekly: `PRE_BREAKOUT`, `BREAKOUT_TRIGGERED`.
 
-Each card has a level chart: recent candles from `/api/bars` with the trigger, stop,
-support, T1 and T2 drawn as price lines (`web/static/js/level-charts.js`). It uses
+Each card has a level chart: recent weekly candles from `/api/bars` with `Resistance` and
+`Support` drawn as price lines (`web/static/js/level-charts.js`). It uses
 TradingView Lightweight Charts v4.2.3 (Apache 2.0), vendored at
 `web/static/vendor/lightweight-charts-4.2.3.standalone.production.js` so the dashboard
 needs no internet access; to upgrade, replace that file and update the version in
 `top.html`. Its attribution logo stays on, as the licence notice asks.
 
-The rules are mechanical and unvalidated: a plan to review, not advice.
+Signals to review, not advice.
 
 ### Market tab (`/market`, `playbook.market_bias`)
 
@@ -255,8 +251,8 @@ daily and weekly rows' `AsOf Date`, with a warning next to a mode when:
   closed week),
 - the ETF's raw file has a bar-quality issue (`data.quality`, checked live).
 
-**Data warnings on Top Setups.** A card shows "⚠ data: …" when its ticker has an
-error-severity row in the mode's newest `data_quality_<date>.csv`. Warnings
+**Data warnings on Top Setups.** A weekly CONFIRMED card shows "⚠ data: …" when its
+ticker has an error-severity row in the newest weekly `data_quality_<date>.csv`. Warnings
 (`big_move`, …) are not shown there.
 
 ### Changes (`/changes`, `web/insights.run_changes`)

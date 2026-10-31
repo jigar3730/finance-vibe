@@ -249,57 +249,129 @@ def test_dashboard_display_rule_mirrors_scanner():
     assert list(rank["Status"]) == app_module.BREAKOUT_STATUS_ORDER
 
 
-def test_top_setups_page_shows_cards_per_mode(client, tmp_path, monkeypatch):
-    monkeypatch.setattr(
-        app_module, "LOG_DIRS", {"weekly": str(tmp_path / "w"), "daily": str(tmp_path / "d")}
-    )
+def _home_logs(client, tmp_path, monkeypatch):
+    """Weekly runs 2026-10-23 and 10-30 plus a daily run; returns the page body."""
+    dirs = {"weekly": tmp_path / "w", "daily": tmp_path / "d"}
+    for d in dirs.values():
+        d.mkdir()
+    monkeypatch.setattr(app_module, "LOG_DIRS", {m: str(d) for m, d in dirs.items()})
     monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {s: "N/A" for s in syms})
-    (tmp_path / "d").mkdir()
-    levels = {"Close": 48.68, "Resistance": 50.31, "Support": 44.62, "ATR": 1.7, "MTF": "ALIGNED"}
-    pd.DataFrame(
+    lv = {"Close": 48.68, "Resistance": 50.31, "Support": 44.62, "ATR": 1.7, "MTF": "ALIGNED"}
+    lv |= {"Extension ATR": 2.4, "RVOL20": 1.8, "SMA50": 46.0}
+
+    def scan(mode, day, rows):
+        pd.DataFrame([{"Symbol": s, "Status": st, **lv} for s, st in rows]).to_csv(
+            dirs[mode] / f"breakout_setups_{day}.csv", index=False
+        )
+
+    scan("weekly", "2026-10-23", [("GMAB", "BREAKOUT_CONFIRMED"), ("GPN", "WATCH")])
+    scan(
+        "weekly",
+        "2026-10-30",
         [
-            {"Symbol": "VRNS", "Status": "WATCH", "Breakout Readiness": 72, **levels},
-            {"Symbol": "MMM", "Status": "BREAKOUT_CONFIRMED", "Breakout Readiness": 62, **levels},
-            {"Symbol": "DHR", "Status": "FAILED_BREAKOUT", "Breakout Readiness": 28, **levels},
-        ]
-    ).to_csv(tmp_path / "d" / "breakout_setups_2026-10-20.csv", index=False)
-    pd.DataFrame(
-        [{"Symbol": "VRNS", "Score": 85, "Grade": "A - Watch", "Swing Low": 45.65}]
-    ).to_csv(tmp_path / "d" / "coiled_cobra_setups_2026-10-20.csv", index=False)
+            ("GPN", "BREAKOUT_CONFIRMED"),
+            ("GMAB", "BREAKOUT_CONFIRMED"),
+            ("WPRE", "PRE_BREAKOUT"),
+            ("WTRG", "BREAKOUT_TRIGGERED"),
+            ("WTRG2", "BREAKOUT_TRIGGERED"),
+        ],
+    )
+    scan(
+        "daily",
+        "2026-10-30",
+        [
+            ("DCONF", "BREAKOUT_CONFIRMED"),
+            ("DPRE", "PRE_BREAKOUT"),
+            ("VRNS", "WATCH"),
+            ("DHR", "FAILED_BREAKOUT"),
+        ],
+    )
+    pd.DataFrame([{"Symbol": "VRNS", "Score": 85, "Grade": "A - Watch", "Close": 48.68}]).to_csv(
+        dirs["daily"] / "coiled_cobra_setups_2026-10-30.csv", index=False
+    )
     pd.DataFrame(
         [
             {
-                "Symbol": "VRNS",
+                "Symbol": "GPN",
                 "Check": "ohlc_incoherent",
                 "Severity": "error",
-                "Date": "2026-10-20",
+                "Date": "2026-10-30",
             },
-            {"Symbol": "MMM", "Check": "big_move", "Severity": "warn", "Date": "2026-10-20"},
+            {"Symbol": "GMAB", "Check": "big_move", "Severity": "warn", "Date": "2026-10-30"},
         ]
-    ).to_csv(tmp_path / "d" / "data_quality_2026-10-20.csv", index=False)
+    ).to_csv(dirs["weekly"] / "data_quality_2026-10-30.csv", index=False)
+    return client.get("/").get_data(as_text=True)
 
-    body = client.get("/").get_data(as_text=True)
-    assert "run 2026-10-20" in body
-    vrns, mmm = (body.split(f"quote.ashx?t={s}")[1].split("</header>")[0] for s in ("VRNS", "MMM"))
-    assert "data: ohlc incoherent" in vrns and "dq-flag" not in mmm  # errors only
-    assert body.index("VRNS") < body.index("MMM")  # Cobra 85 ranks above 62 + 20
-    assert "DHR" not in body  # failed breakouts are excluded
-    assert "50.31" in body and "45.23" in body  # trigger and stop
-    assert "status-waiting" in body and "wide stop" in body
-    assert "No weekly setups" in body
-    # Each card carries a level chart wired to its plan.
-    chart = body.split('class="level-chart"')[1].split("></div>")[0]
-    assert 'data-mode="daily"' in chart and 'data-symbol="VRNS"' in chart
+
+def _cards(body):
+    return body.split('tested-section">')[1].split("</section>")[0]
+
+
+def test_home_cards_are_weekly_confirmed_only(client, tmp_path, monkeypatch):
+    body = _home_logs(client, tmp_path, monkeypatch)
+    cards = _cards(body)
+    assert "run 2026-10-30" in cards
+    assert cards.count('class="setup-card"') == 2
+    assert cards.index("t=GMAB") < cards.index("t=GPN")  # alphabetical, not ranked
+    for sym in ("DCONF", "DPRE", "VRNS", "WPRE", "WTRG", "DHR"):
+        assert f"t={sym}" not in cards
+    assert cards.count("Unproven: passed old-data test only") == 2
+    assert cards.count("Tested as: buy next open, hold 4 weeks, no stop.") == 2
+
+
+def test_home_cards_have_no_trade_levels_or_rank(client, tmp_path, monkeypatch):
+    body = _home_logs(client, tmp_path, monkeypatch)
+    cards = _cards(body)
+    for gone in ("Trigger", "Stop", "Target", "2R", "3R", "wide stop"):
+        assert gone not in cards
+    assert "Rank" not in body
+    assert "50.31" in cards and "44.62" in cards  # resistance and support as context
+    chart = cards.split('class="level-chart"')[1].split("></div>")[0]
+    assert 'data-mode="weekly"' in chart and 'data-symbol="GMAB"' in chart
     levels = json.loads(chart.split("data-levels='")[1].split("'")[0])
     assert {line["label"]: line["price"] for line in levels} == {
-        "Trigger": 50.31,
-        "Stop": 45.23,
-        "T1": 60.48,
-        "T2": 65.56,
+        "Resistance": 50.31,
         "Support": 44.62,
     }
+
+
+def test_home_card_flags_continuation_and_data_errors(client, tmp_path, monkeypatch):
+    cards = _cards(_home_logs(client, tmp_path, monkeypatch))
+    gmab, gpn = cards.split("t=GPN")
+    assert "Also CONFIRMED last week" in gmab and "Also CONFIRMED last week" not in gpn
+    assert "data: ohlc incoherent" in gpn.split("</header>")[0]
+    assert "dq-flag" not in gmab  # warnings are not errors
+
+
+def test_home_cobra_is_collapsed_and_untested(client, tmp_path, monkeypatch):
+    body = _home_logs(client, tmp_path, monkeypatch)
+    section = body.split('class="failed-section untested-section"')[1].split("</details>")[0]
+    assert '<details class="failed-section untested-section">' in body  # closed by default
+    assert "Untested: Coiled Cobra setups" in section and "t=VRNS" in section
+    assert "No weekly Cobra setups." in section and ">85<" in section
+
+
+def test_home_failed_signals_are_counts_only(client, tmp_path, monkeypatch):
+    body = _home_logs(client, tmp_path, monkeypatch)
+    failed = body.split('class="top-section failed-counts"')[1].split("</section>")[0]
+    daily = failed.split("<strong>Daily:</strong>")[1].split("</p>")[0]
+    weekly = failed.split("<strong>Weekly:</strong>")[1].split("</p>")[0]
+    assert "PRE BREAKOUT 1" in daily and "BREAKOUT TRIGGERED 0" in daily
+    assert "BREAKOUT CONFIRMED 1" in daily
+    assert "PRE BREAKOUT 1" in weekly and "BREAKOUT TRIGGERED 2" in weekly
+    assert "CONFIRMED" not in weekly  # weekly CONFIRMED passed: cards, not a count
+    assert "status=BREAKOUT_TRIGGERED" in weekly and "/breakout/weekly/2026-10-30" in weekly
+    for sym in ("DCONF", "DPRE", "WPRE", "WTRG"):
+        assert f"t={sym}" not in body
+
+
+def test_home_without_weekly_confirmed(client, tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        app_module, "LOG_DIRS", {"weekly": str(tmp_path / "w"), "daily": str(tmp_path / "d")}
+    )
+    body = client.get("/").get_data(as_text=True)
+    assert "No weekly CONFIRMED setups in the latest run." in body
     assert "headwind-banner" not in body
-    assert "lightweight-charts-4.2.3.standalone.production.js" in body
 
 
 @pytest.fixture

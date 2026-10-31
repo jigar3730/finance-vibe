@@ -320,8 +320,16 @@ frozen copy of the pre-vectorization scalar rules used as a test oracle; delete 
 
 ## Validation status
 
-Not validated as an entry signal. Treat the dashboard as descriptive only. Do not
-use it to rank or select entries.
+Tested in-sample under `RESEARCH.md` (§7 daily, §11 weekly):
+
+- **Weekly BREAKOUT_CONFIRMED** (first bar of a run) passed in-sample. It is unproven
+  until its one holdout run on 2035-09-07. Tested as: buy next open, hold 4 weeks, no stop.
+- **Every other event failed**: daily PRE_BREAKOUT, BREAKOUT_TRIGGERED and
+  BREAKOUT_CONFIRMED, and weekly PRE_BREAKOUT and BREAKOUT_TRIGGERED.
+- Breakout Readiness was dropped from the research plan and is untested.
+
+The home page (`/`) follows this split: weekly CONFIRMED cards first, failed signals as
+counts only. Nothing is ranked by Readiness.
 
 ## Open work
 

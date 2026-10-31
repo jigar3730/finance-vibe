@@ -326,8 +326,6 @@ def _sort_breakout_rows(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 
 
-TOP_N = 3
-
 # /api/bars: recent bars for the Top Setups level charts.
 CHART_BARS = {"daily": 60, "weekly": 52}
 _SYMBOL = re.compile(r"^[A-Z0-9.\-]{1,10}$")
@@ -360,32 +358,45 @@ def market_strip_context() -> dict[str, Any]:
 
 @app.route("/")
 def index() -> str:
-    """Top setups: the best 3 of both scanners per mode, with key levels and a plan."""
+    """Home: weekly CONFIRMED cards, untested Cobra setups, counts of failed signals."""
     latest = _latest_runs()
-    tops = {mode: playbook.top_setups(cobra, bo, TOP_N) for mode, (_, cobra, bo) in latest.items()}
-    symbols = [s for top in tops.values() if not top.empty for s in top["Symbol"]]
-    live = _fetch_live_prices(list(dict.fromkeys(symbols)))
-
-    sections = []
-    for mode, top in tops.items():
-        dq_errors = insights.quality_errors(LOG_DIRS[mode])
-        cards = []
-        for _, row in top.iterrows():
-            plan = playbook.action_plan(row, playbook.live_price_or_none(live.get(row["Symbol"])))
-            cards.append(
-                {
-                    "symbol": row["Symbol"],
-                    "row": row.to_dict(),
-                    "plan": plan,
-                    "levels": playbook.chart_levels(plan, with_support=True),
-                    "dq": dq_errors.get(row["Symbol"], []),
-                }
-            )
-        sections.append({"mode": mode, "date": latest[mode][0], "cards": cards})
+    week_date, _, week_bo = latest["weekly"]
+    previous = playbook.load_previous_breakout(LOG_DIRS["weekly"], week_date)
+    confirmed = playbook.weekly_confirmed(week_bo, previous)
+    live = _fetch_live_prices(list(confirmed["Symbol"]) if not confirmed.empty else [])
+    dq_errors = insights.quality_errors(LOG_DIRS["weekly"])
+    cards = []
+    for row in confirmed.to_dict("records"):
+        price = playbook.live_price_or_none(live.get(row["Symbol"]))
+        cards.append(
+            {
+                "symbol": row["Symbol"],
+                "row": row,
+                "price": price if price is not None else playbook.num(row.get("Close")),
+                "price_is_live": price is not None,
+                "levels": playbook.range_levels(row),  # type: ignore[arg-type]
+                "dq": dq_errors.get(row["Symbol"], []),
+            }
+        )
+    cobra = [
+        {"mode": mode, "date": date, "rows": playbook.untested_cobra(cb, bo).to_dict("records")}
+        for mode, (date, cb, bo) in latest.items()
+    ]
+    failed = [
+        {"mode": mode, "date": date, "counts": playbook.failed_counts(bo, mode)}
+        for mode, (date, _, bo) in latest.items()
+    ]
     # Only the bias is needed here, so no live prices for the market rows.
     market_rows = _market(latest, symbols=playbook.HEADWIND_SYMBOLS)
     headwinds = [m for m in market_rows if m["bias"] == "SHORT"]
-    return render_template("top.html", sections=sections, top_n=TOP_N, headwinds=headwinds)
+    return render_template(
+        "top.html",
+        week_date=week_date,
+        cards=cards,
+        cobra=cobra,
+        failed=failed,
+        headwinds=headwinds,
+    )
 
 
 @app.route("/market")

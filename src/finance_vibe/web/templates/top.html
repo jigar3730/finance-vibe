@@ -7,9 +7,9 @@
 {% block content %}
     <h1>🏆 Top Setups</h1>
     <div class="meta scan-note">
-        The best {{ top_n }} of both scanners per timeframe, with rule-based levels: trigger at breakout
-        resistance, stop under support / swing low, targets at 2R and 3R. Neither scanner has a validated
-        edge; treat this as a plan to review, not advice.
+        Sorted by what the backtest found (RESEARCH.md). Weekly BREAKOUT_CONFIRMED passed the in-sample test;
+        its holdout test runs on 2035-09-07, so it stays unproven until then. Coiled Cobra has never been tested.
+        Every other breakout signal failed. Signals to review, not advice.
     </div>
 
     {% for m in headwinds %}
@@ -19,59 +19,80 @@
     </div>
     {% endfor %}
 
-    {% set labels = {'weekly': '📅 Weekly', 'daily': '⚡ Daily'} %}
-    {% for section in sections %}
-    <section class="top-section">
-        <h2>{{ labels.get(section.mode, section.mode|capitalize) }}
-            {% if section.date %}<span class="top-date">run {{ section.date }}</span>{% endif %}
+    <section class="top-section tested-section">
+        <h2>📅 Weekly CONFIRMED
+            {% if week_date %}<span class="top-date">run {{ week_date }}</span>{% endif %}
         </h2>
-        {% if not section.cards %}
-            <p style="color: var(--finviz-text-muted);">No {{ section.mode }} setups in the latest run.</p>
+        {% if not cards %}
+            <p style="color: var(--finviz-text-muted);">No weekly CONFIRMED setups in the latest run.</p>
         {% else %}
         <div class="card-grid">
-            {% for card in section.cards %}
-            {% set r = card.row %}{% set p = card.plan %}
+            {% for card in cards %}
+            {% set r = card.row %}
             <article class="setup-card">
                 <header class="setup-head">
-                    <span class="setup-rank">#{{ loop.index }}</span>
                     <a class="ticker-link setup-symbol" href="https://finviz.com/quote.ashx?t={{ card.symbol }}" target="_blank" rel="noopener noreferrer">{{ card.symbol }}</a>
-                    <span class="status-pill status-{{ p.status|lower }}">{{ p.status }}</span>
+                    <span class="status-pill status-unproven">Unproven: passed old-data test only</span>
                     {% if card.dq %}<span class="warn dq-flag" title="Bar-quality errors in the latest data_quality report">⚠ data: {{ card.dq|join(', ')|replace('_', ' ') }}</span>{% endif %}
                 </header>
-                <div class="setup-badges">
-                    <span class="badge-score">Rank {{ r.get('Rank Score')|num(1) }}</span>
-                    {% if 'cobra' in r.get('Sources') %}
-                        <a class="chip" href="{{ url_for('cobra_view', mode=section.mode, date=section.date) }}">🐍 {{ r.get('Cobra Grade')|text }} · {{ r.get('Cobra Score')|num(0) }}</a>
-                    {% endif %}
-                    <a class="chip" href="{{ url_for('breakout_view', mode=section.mode, date=section.date, status=r.get('Status')) }}">🎯 {{ r.get('Status')|text }} · {{ r.get('Breakout Readiness')|num(0) }}</a>
-                </div>
-                <p class="setup-note">{{ p.note }}</p>
+                <p class="setup-note tested-as">Tested as: buy next open, hold 4 weeks, no stop.</p>
+                {% if r.get('Confirmed Last Run') %}
+                <p class="setup-note muted continuation">Also CONFIRMED last week: a continuation, not the first-week event that was tested.</p>
+                {% endif %}
 
-                <div class="level-chart" data-mode="{{ section.mode }}" data-symbol="{{ card.symbol }}"
+                <div class="level-chart" data-mode="weekly" data-symbol="{{ card.symbol }}"
                      data-levels='{{ card.levels|tojson }}'></div>
 
-                <table class="table plan-table">
-                    <tr><th>Trigger</th><td>{{ p.trigger|num }}</td><td class="muted">{{ p.condition }}</td></tr>
-                    <tr><th>Stop</th><td>{{ p.stop|num }}</td><td class="muted">risk {{ p.risk|num }} ({{ p.risk_pct|num(1) }}%){% if p.wide_stop %} <span class="warn">wide stop</span>{% endif %}</td></tr>
-                    <tr><th>Target 1</th><td>{{ p.targets[0]|num }}</td><td class="muted">2R</td></tr>
-                    <tr><th>Target 2</th><td>{{ p.targets[1]|num }}</td><td class="muted">3R</td></tr>
-                </table>
-
                 <table class="table levels-table">
-                    <tr><th>{{ 'Live' if p.price_is_live else 'Close' }}</th><td>{{ p.price|num }}</td><th>ATR</th><td>{{ r.get('ATR')|num }}</td></tr>
+                    <tr><th>{{ 'Live' if card.price_is_live else 'Close' }}</th><td>{{ card.price|num }}</td><th>ATR</th><td>{{ r.get('ATR')|num }}</td></tr>
                     <tr><th>Resistance</th><td>{{ r.get('Resistance')|num }}</td><th>Support</th><td>{{ r.get('Support')|num }}</td></tr>
-                    {% if 'cobra' in r.get('Sources') %}
-                    <tr><th>Swing low</th><td>{{ r.get('Cobra Swing Low')|num }}</td><th>Fib 78.6%</th><td>{{ r.get('Cobra Fib 78.6%')|num }}</td></tr>
-                    <tr><th>EMA20</th><td>{{ r.get('Cobra EMA20')|num }}</td><th>EMA50</th><td>{{ r.get('Cobra EMA50')|num }}</td></tr>
-                    {% else %}
-                    <tr><th>SMA20</th><td>{{ r.get('SMA20')|num }}</td><th>SMA50</th><td>{{ r.get('SMA50')|num }}</td></tr>
-                    {% endif %}
-                    <tr><th>RVOL20</th><td>{{ r.get('RVOL20')|num }}</td><th>MTF</th><td>{{ r.get('MTF')|text }}</td></tr>
+                    <tr><th>Extension</th><td>{{ r.get('Extension ATR')|num(1) }} ATR</td><th>RVOL20</th><td>{{ r.get('RVOL20')|num }}</td></tr>
+                    <tr><th>SMA50</th><td>{{ r.get('SMA50')|num }}</td><th>MTF</th><td>{{ r.get('MTF')|text }}</td></tr>
                 </table>
             </article>
             {% endfor %}
         </div>
         {% endif %}
     </section>
-    {% endfor %}
+
+    <section class="top-section">
+        {% set n_cobra = cobra|map(attribute='rows')|map('length')|sum %}
+        <details class="failed-section untested-section">
+            <summary>Untested: Coiled Cobra setups <span class="chip-count">{{ n_cobra }}</span></summary>
+            <p class="meta">Never backtested. A watchlist, not evidence.</p>
+            {% for group in cobra %}
+            <h3>{{ group.mode|capitalize }}{% if group.date %} <span class="top-date">run {{ group.date }}</span>{% endif %}</h3>
+            {% if not group.rows %}
+                <p style="color: var(--finviz-text-muted);">No {{ group.mode }} Cobra setups.</p>
+            {% else %}
+            <table class="table cobra-untested-table">
+                <tr><th>Symbol</th><th>Score</th><th>Grade</th><th>Close</th><th>Breakout status</th></tr>
+                {% for c in group.rows %}
+                <tr>
+                    <td><a class="ticker-link" href="https://finviz.com/quote.ashx?t={{ c.Symbol }}" target="_blank" rel="noopener noreferrer">{{ c.Symbol }}</a></td>
+                    <td>{{ c.get('Score')|num(0) }}</td>
+                    <td>{{ c.get('Grade')|text }}</td>
+                    <td>{{ c.get('Close')|num }}</td>
+                    <td>{{ c.get('Breakout Status')|text|replace('_', ' ') }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+            <p class="meta"><a href="{{ url_for('cobra_view', mode=group.mode, date=group.date) }}">Full {{ group.mode }} Cobra page</a></p>
+            {% endif %}
+            {% endfor %}
+        </details>
+    </section>
+
+    <section class="top-section failed-counts">
+        <h2>Failed the old-data test</h2>
+        <p class="meta">These breakout signals did no better than SPY or random entries in the in-sample backtest.</p>
+        {% for group in failed %}
+        <p class="setup-note">
+            <strong>{{ group.mode|capitalize }}:</strong>
+            {% for status, n in group.counts.items() %}
+            {% if group.date %}<a href="{{ url_for('breakout_view', mode=group.mode, date=group.date, status=status) }}">{{ status|replace('_', ' ') }} {{ n }}</a>{% else %}{{ status|replace('_', ' ') }} {{ n }}{% endif %}{% if not loop.last %} · {% endif %}
+            {% endfor %}
+        </p>
+        {% endfor %}
+    </section>
 {% endblock %}

@@ -1,4 +1,4 @@
-"""Top setups: ranking across both scanners, rule-based levels and plan status."""
+"""Home page sections by evidence, rule-based levels and plan status, Market rows."""
 
 from __future__ import annotations
 
@@ -28,34 +28,64 @@ def _cobra(symbol, score, swing_low=45.65):
     return {"Symbol": symbol, "Score": score, "Grade": "A - Watch", "Swing Low": swing_low}
 
 
-def test_ranking_blends_both_scanners_and_rewards_agreement():
-    breakout = pd.DataFrame(
+def test_weekly_confirmed_only_and_marks_continuations():
+    now = pd.DataFrame(
         [
-            _bo("COBRA", "WATCH", 40),  # Cobra-only: rank = Cobra Score 85
-            _bo("BOTH", "BREAKOUT_TRIGGERED", 50),  # max(80, 50 + 10) + 10 = 90
-            _bo("CONF", "BREAKOUT_CONFIRMED", 70),  # 70 + 20 = 90, no Cobra -> after BOTH
-            _bo("PRE", "PRE_BREAKOUT", 50),  # 50 + 15 = 65
-            _bo("QUIET", "WATCH", 99),  # not an event, not a Cobra setup
-            _bo("FAIL", "FAILED_BREAKOUT", 80),  # failed: dropped even with a Cobra row
+            _bo("zeta ", "BREAKOUT_CONFIRMED", 10),
+            _bo("ALFA", "BREAKOUT_CONFIRMED", 90),
+            _bo("PRE", "PRE_BREAKOUT", 99),
+            _bo("TRIG", "BREAKOUT_TRIGGERED", 99),
+            _bo("FAIL", "FAILED_BREAKOUT", 99),
         ]
     )
-    cobra = pd.DataFrame([_cobra("COBRA", 85), _cobra("BOTH", 80), _cobra("FAIL", 95)])
-    ranked = pb.candidates(cobra, breakout)
-    assert list(ranked["Symbol"]) == ["BOTH", "CONF", "COBRA", "PRE"]
-    assert list(ranked["Rank Score"]) == [90, 90, 85, 65]
-    assert ranked.set_index("Symbol").loc["BOTH", "Sources"] == ("cobra", "breakout")
-    assert list(pb.top_setups(cobra, breakout, n=3)["Symbol"]) == ["BOTH", "CONF", "COBRA"]
+    prev = pd.DataFrame([_bo("ZETA", "BREAKOUT_CONFIRMED", 50), _bo("ALFA", "WATCH", 50)])
+    got = pb.weekly_confirmed(now, prev)
+    assert list(got["Symbol"]) == ["ALFA", "ZETA"]  # by symbol, not by any score
+    assert list(got["Confirmed Last Run"]) == [False, True]
+    assert "Rank Score" not in got.columns
 
 
-def test_rows_without_levels_are_dropped():
-    breakout = pd.DataFrame(
-        [_bo("NOATR", "BREAKOUT_CONFIRMED", 60, ATR=None), _bo("OK", "PRE_BREAKOUT", 10)]
-    )
-    assert list(pb.candidates(pd.DataFrame(), breakout)["Symbol"]) == ["OK"]
+def test_weekly_confirmed_without_previous_run_or_status():
+    now = pd.DataFrame([_bo("ALFA", "BREAKOUT_CONFIRMED", 90)])
+    assert list(pb.weekly_confirmed(now, pd.DataFrame())["Confirmed Last Run"]) == [False]
+    assert pb.weekly_confirmed(now.drop(columns=["Status"]), pd.DataFrame()).empty
+    assert pb.weekly_confirmed(pd.DataFrame(), pd.DataFrame()).empty
 
 
-def test_empty_inputs_give_no_candidates():
-    assert pb.candidates(pd.DataFrame(), pd.DataFrame()).empty
+def test_untested_cobra_carries_breakout_status():
+    cobra = pd.DataFrame([_cobra("VRNS", 85), _cobra("LOST", 95)])
+    breakout = pd.DataFrame([_bo("VRNS", "PRE_BREAKOUT", 10)])
+    got = pb.untested_cobra(cobra, breakout).set_index("Symbol")
+    assert list(got.index) == ["LOST", "VRNS"]
+    assert got.loc["VRNS", "Breakout Status"] == "PRE_BREAKOUT"
+    assert pd.isna(got.loc["LOST", "Breakout Status"])  # no breakout row: still listed
+    assert pb.untested_cobra(pd.DataFrame(), breakout).empty
+
+
+def test_failed_counts_per_mode():
+    statuses = ["PRE_BREAKOUT", "BREAKOUT_TRIGGERED", "BREAKOUT_TRIGGERED", "BREAKOUT_CONFIRMED"]
+    bo = pd.DataFrame([_bo(f"S{i}", s, 0) for i, s in enumerate([*statuses, "WATCH"])])
+    assert pb.failed_counts(bo, "daily") == {
+        "PRE_BREAKOUT": 1,
+        "BREAKOUT_TRIGGERED": 2,
+        "BREAKOUT_CONFIRMED": 1,
+    }
+    # Weekly CONFIRMED passed in-sample, so it is not a failed count.
+    assert pb.failed_counts(bo, "weekly") == {"PRE_BREAKOUT": 1, "BREAKOUT_TRIGGERED": 2}
+    assert pb.failed_counts(pd.DataFrame(), "weekly") == {
+        "PRE_BREAKOUT": 0,
+        "BREAKOUT_TRIGGERED": 0,
+    }
+
+
+def test_load_previous_breakout(tmp_path):
+    for day, sym in (("2026-10-16", "OLD"), ("2026-10-23", "PREV"), ("2026-10-30", "NOW")):
+        pd.DataFrame([_bo(sym, "BREAKOUT_CONFIRMED", 0)]).to_csv(
+            tmp_path / f"breakout_setups_{day}.csv", index=False
+        )
+    assert list(pb.load_previous_breakout(str(tmp_path), "2026-10-30")["Symbol"]) == ["PREV"]
+    assert pb.load_previous_breakout(str(tmp_path), "2026-10-16").empty
+    assert pb.load_previous_breakout(str(tmp_path), None).empty
 
 
 def _row(**kw):
@@ -73,7 +103,7 @@ def test_plan_levels_from_resistance_support_and_swing_low():
     assert plan["support"] == 44.62
     assert plan["stop"] == pytest.approx(stop, abs=0.005)
     assert plan["risk"] == pytest.approx(risk, abs=0.005)
-    assert plan["targets"] == pytest.approx([50.31 + 2 * risk, 50.31 + 3 * risk], abs=0.005)
+    assert "targets" not in plan
     assert plan["risk_pct"] == pytest.approx(100 * risk / 50.31, abs=0.05)
     assert plan["wide_stop"]  # ~10% > 8%
 
@@ -152,7 +182,7 @@ def test_short_plan_mirrors_the_long_plan():
     risk = stop - 758.79
     assert plan["side"] == "short" and plan["trigger"] == 758.79
     assert plan["stop"] == pytest.approx(stop, abs=0.01)
-    assert plan["targets"] == pytest.approx([758.79 - 2 * risk, 758.79 - 3 * risk], abs=0.01)
+    assert plan["risk"] == pytest.approx(risk, abs=0.01)
     assert plan["condition"].startswith("Close below 758.79")
     long = pb.action_plan(_spy())
     assert long["trigger"] == 781.62 and long["stop"] == pytest.approx(
@@ -175,7 +205,7 @@ def test_bad_side_is_rejected():
 
 def test_chart_levels_long_with_support():
     lines = pb.chart_levels(pb.action_plan(_row()), with_support=True)
-    assert [line["label"] for line in lines] == ["Trigger", "Stop", "T1", "T2", "Support"]
+    assert [line["label"] for line in lines] == ["Trigger", "Stop", "Support"]
     assert lines[0]["price"] == 50.31 and lines[-1]["price"] == 44.62
 
 
@@ -232,20 +262,6 @@ def test_market_rows_carry_bias_price_and_support_resistance_lines():
 def test_unusable_live_price_falls_back_to_close(bad):
     plan = pb.action_plan(_row(), live_price=bad)
     assert plan["status"] == "WAITING" and plan["price"] == 48.68 and not plan["price_is_live"]
-
-
-def test_breakout_csv_without_status_column_still_ranks_cobra_setups():
-    breakout = pd.DataFrame([_bo("COBRA", "WATCH", 40)]).drop(columns=["Status"])
-    ranked = pb.candidates(pd.DataFrame([_cobra("COBRA", 85)]), breakout)
-    assert list(ranked["Symbol"]) == ["COBRA"] and list(ranked["Rank Score"]) == [85]
-
-
-def test_cobra_setup_without_breakout_row_is_logged(caplog):
-    caplog.set_level("INFO")
-    breakout = pd.DataFrame([_bo("OTHER", "PRE_BREAKOUT", 10)])
-    ranked = pb.candidates(pd.DataFrame([_cobra("LOST", 95)]), breakout)
-    assert "LOST" not in set(ranked["Symbol"])
-    assert "no breakout row" in caplog.text and "LOST" in caplog.text
 
 
 def test_extended_note_uses_the_threshold(monkeypatch):
