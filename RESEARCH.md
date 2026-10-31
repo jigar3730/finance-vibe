@@ -136,7 +136,7 @@ Signal weeks 2018-05-07 → week of 2026-03-23 (389 weeks), in-universe events o
   Reported, not a pass criterion.
 - **Decision (§11): weekly CONFIRMED passes in-sample and is eligible for the one holdout
   run. PRE_BREAKOUT and TRIGGERED are dropped, not tuned.** The holdout has not been
-  opened.
+  opened. It runs once, on **2035-09-07** (§11, holdout date).
 - Read with care. These caveats change nothing in the decision:
   - The pass is marginal (0.049 against 0.05).
   - The §11 overlap caveat applies: successive 4-week windows overlap, so the plain
@@ -220,7 +220,18 @@ date-clustered t-test does not correct for that, which makes a false PASS more l
 not less. This is stated, and the rule is not changed for it. (The daily 10-session
 windows overlap the same way.)
 
+**Holdout date (set 2026-10-30, holdout unopened).** The weekly CONFIRMED holdout runs
+once, on **2035-09-07**, over every holdout signal whose 4-week window has closed by then
+(signal weeks 2026-03-30 → about 2035-08). This was set from in-sample data only. If the
+in-sample edge is real, about 355 weeks with an event (≈ 490 calendar weeks) give the test
+about an 80% chance of passing. One year of holdout gives about 15%, two years about 25%.
+With the split-flagged events excluded, it stays under 35% even after 10 years. No earlier
+look and no interim run. Until then, weekly CONFIRMED is **unproven**, not tested. The
+2035 run needs weekly bars back to about 2024-01 (80-bar warm-up plus 52-bar history),
+which a 10-year Yahoo download then will not cover, so the raw history must be kept.
+
 **Survivorship.** As §8.4: reduced, not removed.
 | 2026-10-27 | d29350e | Weekly blind label run (§11), breakout rubric v1.0: `data/research/labels_weekly_2026-10-27/` from the same snapshot `snapshots/2026-10-27/` (weekly files). In-sample, in-universe: E1 464, E2 3682, E3 718 over 389 signal weeks (2018-05-07 → week of 2026-03-23, known 03-27); 20 draws each (none short). DQ: 0 missing next open / short window / gap / SPY missing; 49 events and 952 draws `split_suspect` (kept). scan_history skipped BMNR, CRCL, FIG (< 80 weekly bars). Labels only, no results computed. | W-E1–W-E3 | — |
 | 2026-10-27 | 77e1826 | Weekly in-sample analysis run once (§11 as pre-registered) on `labels_weekly_2026-10-27`. No threshold, horizon or definition changed. | W-E1–W-E3 | PRE_BREAKOUT FAIL (p Holm 1.000), TRIGGERED FAIL (1.000), **CONFIRMED PASS (0.049)**. Holdout not opened. |
 | 2026-10-27 | — | **Exploratory, not a finding:** weekly CONFIRMED's in-sample pass does not survive excluding the 28 split-flagged events (p Holm 0.400). An overlap-robust test (non-overlapping 4-week windows, or HAC errors) would be a new pre-registered test. It cannot replace the §11 rule, and it cannot be chosen after seeing the holdout. | — | — |
+| 2026-10-30 | — | Weekly holdout date set to **2035-09-07** (§11), chosen for about an 80% pass chance if the in-sample edge is real. Power was simulated by resampling in-sample CONFIRMED signal weeks only. No holdout bar was read, and the test, threshold, horizon and universe are unchanged. | W-E3 | Holdout not opened. |
