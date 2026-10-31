@@ -1,5 +1,5 @@
 """Read-only insight over the generated data: ETF freshness, bar quality, run
-changes, and the Market tab's ETF relative view.
+changes, the Market tab's ETF relative view and the market strip on every page.
 
 Pure pandas and file reads, no Flask, like :mod:`finance_vibe.web.playbook`.
 Nothing here feeds back into a scanner or a score.
@@ -307,3 +307,52 @@ def etf_relative(
             frames[sym] = daily_closes(sym)
     rot = rotation(frames[config.ROTATION_GROWTH], frames[config.ROTATION_DIVIDEND])
     return {"rows": rows, "windows": list(RETURN_WINDOWS), "benchmark": benchmark, "rotation": rot}
+
+
+# ---------------------------------------------------------------------------
+# Market strip (top of every page): facts only, no bias rule
+# ---------------------------------------------------------------------------
+
+
+def _above(close: float | None, level: float | None) -> bool | None:
+    return None if close is None or level is None else close > level
+
+
+def market_strip(
+    daily_breakout: pd.DataFrame, symbols: tuple[str, ...] = playbook.MARKET_SYMBOLS
+) -> dict[str, Any]:
+    """Per ETF: last daily % change, close vs SMA50 / SMA200, and a heavy-volume support break.
+
+    The % change compares the last two closes in the daily raw file. The SMA
+    and support facts come from the latest daily breakout row: ``heavy_break``
+    is a close below ``Support`` with RVOL20 at or above
+    ``config.BREAKOUT_RVOL_CONFIRM``. Plus the growth-vs-dividend label.
+    """
+    wanted = (*symbols, config.ROTATION_GROWTH, config.ROTATION_DIVIDEND)
+    frames = {s: daily_closes(s) for s in dict.fromkeys(wanted)}
+    rows = []
+    for sym in symbols:
+        df = frames[sym]
+        row = playbook.row_for(daily_breakout, sym) or {}
+        last = None if df is None or df.empty else pd.Timestamp(df["Date"].iloc[-1])
+        close = playbook.num(row.get("Close"))
+        support, rvol = playbook.num(row.get("Support")), playbook.num(row.get("RVOL20"))
+        rows.append(
+            {
+                "symbol": sym,
+                "change": None if df is None else _ret(df["Close"], 1),
+                "as_of": None if last is None else last.date().isoformat(),
+                "above_sma50": _above(close, playbook.num(row.get("SMA50"))),
+                "above_sma200": _above(close, playbook.num(row.get("SMA200"))),
+                "heavy_break": (
+                    close is not None
+                    and support is not None
+                    and rvol is not None
+                    and close < support
+                    and rvol >= config.BREAKOUT_RVOL_CONFIRM
+                ),
+                "rvol": rvol,
+            }
+        )
+    rot = rotation(frames[config.ROTATION_GROWTH], frames[config.ROTATION_DIVIDEND])
+    return {"rows": rows, "rotation": rot["label"]}

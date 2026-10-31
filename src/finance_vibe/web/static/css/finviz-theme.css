@@ -359,6 +359,21 @@ table.table tr:has(.live-surge) {
 .changes-table { margin-bottom: 14px; }
 .changed-row td:first-child { font-weight: 700; }
 
+/* Market strip (base.html, every page) */
+.market-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    padding: 6px 24px;
+    font-size: 0.78rem;
+    font-family: var(--finviz-font-mono);
+    background: var(--finviz-bg-hover);
+    border-bottom: 1px solid var(--finviz-border);
+}
+.strip-item { display: inline-flex; gap: 6px; align-items: baseline; }
+.market-strip .pos { color: var(--finviz-green-light); }
+.market-strip .neg { color: var(--finviz-red); }
+
 /* Market tab */
 .bias-pill {
     margin-left: auto;
@@ -371,9 +386,6 @@ table.table tr:has(.live-surge) {
 .bias-long { background: rgba(8, 153, 129, 0.18); color: var(--finviz-green-light); }
 .bias-short { background: rgba(242, 54, 69, 0.16); color: var(--finviz-red); }
 .bias-neutral { background: var(--finviz-bg-hover); color: var(--finviz-text-muted); }
-.plan-block { margin-bottom: 10px; }
-.plan-title { display: flex; align-items: center; font-weight: 600; font-size: 0.85rem; }
-.plan-off { opacity: 0.45; }
 .states-table { margin-bottom: 10px; table-layout: fixed; }
 table.states-table th, table.states-table td {
     white-space: normal;

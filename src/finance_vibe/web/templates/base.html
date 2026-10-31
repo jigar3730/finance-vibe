@@ -18,6 +18,21 @@
         <a class="nav-link {% if request.endpoint == 'changes' %}active{% endif %}" href="{{ url_for('changes') }}">Changes</a>
         <a class="nav-link {% if request.endpoint in ['runs', 'cobra_view', 'breakout_view'] %}active{% endif %}" href="{{ url_for('runs') }}">Runs</a>
     </nav>
+    {% if market_strip %}
+    <div class="market-strip" aria-label="Market summary">
+        {% for r in market_strip.rows %}
+        <span class="strip-item">
+            <strong>{{ r.symbol }}</strong>
+            {% if r.change is not none %}<span class="{{ 'pos' if r.change > 0 else ('neg' if r.change < 0 else '') }}" title="last daily close vs the one before ({{ r.as_of }})">{{ (r.change * 100)|signed(2) }}%</span>{% else %}<span class="muted">—</span>{% endif %}
+            {% for label, above in [('50d', r.above_sma50), ('200d', r.above_sma200)] %}
+            <span class="muted">{% if above is none %}{{ label }} —{% else %}{{ 'above' if above else 'below' }} {{ label }}{% endif %}</span>
+            {% endfor %}
+            {% if r.heavy_break %}<span class="warn" title="daily close below Support with RVOL20 {{ r.rvol|num }}">⚠ closed below support on heavy volume</span>{% endif %}
+        </span>
+        {% endfor %}
+        <span class="strip-item"><span class="muted">Growth vs dividend:</span> {{ market_strip.rotation }}</span>
+    </div>
+    {% endif %}
     <div class="page-body">
         {% block content %}{% endblock %}
     </div>

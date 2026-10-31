@@ -392,20 +392,53 @@ def _market_logs(tmp_path, monkeypatch, weekly_trend):
     pd.DataFrame(weekly).to_csv(dirs["weekly"] / "breakout_setups_2026-10-20.csv", index=False)
 
 
-def test_market_page_shows_bias_and_both_plans(client, tmp_path, monkeypatch):
+def test_market_page_shows_bias_and_no_trade_plans(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BEARISH")
     body = client.get("/market").get_data(as_text=True)
     spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
     assert "bias-short" in spy and "SHORT" in spy
-    assert "Long: break above resistance" in spy and "Short: break below support" in spy
-    long_block = spy.split("Long: break above resistance")[0].rsplit('<div class="plan-block', 1)[1]
-    assert long_block.startswith(" plan-off")  # off-bias side is dimmed
+    for gone in ("Long: break above", "Short: break below", "plan-block", "2R", "Stop", "Trigger"):
+        assert gone not in spy
     assert "758.79" in spy and "781.62" in spy
     levels = json.loads(spy.split("data-levels='")[1].split("'")[0])
-    assert levels[0]["label"] == "Short Trigger" and levels[-1]["label"] == "Long trigger"
+    assert [line["label"] for line in levels] == ["Resistance", "Support"]
     assert "Relative view" in body and "Growth vs dividend:" in body
     assert "Returns include" in body and "dividends (Yahoo adjusted closes)" in body
     assert "No daily scan row for SCHG" in body and "No daily scan row for SCHD" in body
+
+
+@pytest.mark.parametrize("url", ["/", "/market", "/changes", "/runs"])
+def test_market_strip_on_every_page(client, tmp_path, monkeypatch, url):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    body = client.get(url).get_data(as_text=True)
+    strip = body.split('class="market-strip"')[1].split("</div>")[0]
+    for sym in ("SPY", "QQQ", "SCHG", "SCHD"):
+        assert f"<strong>{sym}</strong>" in strip
+    # Fixture: close 760.0 is below SMA50 767.26 but above Support 758.79; no SMA200.
+    assert "below 50d" in strip and "200d —" in strip and "Growth vs dividend:" in strip
+    assert "closed below support" not in strip
+
+
+def test_market_strip_warns_on_heavy_volume_support_break(client, tmp_path, monkeypatch):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    daily = tmp_path / "d" / "breakout_setups_2026-10-20.csv"
+    df = pd.read_csv(daily)
+    df["RVOL20"] = 2.16
+    df.loc[df["Symbol"] == "SPY", "RVOL20"] = 1.2  # SPY: below support too, light volume
+    df["Close"] = 750.0
+    df.to_csv(daily, index=False)
+    strip = client.get("/runs").get_data(as_text=True).split('class="market-strip"')[1]
+    strip = strip.split("</div>")[0]
+    qqq = strip.split("<strong>QQQ</strong>")[1].split("<strong>SCHG</strong>")[0]
+    assert "closed below support on heavy volume" in qqq
+    assert "closed below support" not in strip.split("<strong>QQQ</strong>")[0]
+
+
+def test_market_strip_has_no_bias_pill(client, tmp_path, monkeypatch):
+    """The strip shows facts only: no bias pill, even when SPY's bias is SHORT."""
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BEARISH")
+    strip = client.get("/runs").get_data(as_text=True).split('class="market-strip"')[1]
+    assert "bias-" not in strip.split("</div>")[0]
 
 
 def test_market_cards_show_freshness(client, tmp_path, monkeypatch):

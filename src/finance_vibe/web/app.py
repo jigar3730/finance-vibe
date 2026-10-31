@@ -347,6 +347,17 @@ def _market(
     return playbook.market_rows(latest["daily"][2], latest["weekly"][2], live, symbols)
 
 
+@app.context_processor
+def market_strip_context() -> dict[str, Any]:
+    """The market strip in ``base.html``: facts for SPY / QQQ / SCHG / SCHD on every page."""
+    try:
+        strip = insights.market_strip(playbook.load_latest(LOG_DIRS["daily"])[2])
+    except (OSError, ValueError, KeyError):
+        logger.exception("Market strip unavailable")
+        strip = None
+    return {"market_strip": strip}
+
+
 @app.route("/")
 def index() -> str:
     """Top setups: the best 3 of both scanners per mode, with key levels and a plan."""
@@ -379,7 +390,7 @@ def index() -> str:
 
 @app.route("/market")
 def market() -> str:
-    """SPY / QQQ / SCHG / SCHD: bias from the breakout states, with long and short levels."""
+    """SPY / QQQ / SCHG / SCHD: bias and states from the breakout scan, support / resistance."""
     live = _fetch_live_prices(list(playbook.MARKET_SYMBOLS))
     rows = _market(_latest_runs(), live)
     expected = insights.expected_bars()

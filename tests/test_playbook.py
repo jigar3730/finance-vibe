@@ -179,19 +179,6 @@ def test_chart_levels_long_with_support():
     assert lines[0]["price"] == 50.31 and lines[-1]["price"] == 44.62
 
 
-@pytest.mark.parametrize(
-    ("bias", "labels"),
-    [
-        ("LONG", ["Trigger", "Stop", "T1", "T2", "Short trigger"]),
-        ("SHORT", ["Short Trigger", "Short Stop", "Short T1", "Short T2", "Long trigger"]),
-        ("NEUTRAL", ["Break up", "Break down", "Long stop", "Short stop"]),
-    ],
-)
-def test_market_chart_levels(bias, labels):
-    long, short = pb.action_plan(_spy()), pb.action_plan(_spy(), side="short")
-    assert [line["label"] for line in pb.market_chart_levels(bias, long, short)] == labels
-
-
 # ---------------------------------------------------------------------------
 # Market bias
 # ---------------------------------------------------------------------------
@@ -220,15 +207,20 @@ def test_market_bias_is_neutral_without_rows():
     assert pb.market_bias(_spy(SMA50=None), {"Trend": "BULLISH", "MTF": "ALIGNED"})[0] == "NEUTRAL"
 
 
-def test_market_rows_build_both_plans_per_symbol():
+def test_market_rows_carry_bias_price_and_support_resistance_lines():
     daily = pd.DataFrame([_spy(), _spy(Symbol="QQQ")])
     weekly = pd.DataFrame([_spy(Trend="BULLISH", MTF="ALIGNED")])
-    rows = {r["symbol"]: r for r in pb.market_rows(daily, weekly, {"SPY": 790.0})}
+    rows = {r["symbol"]: r for r in pb.market_rows(daily, weekly, {"SPY": 790.0, "QQQ": "N/A"})}
     assert list(rows) == ["SPY", "QQQ", "SCHG", "SCHD"]
-    assert rows["SPY"]["bias"] == "LONG" and rows["SPY"]["plans"]["long"]["status"] == "EXTENDED"
-    assert rows["QQQ"]["bias"] == "NEUTRAL" and rows["QQQ"]["plans"] is not None  # no weekly row
-    assert rows["SCHG"]["plans"] is None and rows["SCHG"]["levels"] is None
-    assert rows["SCHD"]["plans"] is None
+    assert rows["SPY"]["bias"] == "LONG" and "plans" not in rows["SPY"]
+    assert rows["SPY"]["price"] == 790.0 and rows["SPY"]["price_is_live"]
+    assert rows["QQQ"]["bias"] == "NEUTRAL"  # no weekly row
+    assert rows["QQQ"]["price"] == 769.05 and not rows["QQQ"]["price_is_live"]
+    assert [(line["label"], line["price"]) for line in rows["SPY"]["levels"]] == [
+        ("Resistance", 781.62),
+        ("Support", 758.79),
+    ]
+    assert rows["SCHG"]["levels"] is None and rows["SCHD"]["price"] is None
 
 
 # ---------------------------------------------------------------------------

@@ -164,7 +164,7 @@ dashboard and the next scheduled run pick it up.
 | Route | Contents |
 | ----- | -------- |
 | `/` | Top setups: the best 3 of both scanners per mode, with key levels and an action plan |
-| `/market` | SPY / QQQ / SCHG / SCHD: relative view (returns, RS vs SPY, growth-vs-dividend label), long / short / neutral bias with long and short range-break levels, row freshness |
+| `/market` | SPY / QQQ / SCHG / SCHD: relative view (returns, RS vs SPY, growth-vs-dividend label), long / short / neutral bias with the weekly and daily states, a daily chart with Support / Resistance, row freshness |
 | `/changes` | What changed since the previous run, per mode: breakout status moves, Coiled Cobra setups new / dropped / kept, Market ETF bias |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
@@ -218,17 +218,19 @@ from the breakout scan's states:
   SMA50.
 - **NEUTRAL:** anything else, or a missing row.
 
-Each card shows the weekly and daily states, a daily level chart, and two daily
-range-break plans:
+Each card shows the weekly and daily states, a daily chart with the scan's
+`Resistance` and `Support` lines, and the daily close, SMAs, ATR and RVOL20. There are no
+trade plans (no trigger, stop or targets) on this page. When SPY or QQQ is SHORT, Top
+Setups shows a "market headwind" banner. The ranking is unchanged.
 
-- **Long:** above `Resistance`, with the stop under support, as on Top Setups.
-- **Short:** below `Support`, with the stop at the lower of `Resistance` and `SMA20`
-  plus 0.25 × ATR, and targets 2R / 3R below. This mirrors the long rule; the
-  breakout scanner has no breakdown confirmation, so the card says so.
+**Market strip (`web/insights.market_strip`, every page).** A bar under the nav with,
+for each of SPY / QQQ / SCHG / SCHD:
+- the last daily % change (last two closes in the daily raw file),
+- the daily close above or below its SMA50 and SMA200 (latest daily breakout row),
+- "closed below support on heavy volume" when the daily close is below `Support` and
+  RVOL20 ≥ `config.BREAKOUT_RVOL_CONFIRM` (1.5),
 
-The plan matching the bias is highlighted and the other dimmed; NEUTRAL shows both as
-range-break levels. When SPY or QQQ is SHORT, Top Setups shows a "market headwind"
-banner. The ranking is unchanged.
+then the growth-vs-dividend label. Facts only: it shows no bias and adds no rule.
 
 **Relative view (`web/insights.etf_relative`).** A table above the cards, from each
 ETF's daily raw closes:

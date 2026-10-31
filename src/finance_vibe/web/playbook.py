@@ -116,7 +116,7 @@ def live_price_or_none(value: object) -> float | None:
     return None
 
 
-def _num(value: Any) -> float | None:
+def num(value: Any) -> float | None:
     v = pd.to_numeric(value, errors="coerce")
     return None if pd.isna(v) else float(v)
 
@@ -212,23 +212,23 @@ def action_plan(
     if side not in ("long", "short"):
         raise ValueError(f"side must be 'long' or 'short', not {side!r}")
     long = side == "long"
-    atr = _num(row.get("ATR"))
-    support, resistance = _num(row.get("Support")), _num(row.get("Resistance"))
+    atr = num(row.get("ATR"))
+    support, resistance = num(row.get("Support")), num(row.get("Resistance"))
     entry = resistance if long else support
     if entry is None or atr is None or atr <= 0:
         raise ValueError("row needs a trigger level (Resistance / Support) and a positive ATR")
     if long:
-        floors = [support, _num(row.get("Cobra Swing Low"))]
+        floors = [support, num(row.get("Cobra Swing Low"))]
         level = max((f for f in floors if f is not None and f < entry), default=None)
     else:
-        ceilings = [resistance, _num(row.get("SMA20"))]
+        ceilings = [resistance, num(row.get("SMA20"))]
         level = min((c for c in ceilings if c is not None and c > entry), default=None)
     if level is None:
         raise ValueError("row needs a stop level on the other side of the trigger")
     d = 1 if long else -1  # +1: profit when price rises
     stop = level - d * STOP_BUFFER_ATR * atr
     risk = d * (entry - stop)
-    close = _num(row.get("Close"))
+    close = num(row.get("Close"))
     live_price = live_price_or_none(live_price)
     price = live_price if live_price is not None else close
     beyond, toward = ("above", "below") if long else ("below", "above")
@@ -282,7 +282,7 @@ def action_plan(
 
 
 # ---------------------------------------------------------------------------
-# Chart levels (shared by the Top Setups and Market pages)
+# Chart levels (Top Setups plans; Market cards use the same colours)
 # ---------------------------------------------------------------------------
 
 LEVEL_COLORS = {
@@ -314,27 +314,6 @@ def chart_levels(plan: dict[str, Any], *, with_support: bool = False) -> list[di
     return [line for line in lines if line is not None]
 
 
-def market_chart_levels(
-    bias: str, long_plan: dict[str, Any], short_plan: dict[str, Any]
-) -> list[dict[str, Any]]:
-    """Market card lines: the bias side's full plan plus the other side's trigger, dotted.
-
-    NEUTRAL draws both range-break triggers and both stops.
-    """
-    if bias == "NEUTRAL":
-        lines = [
-            _line(long_plan["trigger"], "Break up", LEVEL_COLORS["trigger"], SOLID),
-            _line(short_plan["trigger"], "Break down", LEVEL_COLORS["trigger"], SOLID),
-            _line(long_plan["stop"], "Long stop", LEVEL_COLORS["stop"], DOTTED),
-            _line(short_plan["stop"], "Short stop", LEVEL_COLORS["stop"], DOTTED),
-        ]
-    else:
-        on, off = (long_plan, short_plan) if bias == "LONG" else (short_plan, long_plan)
-        other = "Short trigger" if bias == "LONG" else "Long trigger"
-        lines = [*chart_levels(on), _line(off["trigger"], other, LEVEL_COLORS["trigger"], DOTTED)]
-    return [line for line in lines if line is not None]
-
-
 # ---------------------------------------------------------------------------
 # Market tab: SPY / QQQ / SCHG / SCHD bias from the breakout scanner's states
 # ---------------------------------------------------------------------------
@@ -356,7 +335,7 @@ def market_bias(
     if not daily or not weekly:
         return "NEUTRAL", ["missing a daily or weekly scan row"]
     trend, mtf = weekly.get("Trend"), weekly.get("MTF")
-    close, sma50 = _num(daily.get("Close")), _num(daily.get("SMA50"))
+    close, sma50 = num(daily.get("Close")), num(daily.get("SMA50"))
     reasons = [f"weekly trend {trend}", f"weekly MTF {mtf}"]
     if close is None or sma50 is None:
         return "NEUTRAL", [*reasons, "daily SMA50 unavailable"]
@@ -369,11 +348,20 @@ def market_bias(
     return "NEUTRAL", reasons
 
 
-def _row_for(df: pd.DataFrame, symbol: str) -> dict[str, Any] | None:
+def row_for(df: pd.DataFrame, symbol: str) -> dict[str, Any] | None:
     if df.empty or "Symbol" not in df.columns:
         return None
     hit = df[df["Symbol"].astype(str).str.strip().str.upper() == symbol]
     return None if hit.empty else {str(k): v for k, v in hit.iloc[0].items()}
+
+
+def market_levels(daily: dict[str, Any]) -> list[dict[str, Any]]:
+    """Market card chart lines: the daily row's Resistance and Support, nothing else."""
+    lines = [
+        _line(num(daily.get("Resistance")), "Resistance", LEVEL_COLORS["trigger"], SOLID),
+        _line(num(daily.get("Support")), "Support", LEVEL_COLORS["support"], DOTTED),
+    ]
+    return [line for line in lines if line is not None]
 
 
 def market_rows(
@@ -382,26 +370,17 @@ def market_rows(
     live: dict[str, float | str] | None = None,
     symbols: tuple[str, ...] = MARKET_SYMBOLS,
 ) -> list[dict[str, Any]]:
-    """One dict per ETF: its scan rows, bias and reasons, both plans and chart lines.
+    """One dict per ETF: its scan rows, bias and reasons, price and chart lines.
 
-    Plans use the daily row's levels; a symbol without a usable daily row gets
-    ``plans`` = None.
+    ``price`` is the live quote when usable, else the daily Close. A symbol
+    without a daily row gets ``levels`` = None.
     """
     rows = []
     for symbol in symbols:
-        daily, weekly = _row_for(daily_breakout, symbol), _row_for(weekly_breakout, symbol)
+        daily, weekly = row_for(daily_breakout, symbol), row_for(weekly_breakout, symbol)
         bias, reasons = market_bias(daily, weekly)
-        price = live_price_or_none((live or {}).get(symbol))
-        plans = levels = None
-        if daily:
-            try:
-                plans = {
-                    "long": action_plan(daily, price, side="long"),
-                    "short": action_plan(daily, price, side="short"),
-                }
-                levels = market_chart_levels(bias, plans["long"], plans["short"])
-            except ValueError:
-                plans = levels = None
+        live_price = live_price_or_none((live or {}).get(symbol))
+        close = num(daily.get("Close")) if daily else None
         rows.append(
             {
                 "symbol": symbol,
@@ -409,8 +388,9 @@ def market_rows(
                 "weekly": weekly,
                 "bias": bias,
                 "reasons": reasons,
-                "plans": plans,
-                "levels": levels,
+                "price": live_price if live_price is not None else close,
+                "price_is_live": live_price is not None,
+                "levels": market_levels(daily) if daily else None,
             }
         )
     return rows

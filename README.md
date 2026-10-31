@@ -18,7 +18,7 @@ uv run python -m finance_vibe.pipeline          # weekly: refresh tickers + data
 uv run python -m finance_vibe.pipeline --mode daily
 uv run python -m finance_vibe.pipeline --reuse-raw          # keep raw data; scanners only
 uv run python -m finance_vibe.pipeline --as-of 2025-11-07   # replay a past date
-uv run python -m finance_vibe.web.app           # dashboard: top setups, market bias, run changes, run pages at http://127.0.0.1:5000
+uv run python -m finance_vibe.web.app           # dashboard: market strip, top setups, market bias, run changes, run pages at http://127.0.0.1:5000
 uv run pytest -q
 ```
 

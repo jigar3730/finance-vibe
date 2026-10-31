@@ -286,3 +286,48 @@ def test_etf_relative_without_raw_files(raw_silo):
     got = insights.etf_relative()
     assert all(r["returns"] == {} and r["rs"] is None for r in got["rows"])
     assert got["rotation"]["label"] == insights.MIXED
+
+
+# ---------------------------------------------------------------------------
+# Market strip
+# ---------------------------------------------------------------------------
+
+
+def _strip_row(symbol, **kw):
+    row = {"Symbol": symbol, "Close": 100.0, "SMA50": 95.0, "SMA200": 105.0}
+    row |= {"Support": 98.0, "RVOL20": 1.0}
+    return row | kw
+
+
+def test_market_strip_facts(raw_silo):
+    for sym in ("SPY", "QQQ", "SCHG", "SCHD"):
+        raw_silo(sym, "daily", EXPECTED["daily"], periods=150, growth=sym == "SCHG")
+    daily = pd.DataFrame(
+        [
+            _strip_row("SPY"),
+            _strip_row("QQQ", Close=97.0, RVOL20=config.BREAKOUT_RVOL_CONFIRM),
+            _strip_row("SCHG", Close=97.0, RVOL20=1.49),  # below support, light volume
+        ]
+    )
+    got = insights.market_strip(daily)
+    rows = {r["symbol"]: r for r in got["rows"]}
+    assert list(rows) == ["SPY", "QQQ", "SCHG", "SCHD"]
+    closes = insights.daily_closes("SPY")["Close"]
+    assert rows["SPY"]["change"] == pytest.approx(closes.iloc[-1] / closes.iloc[-2] - 1)
+    assert rows["SPY"]["as_of"] == "2026-10-30"
+    assert rows["SPY"]["above_sma50"] is True and rows["SPY"]["above_sma200"] is False
+    assert not rows["SPY"]["heavy_break"]
+    assert rows["QQQ"]["heavy_break"] and not rows["SCHG"]["heavy_break"]
+    # No scan row: the % change still shows, the scan facts are unknown.
+    assert rows["SCHD"]["change"] is not None and rows["SCHD"]["above_sma50"] is None
+    assert not rows["SCHD"]["heavy_break"]
+    assert got["rotation"] == insights.GROWTH_LEADING
+
+
+def test_market_strip_without_data(raw_silo):
+    got = insights.market_strip(pd.DataFrame())
+    assert all(
+        r["change"] is None and r["above_sma50"] is None and not r["heavy_break"]
+        for r in got["rows"]
+    )
+    assert got["rotation"] == insights.MIXED

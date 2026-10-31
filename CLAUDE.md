@@ -22,7 +22,7 @@ dashboard. It produces *signals* for review, not trades.
   membership, `config.RESEARCH_*`), `events` (§3 E1/E2/E3, `history_panel`), `labels` (§4–§5
   forward labels + random/SPY benchmarks, holdout sealed), `stats` + `insample` (§7 scorecard).
   Not used by the pipeline.
-- `src/finance_vibe/web/` — Flask app, `playbook.py` (Top Setups ranking, Market tab bias, long/short levels), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market relative view), `templates/`, `static/`
+- `src/finance_vibe/web/` — Flask app, `playbook.py` (Top Setups ranking and levels, Market tab bias), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market relative view, market strip), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
 - `data/` — gitignored. `data/raw/{weekly|daily}/`, `data/logs/{weekly|daily}/`, `data/active_tickers.csv`, `data/research/`
