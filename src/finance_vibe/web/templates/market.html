@@ -13,6 +13,33 @@
         context, not a call.
     </div>
 
+    {% if relative %}{% set rot = relative.rotation %}
+    <section class="relative-view">
+        <h2>Relative view <span class="top-date">daily closes</span></h2>
+        <table class="table relative-table">
+            <tr><th>ETF</th>{% for w in relative.windows %}<th>{{ w }}</th>{% endfor %}<th>RS 63d vs {{ relative.benchmark }}</th><th>As of</th></tr>
+            {% for r in relative.rows %}
+            <tr><td>{{ r.symbol }}</td>
+                {% for w in relative.windows %}{% set v = r.returns.get(w) %}
+                <td class="{{ 'pos' if v is not none and v > 0 else ('neg' if v is not none and v < 0 else '') }}">{{ (v * 100)|signed(1) if v is not none else '—' }}{% if v is not none %}%{% endif %}</td>
+                {% endfor %}
+                <td>{% if r.rs is not none %}{{ (r.rs * 100)|signed(1) }}%{% if r.rs_ok %} <span class="muted" title="ratio to {{ relative.benchmark }} above its 20-bar MA and ahead over 63 days">strong</span>{% endif %}{% else %}—{% endif %}</td>
+                <td class="muted">{{ r.as_of or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </table>
+        <p class="setup-note rotation">
+            <strong>Growth vs dividend:</strong> <span class="rotation-label">{{ rot.label }}</span>
+            {% if rot.ratio is not none %}
+            · SCHG/SCHD ratio {{ rot.ratio|num(4) }} vs 50-day SMA {{ rot.ma|num(4) }} · 63-day spread {{ (rot.spread * 100)|signed(1) }}% ({{ rot.as_of }})
+            {% endif %}
+        </p>
+        <p class="meta">Unvalidated context, not a signal. Growth leading: ratio above its 50-day SMA and SCHG beat SCHD
+            over 63 days; Dividend/value leading: ratio below its SMA and SCHD beat SCHG; otherwise Mixed. Returns include
+            dividends (Yahoo adjusted closes).</p>
+    </section>
+    {% endif %}
+
     {% set plan_names = {'long': 'Long: break above resistance', 'short': 'Short: break below support'} %}
     <div class="card-grid">
     {% for m in rows %}

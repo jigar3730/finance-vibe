@@ -387,7 +387,7 @@ def market() -> str:
         m["freshness"] = insights.etf_freshness(
             m["symbol"], {"daily": m["daily"], "weekly": m["weekly"]}, expected
         )
-    return render_template("market.html", rows=rows)
+    return render_template("market.html", rows=rows, relative=insights.etf_relative())
 
 
 @app.route("/api/bars/<mode>/<symbol>")

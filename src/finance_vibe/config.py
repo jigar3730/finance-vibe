@@ -217,6 +217,12 @@ DQ_FLAT_RUN = 5  # this many identical closes in a row looks like placeholder da
 DQ_JUMP_PCT = 0.40  # a close-to-close move this large may be a split or a bad print
 DQ_PRICE_TOL = 1e-6  # relative slack when checking High/Low against Open/Close
 
+# Market tab growth-vs-dividend rotation (web.insights.rotation): SCHG / SCHD close
+# ratio vs its SMA, plus the spread of their returns over the lookback. Unvalidated.
+ROTATION_GROWTH, ROTATION_DIVIDEND = "SCHG", "SCHD"
+ROTATION_MA_BARS = 50
+ROTATION_LOOKBACK = 63
+
 # Breakout confirmation volume: RVOL20 at or above this on a close through
 # resistance confirms a breakout. Shared by scanners.breakout and the
 # dashboard's trigger rule (web.playbook).

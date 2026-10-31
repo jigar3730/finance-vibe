@@ -21,10 +21,18 @@ def raw_silo(tmp_path, monkeypatch):
         (tmp_path / mode).mkdir()
         monkeypatch.setitem(config.TIMEFRAME_PROFILES[mode], "raw_dir", str(tmp_path / mode))
 
-    def write(symbol: str, mode: str, last: date, *, bad_last: bool = False) -> None:
+    def write(
+        symbol: str,
+        mode: str,
+        last: date,
+        *,
+        bad_last: bool = False,
+        periods: int = 30,
+        growth: bool = False,
+    ) -> None:
         freq = "W-MON" if mode == "weekly" else "B"
-        dates = pd.date_range(end=pd.Timestamp(last), periods=30, freq=freq)
-        close = np.linspace(30.0, 35.0, len(dates))
+        dates = pd.date_range(end=pd.Timestamp(last), periods=periods, freq=freq)
+        close = np.linspace(30.0, 35.0 if not growth else 60.0, len(dates))
         df = pd.DataFrame(
             {
                 "Date": dates,
@@ -206,3 +214,75 @@ def test_bias_changes_pairs_each_day_with_its_weekly_run(tmp_path):
     got = {b["symbol"]: b for b in insights.bias_changes(str(daily), str(weekly))}
     assert got["SPY"] == {"symbol": "SPY", "bias": "LONG", "prev": "NEUTRAL", "changed": True}
     assert got["SCHD"]["changed"] is False
+
+
+# ---------------------------------------------------------------------------
+# ETF relative view and growth-vs-dividend rotation
+# ---------------------------------------------------------------------------
+
+
+def _closes(values) -> pd.DataFrame:
+    values = np.asarray(values, dtype=float)
+    return pd.DataFrame(
+        {"Date": pd.bdate_range(end="2026-10-30", periods=len(values)), "Close": values}
+    )
+
+
+FLAT = _closes(np.full(150, 10.0))
+
+
+def test_rotation_growth_leading():
+    got = insights.rotation(_closes(np.linspace(10, 20, 150)), FLAT)
+    assert got["label"] == insights.GROWTH_LEADING
+    assert got["ratio"] > got["ma"] and got["spread"] > 0 and got["as_of"] == "2026-10-30"
+
+
+def test_rotation_dividend_leading_is_the_mirror():
+    got = insights.rotation(FLAT, _closes(np.linspace(10, 20, 150)))
+    assert got["label"] == insights.DIVIDEND_LEADING
+    assert got["ratio"] < got["ma"] and got["spread"] < 0
+
+
+def test_rotation_is_mixed_when_ratio_and_spread_disagree():
+    # A long slide in the ratio, then a bounce: above its 50-day SMA, still down over 63 days.
+    ratio = np.concatenate([np.linspace(2.0, 1.0, 140), np.linspace(1.02, 1.2, 10)])
+    got = insights.rotation(_closes(ratio * 10), FLAT)
+    assert got["ratio"] > got["ma"] and got["spread"] < 0
+    assert got["label"] == insights.MIXED
+
+
+def test_rotation_without_enough_history_is_mixed():
+    got = insights.rotation(_closes(np.linspace(10, 20, 40)), _closes(np.full(40, 10.0)))
+    assert got["label"] == insights.MIXED and got["ratio"] is None
+    assert insights.rotation(None, FLAT)["label"] == insights.MIXED
+
+
+def test_rotation_aligns_on_dates():
+    growth = _closes(np.linspace(10, 20, 150))
+    dividend = FLAT.iloc[5:]  # starts later: only shared dates count
+    got = insights.rotation(growth, dividend)
+    assert got["label"] == insights.GROWTH_LEADING and got["ratio"] == pytest.approx(2.0)
+
+
+def test_etf_relative_returns_and_rs(raw_silo):
+    for sym in ("SPY", "QQQ", "SCHG", "SCHD"):
+        raw_silo(sym, "daily", EXPECTED["daily"], periods=150, growth=sym == "SCHG")
+    got = insights.etf_relative()
+    rows = {r["symbol"]: r for r in got["rows"]}
+    assert list(rows) == ["SPY", "QQQ", "SCHG", "SCHD"] and got["windows"] == [
+        "1W",
+        "1M",
+        "3M",
+        "6M",
+    ]
+    assert rows["SPY"]["rs"] is None and rows["SPY"]["as_of"] == "2026-10-30"
+    assert rows["SCHG"]["rs"] > 0 and rows["SCHG"]["rs_ok"]
+    assert rows["SCHD"]["returns"]["6M"] == pytest.approx(rows["SPY"]["returns"]["6M"])
+    assert rows["SCHG"]["returns"]["6M"] is not None and rows["SCHG"]["returns"]["1W"] > 0
+    assert got["rotation"]["label"] == insights.GROWTH_LEADING
+
+
+def test_etf_relative_without_raw_files(raw_silo):
+    got = insights.etf_relative()
+    assert all(r["returns"] == {} and r["rs"] is None for r in got["rows"])
+    assert got["rotation"]["label"] == insights.MIXED

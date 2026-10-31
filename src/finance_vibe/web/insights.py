@@ -1,4 +1,5 @@
-"""Read-only insight over the generated data: ETF freshness, bar quality, run changes.
+"""Read-only insight over the generated data: ETF freshness, bar quality, run
+changes, and the Market tab's ETF relative view.
 
 Pure pandas and file reads, no Flask, like :mod:`finance_vibe.web.playbook`.
 Nothing here feeds back into a scanner or a score.
@@ -13,7 +14,7 @@ from typing import Any
 
 import pandas as pd
 
-from finance_vibe import config
+from finance_vibe import config, indicators, market
 from finance_vibe.data import daily_ingest, ingest, quality, raw
 from finance_vibe.web import playbook
 
@@ -211,3 +212,98 @@ def bias_changes(daily_folder: str, weekly_folder: str) -> list[dict[str, Any]]:
         {"symbol": s, "bias": now[s], "prev": prev[s], "changed": now[s] != prev[s]}
         for s in playbook.MARKET_SYMBOLS
     ]
+
+
+# ---------------------------------------------------------------------------
+# ETF relative view (Market tab)
+# ---------------------------------------------------------------------------
+
+# Display windows in daily bars.
+RETURN_WINDOWS = {"1W": 5, "1M": 21, "3M": 63, "6M": 126}
+RS_LOOKBACK = 63
+GROWTH_LEADING, DIVIDEND_LEADING, MIXED = "Growth leading", "Dividend/value leading", "Mixed"
+
+
+def daily_closes(symbol: str) -> pd.DataFrame | None:
+    """``Date`` / ``Close`` from a ticker's daily raw file, or None if unavailable.
+
+    Raw prices are Yahoo adjusted closes (``auto_adjust=True``), so returns
+    include dividends.
+    """
+    path = config.get_raw_path(symbol, config.TIMEFRAME_PROFILES["daily"])
+    if not os.path.isfile(path):
+        return None
+    try:
+        return raw.load_raw(path)[["Date", "Close"]]
+    except (OSError, ValueError) as exc:
+        logger.warning("Daily raw for %s unreadable: %s", symbol, exc)
+        return None
+
+
+def _ret(close: pd.Series, bars: int) -> float | None:
+    if len(close) <= bars:
+        return None
+    return float(close.iloc[-1] / close.iloc[-1 - bars] - 1.0)
+
+
+def rotation(growth: pd.DataFrame | None, dividend: pd.DataFrame | None) -> dict[str, Any]:
+    """Growth vs dividend leadership from the growth / dividend close ratio.
+
+    "Growth leading" when the ratio is above its ``ROTATION_MA_BARS`` SMA and
+    the ``ROTATION_LOOKBACK`` return spread (growth − dividend) is positive;
+    "Dividend/value leading" when it is below the SMA and the spread is
+    negative; "Mixed" otherwise or with too little history. Unvalidated context.
+    """
+    out: dict[str, Any] = {"label": MIXED, "ratio": None, "ma": None, "spread": None, "as_of": None}
+    if growth is None or dividend is None:
+        return out
+    both = growth.merge(dividend, on="Date", suffixes=(" G", " D")).sort_values("Date")
+    if len(both) <= max(config.ROTATION_MA_BARS, config.ROTATION_LOOKBACK):
+        return out
+    ratio = (both["Close G"] / both["Close D"]).reset_index(drop=True)
+    ma = indicators.sma(ratio, config.ROTATION_MA_BARS)
+    lookback = config.ROTATION_LOOKBACK
+    spread = _ret(both["Close G"], lookback) - _ret(both["Close D"], lookback)  # type: ignore[operator]
+    out |= {
+        "ratio": float(ratio.iloc[-1]),
+        "ma": None if ma is None or pd.isna(ma.iloc[-1]) else float(ma.iloc[-1]),
+        "spread": spread,
+        "as_of": pd.Timestamp(both["Date"].iloc[-1]).date().isoformat(),
+    }
+    if out["ma"] is None:
+        return out
+    if out["ratio"] > out["ma"] and spread > 0:
+        out["label"] = GROWTH_LEADING
+    elif out["ratio"] < out["ma"] and spread < 0:
+        out["label"] = DIVIDEND_LEADING
+    return out
+
+
+def etf_relative(
+    symbols: tuple[str, ...] = playbook.MARKET_SYMBOLS, benchmark: str = "SPY"
+) -> dict[str, Any]:
+    """Returns over :data:`RETURN_WINDOWS`, 63-day RS vs ``benchmark``, and the rotation label."""
+    frames = {s: daily_closes(s) for s in dict.fromkeys((*symbols, benchmark))}
+    bench = frames[benchmark]
+    rows = []
+    for sym in symbols:
+        df = frames[sym]
+        row: dict[str, Any] = {
+            "symbol": sym,
+            "as_of": None,
+            "returns": {},
+            "rs": None,
+            "rs_ok": None,
+        }
+        if df is not None and not df.empty:
+            row["as_of"] = pd.Timestamp(df["Date"].iloc[-1]).date().isoformat()
+            row["returns"] = {k: _ret(df["Close"], n) for k, n in RETURN_WINDOWS.items()}
+            if sym != benchmark and bench is not None:
+                ok, rel = market.relative_strength(df, bench, lookback=RS_LOOKBACK)
+                row["rs"], row["rs_ok"] = rel, (ok if rel is not None else None)
+        rows.append(row)
+    for sym in (config.ROTATION_GROWTH, config.ROTATION_DIVIDEND):
+        if sym not in frames:
+            frames[sym] = daily_closes(sym)
+    rot = rotation(frames[config.ROTATION_GROWTH], frames[config.ROTATION_DIVIDEND])
+    return {"rows": rows, "windows": list(RETURN_WINDOWS), "benchmark": benchmark, "rotation": rot}

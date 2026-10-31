@@ -403,6 +403,8 @@ def test_market_page_shows_bias_and_both_plans(client, tmp_path, monkeypatch):
     assert "758.79" in spy and "781.62" in spy
     levels = json.loads(spy.split("data-levels='")[1].split("'")[0])
     assert levels[0]["label"] == "Short Trigger" and levels[-1]["label"] == "Long trigger"
+    assert "Relative view" in body and "Growth vs dividend:" in body
+    assert "Returns include" in body and "dividends (Yahoo adjusted closes)" in body
     assert "No daily scan row for SCHG" in body and "No daily scan row for SCHD" in body
 
 

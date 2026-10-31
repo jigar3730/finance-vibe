@@ -164,7 +164,7 @@ dashboard and the next scheduled run pick it up.
 | Route | Contents |
 | ----- | -------- |
 | `/` | Top setups: the best 3 of both scanners per mode, with key levels and an action plan |
-| `/market` | SPY / QQQ / SCHG / SCHD: long / short / neutral bias with long and short range-break levels |
+| `/market` | SPY / QQQ / SCHG / SCHD: relative view (returns, RS vs SPY, growth-vs-dividend label), long / short / neutral bias with long and short range-break levels, row freshness |
 | `/changes` | What changed since the previous run, per mode: breakout status moves, Coiled Cobra setups new / dropped / kept, Market ETF bias |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
@@ -229,6 +229,22 @@ range-break plans:
 The plan matching the bias is highlighted and the other dimmed; NEUTRAL shows both as
 range-break levels. When SPY or QQQ is SHORT, Top Setups shows a "market headwind"
 banner. The ranking is unchanged.
+
+**Relative view (`web/insights.etf_relative`).** A table above the cards, from each
+ETF's daily raw closes:
+- returns over 1W / 1M / 3M / 6M (5 / 21 / 63 / 126 bars),
+- 63-day relative strength vs SPY (`market.relative_strength`, "strong" when the ratio
+  is above its 20-bar MA and the return is ahead),
+- a growth-vs-dividend label from the SCHG / SCHD close ratio
+  (`config.ROTATION_*`):
+  - *Growth leading*: the ratio is above its 50-day SMA and SCHG's 63-day return beats
+    SCHD's.
+  - *Dividend/value leading*: below the SMA and SCHD beats SCHG.
+  - *Mixed*: anything else, or too little history.
+
+Raw prices are Yahoo adjusted closes (`auto_adjust=True`), so returns include
+dividends and SCHD's yield is not counted against it. The label is unvalidated
+context, not a signal.
 
 **Freshness (`web/insights.etf_freshness`).** Under each card's header a line gives the
 daily and weekly rows' `AsOf Date`, with a warning next to a mode when:
