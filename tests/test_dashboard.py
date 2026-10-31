@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 from datetime import date
 
@@ -560,29 +561,127 @@ def test_text_filter_hides_blank_cells(value, shown):
     assert app_module._text_filter(value) == shown
 
 
-def test_changes_page_lists_transitions_and_cobra_changes(client, tmp_path, monkeypatch):
+def _changes_logs(tmp_path, monkeypatch):
     dirs = {"weekly": tmp_path / "w", "daily": tmp_path / "d"}
     for d in dirs.values():
         d.mkdir()
     monkeypatch.setattr(app_module, "LOG_DIRS", {m: str(d) for m, d in dirs.items()})
-    for day, statuses in (
-        ("2026-10-29", {"AAA": "WATCH", "BBB": "BREAKOUT_TRIGGERED", "SPY": "WATCH"}),
-        ("2026-10-30", {"AAA": "PRE_BREAKOUT", "BBB": "FAILED_BREAKOUT", "SPY": "WATCH"}),
-    ):
-        pd.DataFrame(
-            [{"Symbol": s, "Status": st, "Breakout Readiness": 50} for s, st in statuses.items()]
-        ).to_csv(dirs["daily"] / f"breakout_setups_{day}.csv", index=False)
+    profiles = {m: dict(p) for m, p in app_module.config.TIMEFRAME_PROFILES.items()}
+    for m in profiles:
+        profiles[m]["raw_dir"] = str(tmp_path / "raw" / m)  # no raw files
+    monkeypatch.setattr(app_module.config, "TIMEFRAME_PROFILES", profiles)
+    etf = {"SMA50": 100.0, "SMA200": 90.0, "Support": 95.0, "RVOL20": 1.0}
+
+    def scan(mode, day, rows):
+        pd.DataFrame(rows).to_csv(dirs[mode] / f"breakout_setups_{day}.csv", index=False)
+
+    def st(sym, status, **kw):
+        return {"Symbol": sym, "Status": status, "Breakout Readiness": 50} | kw
+
+    scan(
+        "daily",
+        "2026-10-29",
+        [
+            st("AAA", "WATCH"),
+            st("BBB", "BREAKOUT_TRIGGERED"),
+            st("LEFTD", "WATCH"),
+            st("SPY", "WATCH", Close=105.0, **etf),
+            st("QQQ", "WATCH", Close=105.0, **etf),
+        ],
+    )
+    scan(
+        "daily",
+        "2026-10-30",
+        [
+            st("AAA", "PRE_BREAKOUT"),
+            st("BBB", "FAILED_BREAKOUT"),
+            st("NEWD", "WATCH"),
+            st("SPY", "WATCH", Close=106.0, **etf),  # no change: not listed
+            st("QQQ", "WATCH", Close=94.0, **(etf | {"RVOL20": 2.2})),
+        ],
+    )
     pd.DataFrame([{"Symbol": "CCC", "Score": 80}]).to_csv(
         dirs["daily"] / "coiled_cobra_setups_2026-10-30.csv", index=False
     )
+    scan(
+        "weekly",
+        "2026-10-23",
+        [st("FIRST", "BREAKOUT_TRIGGERED"), st("GMAB", "BREAKOUT_CONFIRMED"), st("LEFTW", "WATCH")],
+    )
+    scan(
+        "weekly",
+        "2026-10-30",
+        [
+            st("FIRST", "BREAKOUT_CONFIRMED"),
+            st("GMAB", "BREAKOUT_CONFIRMED"),
+            st("GPN", "BREAKOUT_CONFIRMED"),
+        ],
+    )
+
+
+def _section(body, cls):
+    return body.split(f'class="top-section {cls}"')[1].split("</section>")[0]
+
+
+def test_changes_page_order_and_dates(client, tmp_path, monkeypatch):
+    _changes_logs(tmp_path, monkeypatch)
     body = client.get("/changes").get_data(as_text=True)
-    daily = body.split("⚡ Daily")[1]
-    assert "2026-10-29 → 2026-10-30" in daily
+    top = body.split('class="compare-dates"')[1].split("</p>")[0]
+    assert "2026-10-29 → 2026-10-30" in top and "2026-10-23 → 2026-10-30" in top
+    order = ["market-changes", "new-confirmed", "universe-changes", "everything-else"]
+    assert [body.index(c) for c in order] == sorted(body.index(c) for c in order)
+    assert "Market bias" not in body  # the old bias table is gone
+
+
+def test_changes_market_section_lists_only_new_facts(client, tmp_path, monkeypatch):
+    _changes_logs(tmp_path, monkeypatch)
+    market = _section(client.get("/changes").get_data(as_text=True), "market-changes")
+    qqq = market.split("<strong>QQQ:</strong>")[1].split("</li>")[0]
+    assert "closed below its 50-day average (was above)" in qqq
+    assert "newly closed below support on heavy volume" in qqq
+    assert "SPY:" not in market and "Growth vs dividend unchanged" in market
+
+
+def test_changes_new_weekly_confirmed_split(client, tmp_path, monkeypatch):
+    _changes_logs(tmp_path, monkeypatch)
+    sec = _section(client.get("/changes").get_data(as_text=True), "new-confirmed")
+    new, unscanned = sec.split("Confirmed now, but not scanned last week (")
+    assert "New this week (1)" in new and "t=FIRST" in new
+    assert "Unproven: passed old-data test only" in new
+    assert unscanned.startswith("1)") and "t=GPN" in unscanned
+    assert "so we can't tell if this is the first week" in html.unescape(unscanned)
+    assert "GMAB" not in sec  # CONFIRMED both weeks: a continuation
+
+
+def test_changes_stock_list_entered_and_left(client, tmp_path, monkeypatch):
+    _changes_logs(tmp_path, monkeypatch)
+    sec = _section(client.get("/changes").get_data(as_text=True), "universe-changes")
+    weekly, daily = sec.split("⚡ Daily")
+    assert "Entered (1)</th><td>GPN" in weekly and "Left (1)</th><td>LEFTW" in weekly
+    assert "Entered (1)</th><td>NEWD" in daily and "Left (1)</th><td>LEFTD" in daily
+
+
+def test_changes_everything_else_is_collapsed_counts(client, tmp_path, monkeypatch):
+    _changes_logs(tmp_path, monkeypatch)
+    body = client.get("/changes").get_data(as_text=True)
+    assert '<details class="failed-section everything-else">' in body  # closed
+    rest = body.split("everything-else")[1]
+    daily = rest.split("⚡ Daily")[1]
+    assert "Moved toward a breakout 1 · Failed breakouts 1" in daily
+    assert "Cobra setups new 1 / dropped 0" in daily
+    assert "t=AAA" not in body and "t=BBB" not in body  # counts only
+    assert 'href="/changes?show=all"' in rest
+
+
+def test_changes_full_list(client, tmp_path, monkeypatch):
+    _changes_logs(tmp_path, monkeypatch)
+    body = client.get("/changes?show=all").get_data(as_text=True)
+    assert '<details class="failed-section everything-else" open>' in body
+    daily = body.split("everything-else")[1].split("⚡ Daily")[1]
     assert "Moved toward a breakout (1)" in daily and "quote.ashx?t=AAA" in daily
     assert "Failed breakouts (1)" in daily and "quote.ashx?t=BBB" in daily
     assert "New (1)" in daily and "CCC 80" in daily
-    assert "Need two weekly runs to compare" in body
-    assert "Market bias" in body and "SCHD" in body
+    assert "Change</th>" not in body  # no Readiness change column
 
 
 def test_changes_page_without_runs(client, tmp_path, monkeypatch):
@@ -590,4 +689,5 @@ def test_changes_page_without_runs(client, tmp_path, monkeypatch):
         app_module, "LOG_DIRS", {"weekly": str(tmp_path / "x"), "daily": str(tmp_path / "y")}
     )
     body = client.get("/changes").get_data(as_text=True)
-    assert body.count("Need two") == 2 and "Market bias" not in body
+    assert "Need two daily runs to compare." in body and "Need two weekly runs to compare." in body
+    assert "Comparing <strong>daily</strong> — → —" in body

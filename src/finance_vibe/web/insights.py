@@ -136,9 +136,7 @@ def status_changes(now: pd.DataFrame, prev: pd.DataFrame) -> dict[str, list[dict
     both[["Status", "Status Prev"]] = both[["Status", "Status Prev"]].fillna("").astype(str)
     moved = both[both["Status"] != both["Status Prev"]]
     if "Breakout Readiness" in moved.columns:
-        moved = moved.assign(
-            **{"Readiness Change": moved["Breakout Readiness"] - moved["Breakout Readiness Prev"]}
-        ).sort_values("Breakout Readiness", ascending=False, kind="stable")
+        moved = moved.sort_values("Breakout Readiness", ascending=False, kind="stable")
     stage = moved["Status"].map(STATUS_STAGE).fillna(0)
     upgrade = stage > moved["Status Prev"].map(STATUS_STAGE).fillna(0)
     failed = moved["Status"] == playbook.FAILED_STATUS
@@ -166,6 +164,29 @@ def cobra_changes(now: pd.DataFrame, prev: pd.DataFrame) -> dict[str, list[dict[
     return out
 
 
+def universe_changes(now: pd.DataFrame, prev: pd.DataFrame) -> dict[str, list[str]]:
+    """Tickers that entered (in ``now`` only) or left (in ``prev`` only) the scanned list."""
+    syms = [set(df["Symbol"]) if "Symbol" in df.columns else set() for df in (now, prev)]
+    return {"entered": sorted(syms[0] - syms[1]), "left": sorted(syms[1] - syms[0])}
+
+
+def new_confirmed(now: pd.DataFrame, prev: pd.DataFrame) -> dict[str, list[str]]:
+    """BREAKOUT_CONFIRMED in ``now`` but not in ``prev``, split by whether ``prev`` scanned it.
+
+    ``new``: ``prev`` had the ticker with another status (the first-bar event).
+    ``unscanned``: ``prev`` had no row for it, so its first week is unknown.
+    Tickers CONFIRMED in both runs (continuations) are in neither list.
+    """
+    rows = playbook.weekly_confirmed(now, prev)
+    if rows.empty:
+        return {"new": [], "unscanned": []}
+    fresh = rows[~rows["Confirmed Last Run"]]
+    return {
+        "new": list(fresh.loc[fresh["In Last Run"], "Symbol"]),
+        "unscanned": list(fresh.loc[~fresh["In Last Run"], "Symbol"]),
+    }
+
+
 def run_changes(folder: str) -> dict[str, Any]:
     """What changed between the two newest breakout runs in ``folder``.
 
@@ -178,16 +199,18 @@ def run_changes(folder: str) -> dict[str, Any]:
     result["cobra_ran"] = now_date is not None and os.path.exists(
         os.path.join(folder, f"{playbook.COBRA_PREFIX}{now_date}.csv")
     )
-    if now_date is None or prev_date is None:
-        empty_status = status_changes(pd.DataFrame(), pd.DataFrame())
-        return result | {
-            "status": empty_status,
-            "cobra": cobra_changes(pd.DataFrame(), pd.DataFrame()),
-        }
     bo, cc = playbook.BREAKOUT_PREFIX, playbook.COBRA_PREFIX
-    result["status"] = status_changes(_scan(folder, bo, now_date), _scan(folder, bo, prev_date))
-    result["cobra"] = cobra_changes(_scan(folder, cc, now_date), _scan(folder, cc, prev_date))
-    return result
+    if now_date is None or prev_date is None:
+        now = prev = cobra_now = cobra_prev = pd.DataFrame()
+    else:
+        now, prev = _scan(folder, bo, now_date), _scan(folder, bo, prev_date)
+        cobra_now, cobra_prev = _scan(folder, cc, now_date), _scan(folder, cc, prev_date)
+    return result | {
+        "status": status_changes(now, prev),
+        "cobra": cobra_changes(cobra_now, cobra_prev),
+        "universe": universe_changes(now, prev),
+        "confirmed": new_confirmed(now, prev),
+    }
 
 
 def bias_changes(daily_folder: str, weekly_folder: str) -> list[dict[str, Any]]:
@@ -212,6 +235,65 @@ def bias_changes(daily_folder: str, weekly_folder: str) -> list[dict[str, Any]]:
         {"symbol": s, "bias": now[s], "prev": prev[s], "changed": now[s] != prev[s]}
         for s in playbook.MARKET_SYMBOLS
     ]
+
+
+def _side(close: Any, level: Any) -> str | None:
+    c, lv = playbook.num(close), playbook.num(level)
+    return None if c is None or lv is None else ("above" if c > lv else "below")
+
+
+def market_changes(daily_folder: str, weekly_folder: str) -> dict[str, Any] | None:
+    """Market ETF facts that changed between the two newest daily runs; None until two runs.
+
+    Per ETF, plain-English facts: the bias changed, the daily close crossed its
+    SMA50 or SMA200, or it newly closed below support on heavy volume
+    (:func:`heavy_break`). ``rows`` lists only ETFs with a fact. ``rotation`` is the
+    growth-vs-dividend label from daily closes up to each run's date.
+    """
+    days = _breakout_dates(daily_folder)
+    if len(days) < 2:
+        return None
+    prev_day, now_day = days[-2], days[-1]
+    bo = playbook.BREAKOUT_PREFIX
+    now_df, prev_df = _scan(daily_folder, bo, now_day), _scan(daily_folder, bo, prev_day)
+    bias = {b["symbol"]: b for b in bias_changes(daily_folder, weekly_folder)}
+    rows = []
+    for sym in playbook.MARKET_SYMBOLS:
+        now = playbook.row_for(now_df, sym) or {}
+        prev = playbook.row_for(prev_df, sym) or {}
+        facts = []
+        b = bias[sym]
+        if b["changed"]:
+            facts.append(f"bias {b['prev']} → {b['bias']}")
+        for col, label in (("SMA50", "50-day"), ("SMA200", "200-day")):
+            was, is_ = (
+                _side(prev.get("Close"), prev.get(col)),
+                _side(now.get("Close"), now.get(col)),
+            )
+            if was and is_ and was != is_:
+                facts.append(f"closed {is_} its {label} average (was {was})")
+        if heavy_break(now) and not heavy_break(prev):
+            facts.append("newly closed below support on heavy volume")
+        if facts:
+            rows.append({"symbol": sym, "facts": facts})
+
+    growth, dividend = daily_closes(config.ROTATION_GROWTH), daily_closes(config.ROTATION_DIVIDEND)
+
+    def label_at(day: str) -> str:
+        if growth is None or dividend is None:
+            return MIXED
+        cut = pd.Timestamp(day)
+        return str(
+            rotation(growth[growth["Date"] <= cut], dividend[dividend["Date"] <= cut])["label"]
+        )
+
+    rot_now, rot_prev = label_at(now_day), label_at(prev_day)
+    return {
+        "now": now_day,
+        "prev": prev_day,
+        "rows": rows,
+        "rotation": {"now": rot_now, "prev": rot_prev, "changed": rot_now != rot_prev},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -314,6 +396,15 @@ def etf_relative(
 # ---------------------------------------------------------------------------
 
 
+def heavy_break(row: dict[str, Any]) -> bool:
+    """Daily close below ``Support`` with RVOL20 at or above ``config.BREAKOUT_RVOL_CONFIRM``."""
+    close, support = playbook.num(row.get("Close")), playbook.num(row.get("Support"))
+    rvol = playbook.num(row.get("RVOL20"))
+    if close is None or support is None or rvol is None:
+        return False
+    return close < support and rvol >= config.BREAKOUT_RVOL_CONFIRM
+
+
 def _above(close: float | None, level: float | None) -> bool | None:
     return None if close is None or level is None else close > level
 
@@ -324,9 +415,8 @@ def market_strip(
     """Per ETF: last daily % change, close vs SMA50 / SMA200, and a heavy-volume support break.
 
     The % change compares the last two closes in the daily raw file. The SMA
-    and support facts come from the latest daily breakout row: ``heavy_break``
-    is a close below ``Support`` with RVOL20 at or above
-    ``config.BREAKOUT_RVOL_CONFIRM``. Plus the growth-vs-dividend label.
+    and support facts come from the latest daily breakout row (``heavy_break``:
+    :func:`heavy_break`). Plus the growth-vs-dividend label.
     """
     wanted = (*symbols, config.ROTATION_GROWTH, config.ROTATION_DIVIDEND)
     frames = {s: daily_closes(s) for s in dict.fromkeys(wanted)}
@@ -336,7 +426,6 @@ def market_strip(
         row = playbook.row_for(daily_breakout, sym) or {}
         last = None if df is None or df.empty else pd.Timestamp(df["Date"].iloc[-1])
         close = playbook.num(row.get("Close"))
-        support, rvol = playbook.num(row.get("Support")), playbook.num(row.get("RVOL20"))
         rows.append(
             {
                 "symbol": sym,
@@ -344,14 +433,8 @@ def market_strip(
                 "as_of": None if last is None else last.date().isoformat(),
                 "above_sma50": _above(close, playbook.num(row.get("SMA50"))),
                 "above_sma200": _above(close, playbook.num(row.get("SMA200"))),
-                "heavy_break": (
-                    close is not None
-                    and support is not None
-                    and rvol is not None
-                    and close < support
-                    and rvol >= config.BREAKOUT_RVOL_CONFIRM
-                ),
-                "rvol": rvol,
+                "heavy_break": heavy_break(row),
+                "rvol": playbook.num(row.get("RVOL20")),
             }
         )
     rot = rotation(frames[config.ROTATION_GROWTH], frames[config.ROTATION_DIVIDEND])

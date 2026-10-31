@@ -124,20 +124,24 @@ def _symbols_upper(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def weekly_confirmed(breakout: pd.DataFrame, previous: pd.DataFrame) -> pd.DataFrame:
-    """Weekly BREAKOUT_CONFIRMED rows, by symbol, with ``Confirmed Last Run``.
+    """Weekly BREAKOUT_CONFIRMED rows, by symbol, with ``Confirmed Last Run`` and ``In Last Run``.
 
     ``Confirmed Last Run`` is True when ``previous`` (the prior weekly scan) had
     the symbol CONFIRMED too: a continuation, not the first-bar event that was
-    tested. A symbol absent from ``previous`` counts as False.
+    tested. ``In Last Run`` is False when ``previous`` has no row for the symbol,
+    so whether this is its first CONFIRMED week is unknown.
     """
     if breakout.empty or "Status" not in breakout.columns:
         return pd.DataFrame()
     rows = _symbols_upper(breakout[breakout["Status"] == CONFIRMED_STATUS])
     before: set[str] = set()
+    scanned: set[str] = set()
     if not previous.empty and {"Symbol", "Status"} <= set(previous.columns):
         prev = _symbols_upper(previous)
         before = set(prev.loc[prev["Status"] == CONFIRMED_STATUS, "Symbol"])
+        scanned = set(prev["Symbol"])
     rows["Confirmed Last Run"] = rows["Symbol"].isin(before)
+    rows["In Last Run"] = rows["Symbol"].isin(scanned)
     return rows.sort_values("Symbol").reset_index(drop=True)
 
 

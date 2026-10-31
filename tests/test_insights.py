@@ -143,10 +143,8 @@ def test_status_changes_buckets_and_skips_universe_churn():
     )
     got = insights.status_changes(now, prev)
     assert [r["Symbol"] for r in got["upgrades"]] == ["UP"]
-    assert (
-        got["upgrades"][0]["Status Prev"] == "WATCH"
-        and got["upgrades"][0]["Readiness Change"] == 30
-    )
+    assert got["upgrades"][0]["Status Prev"] == "WATCH"
+    assert "Readiness Change" not in got["upgrades"][0]  # misleading on a breakout: dropped
     assert [r["Symbol"] for r in got["failures"]] == ["FAIL"]
     assert [r["Symbol"] for r in got["other"]] == ["SIDE"]
 
@@ -214,6 +212,122 @@ def test_bias_changes_pairs_each_day_with_its_weekly_run(tmp_path):
     got = {b["symbol"]: b for b in insights.bias_changes(str(daily), str(weekly))}
     assert got["SPY"] == {"symbol": "SPY", "bias": "LONG", "prev": "NEUTRAL", "changed": True}
     assert got["SCHD"]["changed"] is False
+
+
+def test_universe_changes_entered_and_left():
+    now, prev = (
+        _bo([("A", "WATCH", 1), ("NEW", "WATCH", 1)]),
+        _bo([("A", "WATCH", 1), ("OLD", "WATCH", 1)]),
+    )
+    assert insights.universe_changes(now, prev) == {"entered": ["NEW"], "left": ["OLD"]}
+    assert insights.universe_changes(now, pd.DataFrame()) == {"entered": ["A", "NEW"], "left": []}
+
+
+def test_new_confirmed_splits_first_week_from_unscanned():
+    prev = _bo([("FIRST", "BREAKOUT_TRIGGERED", 1), ("CONT", "BREAKOUT_CONFIRMED", 1)])
+    now = _bo(
+        [
+            ("FIRST", "BREAKOUT_CONFIRMED", 1),
+            ("CONT", "BREAKOUT_CONFIRMED", 1),  # continuation: in neither list
+            ("UNSEEN", "BREAKOUT_CONFIRMED", 1),
+            ("PRE", "PRE_BREAKOUT", 1),
+        ]
+    )
+    assert insights.new_confirmed(now, prev) == {"new": ["FIRST"], "unscanned": ["UNSEEN"]}
+    assert insights.new_confirmed(pd.DataFrame(), prev) == {"new": [], "unscanned": []}
+
+
+def test_run_changes_carries_universe_and_confirmed(tmp_path):
+    _bo([("A", "WATCH", 1), ("GONE", "WATCH", 1)]).to_csv(
+        tmp_path / "breakout_setups_2026-10-23.csv", index=False
+    )
+    _bo([("A", "BREAKOUT_CONFIRMED", 1), ("B", "BREAKOUT_CONFIRMED", 1)]).to_csv(
+        tmp_path / "breakout_setups_2026-10-30.csv", index=False
+    )
+    got = insights.run_changes(str(tmp_path))
+    assert got["universe"] == {"entered": ["B"], "left": ["GONE"]}
+    assert got["confirmed"] == {"new": ["A"], "unscanned": ["B"]}
+
+
+def _etf(sym, close, **kw):
+    row = {"Symbol": sym, "Close": close, "SMA50": 100.0, "SMA200": 90.0}
+    return row | {"Support": 95.0, "RVOL20": 1.0} | kw
+
+
+def _market_runs(tmp_path, prev_rows, now_rows):
+    daily, weekly = tmp_path / "d", tmp_path / "w"
+    daily.mkdir()
+    weekly.mkdir()
+    for day, rows in (("2026-10-29", prev_rows), ("2026-10-30", now_rows)):
+        pd.DataFrame(rows).to_csv(daily / f"breakout_setups_{day}.csv", index=False)
+    return str(daily), str(weekly)
+
+
+def test_market_changes_lists_only_etfs_with_new_facts(tmp_path, raw_silo):
+    prev = [
+        _etf("SPY", 105.0),
+        _etf("QQQ", 105.0),
+        _etf("SCHG", 94.0, RVOL20=2.0),  # already broken on volume
+        _etf("SCHD", 105.0),
+    ]
+    now = [
+        _etf("SPY", 99.0),  # crossed below SMA50 only
+        _etf("QQQ", 85.0, RVOL20=config.BREAKOUT_RVOL_CONFIRM),  # below both, new break
+        _etf("SCHG", 93.0, RVOL20=2.0),  # still broken: not new
+        _etf("SCHD", 106.0),
+    ]
+    got = insights.market_changes(*_market_runs(tmp_path, prev, now))
+    assert (got["prev"], got["now"]) == ("2026-10-29", "2026-10-30")
+    facts = {r["symbol"]: r["facts"] for r in got["rows"]}
+    assert facts["SPY"] == ["closed below its 50-day average (was above)"]
+    assert facts["QQQ"] == [
+        "closed below its 50-day average (was above)",
+        "closed below its 200-day average (was above)",
+        "newly closed below support on heavy volume",
+    ]
+    assert "SCHG" not in facts and "SCHD" not in facts
+    assert got["rotation"] == {"now": insights.MIXED, "prev": insights.MIXED, "changed": False}
+
+
+def test_market_changes_bias_and_cross_back_above(tmp_path, raw_silo):
+    prev = [_etf("SPY", 99.0)]
+    now = [_etf("SPY", 101.0)]
+    daily, weekly = _market_runs(tmp_path, prev, now)
+    pd.DataFrame([{"Symbol": "SPY", "Trend": "BULLISH", "MTF": "ALIGNED"}]).to_csv(
+        f"{weekly}/breakout_setups_2026-10-23.csv", index=False
+    )
+    facts = {r["symbol"]: r["facts"] for r in insights.market_changes(daily, weekly)["rows"]}
+    assert facts["SPY"] == ["bias NEUTRAL → LONG", "closed above its 50-day average (was below)"]
+
+
+def test_market_changes_rotation_flip_uses_closes_up_to_each_run(tmp_path, raw_silo):
+    # SCHG flat then jumps on the last bar only: growth leads at 10-30, not at 10-29.
+    raw_silo("SCHD", "daily", EXPECTED["daily"], periods=150)
+    raw_silo("SCHG", "daily", EXPECTED["daily"], periods=150)
+    path = config.get_raw_path("SCHG", config.TIMEFRAME_PROFILES["daily"])
+    df = pd.read_csv(path)
+    for col in ("Open", "High", "Low", "Close"):
+        df[col] = df[col].iloc[0]  # flat at the start value
+    df.loc[df.index[-1], ["Open", "High", "Low", "Close"]] = 80.0
+    df.loc[df.index[-1], "High"] = 81.0
+    df.to_csv(path, index=False)
+    got = insights.market_changes(
+        *_market_runs(tmp_path, [_etf("SPY", 105.0)], [_etf("SPY", 105.0)])
+    )
+    assert got["rows"] == []
+    assert got["rotation"]["prev"] != got["rotation"]["now"] and got["rotation"]["changed"]
+
+
+def test_market_changes_needs_two_daily_runs(tmp_path):
+    (tmp_path / "d").mkdir()
+    assert insights.market_changes(str(tmp_path / "d"), str(tmp_path / "w")) is None
+
+
+def test_heavy_break_rule():
+    assert insights.heavy_break({"Close": 94.0, "Support": 95.0, "RVOL20": 1.5})
+    assert not insights.heavy_break({"Close": 94.0, "Support": 95.0, "RVOL20": 1.49})
+    assert not insights.heavy_break({"Close": 96.0, "Support": 95.0, "RVOL20": 3.0})
+    assert not insights.heavy_break({})
 
 
 # ---------------------------------------------------------------------------

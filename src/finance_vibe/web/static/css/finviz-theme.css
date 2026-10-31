@@ -344,7 +344,9 @@ table.table tr:has(.live-surge) {
 .relative-table td.neg { color: var(--finviz-red); }
 .rotation-label { font-weight: 700; }
 .changes-table { margin-bottom: 14px; }
-.changed-row td:first-child { font-weight: 700; }
+.compare-dates { margin: -4px 0 10px; font-size: 0.85rem; }
+.change-list { margin: 6px 0 10px; padding-left: 20px; font-size: 0.88rem; }
+.change-list li { margin: 4px 0; }
 
 /* Market strip (base.html, every page) */
 .market-strip {

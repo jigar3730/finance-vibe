@@ -450,10 +450,12 @@ def api_bars(mode: str, symbol: str) -> Response:
 
 @app.route("/changes")
 def changes() -> str:
-    """What changed since the previous run, per mode: statuses, Cobra setups, ETF bias."""
+    """What's new since the previous run: market facts, new weekly CONFIRMED, stock list in /
+    out, then counts of other changes (``?show=all`` lists them in full)."""
     by_mode = {mode: insights.run_changes(folder) for mode, folder in LOG_DIRS.items()}
-    bias = insights.bias_changes(LOG_DIRS["daily"], LOG_DIRS["weekly"])
-    return render_template("changes.html", changes=by_mode, bias=bias)
+    market = insights.market_changes(LOG_DIRS["daily"], LOG_DIRS["weekly"])
+    show_all = request.args.get("show") == "all"
+    return render_template("changes.html", changes=by_mode, market=market, show_all=show_all)
 
 
 @app.route("/runs")
