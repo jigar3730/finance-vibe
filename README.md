@@ -9,8 +9,8 @@ with a Flask dashboard to review their output:
 | **Breakout readiness** | Each ticker's trend / volatility / volume / momentum / structure state and breakout status (descriptive) | `breakout_setups_<date>.csv` | [`docs/breakout.md`](docs/breakout.md) |
 
 Both produce *signals* for review, not trades. The backtest found no proven edge in them
-(`RESEARCH.md`), so the dashboard's home page is daily market context (SPY / QQQ / SCHG /
-SCHD facts, VIX, credit and sector breadth); the scans live on a back page, Setups (unproven).
+(`RESEARCH.md`), so the dashboard's home page is market context, live in the session (SPY / QQQ / IWM /
+RSP, VIX, rates, dollar, credit and sector breadth); the scans live on a back page, Setups (unproven).
 
 ## Quick start
 

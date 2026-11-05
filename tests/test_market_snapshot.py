@@ -219,3 +219,98 @@ def test_breadth_counts_a_fund_on_its_live_price():
     assert tile["live"] is True and tile["above"] is False
     assert tile["close"] == 90.0 and tile["pct"] == pytest.approx(-0.10)
     assert got["as_of"] == "2026-11-04"
+
+
+def test_position_facts_on_closes():
+    # A year of closes rising 1 a day, alternating so daily returns have some spread.
+    closes = [100.0 + i + (0.5 if i % 2 else 0.0) for i in range(260)]
+    got = insights.position_facts(_closes(closes), None)
+    series = pd.Series(closes)
+    assert got["last"] == closes[-1]
+    day = closes[-1] / closes[-2] - 1
+    typical = series.iloc[:-1].pct_change().dropna().tail(21).std()
+    assert got["move"] == pytest.approx(day / typical)
+    assert got["vs"][20] == pytest.approx(closes[-1] / series.tail(20).mean() - 1)
+    assert got["vs"][200] == pytest.approx(closes[-1] / series.tail(200).mean() - 1)
+    assert got["off_high"] == 0.0  # the newest close is the high
+
+
+def test_position_facts_with_quote_keeps_averages_and_high_on_closed_bars():
+    closes = [100.0 + (i % 7) for i in range(260)]
+    series = pd.Series(closes)
+    got = insights.position_facts(_closes(closes), {"last": 90.0, "date": THU})
+    assert got["last"] == 90.0
+    typical = series.pct_change().dropna().tail(21).std()
+    assert got["move"] == pytest.approx((90.0 / closes[-1] - 1) / typical)
+    assert got["move"] < 0
+    assert got["vs"][50] == pytest.approx(90.0 / series.tail(50).mean() - 1)
+    assert got["off_high"] == pytest.approx(90.0 / 106.0 - 1)
+
+
+def test_position_facts_new_high_and_short_history():
+    closes = [100.0 + (i % 7) for i in range(260)]
+    assert insights.position_facts(_closes(closes), {"last": 500.0, "date": THU})["off_high"] == 0.0
+    short = insights.position_facts(_closes([10.0, 11.0]), None)
+    assert short["last"] == 11.0 and short["move"] is None
+    assert short["off_high"] is None and short["vs"][20] is None
+    assert insights.position_facts(_closes([10.0]), None)["move"] is None
+    assert insights.position_facts(None, None)["last"] is None
+
+
+def test_vix_rank_over_the_past_year():
+    vix = _closes([float(i) for i in range(1, 301)])  # the newest 252 closes run 49..300
+    assert health.volatility(vix)["rank"] == pytest.approx(251 / 252 * 100)
+    assert health.volatility(vix, {"last": 49.0, "date": THU})["rank"] == 0.0
+    assert health.volatility(_closes([15.0] * 30))["rank"] is None
+
+
+def test_vol_curve_needs_both_quotes_and_shows_previous_close():
+    vix, vix3m = _closes([15.0, 16.0, 18.0]), _closes([20.0, 20.0, 20.0])
+    closed = health.vol_curve(vix, vix3m)
+    assert closed["ratio"] == pytest.approx(0.90) and closed["previous"] == pytest.approx(0.80)
+    one = {"VIX": {"last": 22.0, "date": THU}}
+    assert health.vol_curve(vix, vix3m, one)["live"] is False
+    both = one | {"VIX3M": {"last": 20.0, "date": THU}}
+    got = health.vol_curve(vix, vix3m, both)
+    assert got["live"] is True
+    assert got["ratio"] == pytest.approx(1.10) and got["previous"] == pytest.approx(0.90)
+    assert health.vol_curve(None, vix3m) is None
+
+
+def test_rates_change_in_points():
+    tnx = _closes([4.0 + i * 0.01 for i in range(30)])
+    closed = health.rates(tnx)
+    assert closed["level"] == pytest.approx(4.29)
+    assert closed["change"] == pytest.approx(0.01)
+    assert closed["month_change"] == pytest.approx(0.21)
+    got = health.rates(tnx, {"last": 4.50, "date": THU})
+    assert got["live"] is True
+    assert got["change"] == pytest.approx(4.50 - 4.29)
+    assert got["month_change"] == pytest.approx(4.50 - (4.0 + 9 * 0.01))
+    assert health.rates(None) is None
+
+
+def test_dollar_change_in_percent():
+    dxy = _closes([100.0] * 29 + [101.0])
+    assert health.dollar(dxy)["change"] == pytest.approx(0.01)
+    assert health.dollar(dxy)["month_change"] == pytest.approx(0.01)
+    assert health.dollar(dxy, {"last": 99.99, "date": THU})["change"] == pytest.approx(-0.01)
+    assert health.dollar(None) is None
+
+
+def test_credit_day_change():
+    hyg, ief = _closes([10.0, 11.0]), _closes([10.0, 10.0])
+    assert health.credit(hyg, ief)["day_change"] == pytest.approx(0.10)
+    quotes = {"HYG": {"last": 9.9, "date": THU}, "IEF": {"last": 10.0, "date": THU}}
+    assert health.credit(hyg, ief, quotes)["day_change"] == pytest.approx(-0.10)
+
+
+def test_breadth_ranks_by_todays_move_and_keeps_the_50_day_count():
+    frames = {"XLK": _closes([100.0] * 60), "XLE": _closes([100.0] * 60)}
+    quotes = {"XLK": {"last": 90.0, "date": THU}, "XLE": {"last": 101.0, "date": THU}}
+    got = health.breadth(frames, quotes)
+    assert [t["symbol"] for t in got["ranked"]][:2] == ["XLE", "XLK"]
+    assert got["ranked"][0]["day"] == pytest.approx(0.01)
+    assert got["ranked"][1]["day"] == pytest.approx(-0.10)
+    assert got["ranked"][-1]["day"] is None  # funds without data sort last
+    assert {s["symbol"] for s in got["above"]} == {"XLE"}

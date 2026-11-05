@@ -409,11 +409,12 @@ td.neg, .neg { color: var(--finviz-red); }
 .fact-line { margin: 0 0 16px; font-size: 1.15rem; font-weight: 700; color: var(--finviz-text-strong); }
 .tile-row {
     display: grid;
-    grid-template-columns: minmax(190px, 1fr) minmax(190px, 1fr) minmax(640px, 3.4fr);
-    align-items: start;
+    grid-template-columns: repeat(5, minmax(190px, 1fr));
+    align-items: stretch;
     gap: 14px;
 }
-@media (max-width: 1200px) { .tile-row { grid-template-columns: 1fr 1fr; } .tile-breadth { grid-column: 1 / -1; } }
+.tile-breadth { grid-column: 1 / -1; }
+@media (max-width: 1200px) { .tile-row { grid-template-columns: 1fr 1fr; } }
 .metric-tile {
     background: var(--finviz-bg-card);
     border: 1px solid var(--finviz-border);

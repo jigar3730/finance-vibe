@@ -429,17 +429,17 @@ def _page_as_of(*dates: str | None) -> str | None:
 
 def _uses_quotes(table: dict[str, Any], market_health: dict[str, Any]) -> bool:
     """True when any number on the market home comes from a live quote."""
+    tiles = ("volatility", "vol_curve", "rates", "dollar", "credit")
     return (
         any(r["live"] for r in table["rows"])
-        or (market_health["volatility"] or {}).get("live", False)
-        or (market_health["credit"] or {}).get("live", False)
+        or any((market_health[k] or {}).get("live", False) for k in tiles)
         or any(t["live"] for t in market_health["breadth"]["tiles"])
     )
 
 
 @app.route("/")
 def market() -> str:
-    """Home: one table for SPY / QQQ / SCHG / SCHD, market health tiles, sector tiles,
+    """Home: one table for ``config.MARKET_HOME_FUNDS``, market health tiles, sector tiles,
     then a card per ETF with a support-to-resistance position bar. Live quotes overlay
     the table and tiles when the snapshot is newer than the closes; cards stay on closes."""
     rows = _market(_latest_runs())

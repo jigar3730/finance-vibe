@@ -49,7 +49,7 @@ Each stage also runs on its own:
 python -m finance_vibe.data.tickers
 python -m finance_vibe.data.ingest weekly
 python -m finance_vibe.data.daily_ingest                 # takes no mode
-python -m finance_vibe.data.market_ingest                # takes no mode; 20 tickers
+python -m finance_vibe.data.market_ingest                # takes no mode; 23 tickers
 python -m finance_vibe.data.market_snapshot --now        # live quotes for the home page; not a pipeline stage
 python -m finance_vibe.scanners.coiled_cobra weekly
 python -m finance_vibe.scanners.breakout weekly
@@ -75,15 +75,16 @@ python -m finance_vibe.scanners.breakout weekly
 - **`data.market_ingest`** (daily, last stage, and by itself at 17:05 ET) downloads
   `config.MARKET_CONTEXT_TICKERS` for the market home page: the broad funds in
   `MARKET_INDEX_FUNDS` (SPY, QQQ, IWM, RSP, SCHG, SCHD), VIX (Yahoo `^VIX`, saved as
-  `VIX_2y_1d.csv`), HYG and IEF (credit), and the 11 sector funds in `MARKET_SECTOR_FUNDS`
+  `VIX_2y_1d.csv`), VIX3M, the 10-year yield (`^TNX`, saved as `TNX`), the dollar index
+  (`DX-Y.NYB`, saved as `DXY`), HYG and IEF (credit), and the 11 sector funds in `MARKET_SECTOR_FUNDS`
   (breadth). They live in `data/raw/market/`, which no scanner reads, including the copies
   of SPY, QQQ and others that are also scanned. Same
   download, OHLCV contract, today's-bar rule and `MIN_SAVE_ROWS` as `daily_ingest`.
   The folder is not wiped: a ticker that fails keeps its old file, which the quality
   report then flags `stale`. Failures go to `data/logs/market/ingest_errors_<date>.csv`;
   the stage always exits 0, so it never fails the pipeline. Its quality report
-  (`data/logs/market/data_quality_<date>.csv`) skips `zero_volume` for VIX
-  (`MARKET_NO_VOLUME`; an index has no volume).
+  (`data/logs/market/data_quality_<date>.csv`) skips `zero_volume` for VIX, VIX3M,
+  TNX and DXY (`MARKET_NO_VOLUME`; an index has no volume).
 - **Bar-quality report (`data.quality`).** After each ingest (weekly: `ingest.main`;
   daily: `daily_ingest.ingest_daily`, after today's bar is dropped) every raw CSV is
   checked and each issue is written to `data_quality_<date>.csv`
@@ -213,7 +214,7 @@ dashboard and the next scheduled run pick it up.
 
 | Route | Contents |
 | ----- | -------- |
-| `/` | Market home (closes from `data/raw/market/`, plus live quotes in the session): a "Today" table for SPY / QQQ / SCHG / SCHD (daily change, close vs 50- and 200-day averages, heavy-volume support break, growth vs dividend), Market health (VIX, HYG/IEF credit ratio, sectors above their 50-day average), the relative view (returns, RS vs SPY), then a card per ETF (weekly trend / MTF and close vs 50-day average, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
+| `/` | Market home (closes from `data/raw/market/`, plus live quotes in the session): one table for SPY / QQQ / IWM / RSP (last, day, move size, % from averages and high, returns, RS vs SPY, growth vs dividend), Market health (VIX, VIX / VIX3M, 10-year yield, dollar, HYG/IEF credit ratio, sector breadth), then a card per ETF (weekly trend / MTF and close vs 50-day average, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
 | `/market` | Redirects (301) to `/` |
 | `/setups` | Setups (unproven), by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), since last run (new weekly CONFIRMED, stock list in / out, status-change counts), counts of signals that failed in-sample |
 | `/changes` | Market facts that changed since the previous daily run (SMA50 / SMA200 crossings, new heavy-volume support breaks, growth-vs-dividend label) |
@@ -282,19 +283,26 @@ The growth-vs-dividend label, heavy-volume support breaks and the support and re
 cards stay on closes. A row with no quote says "⚠ no quote". From 08:00 to 16:15 ET on
 session days the page reloads itself every 5 minutes.
 
-Under the badge one fact line:
-"N of 4 funds closed below support on heavy volume · VIX ±X.XX · N of 11 sectors above
-50-day". Top to bottom:
+A line above the table appears only when a fund closed below support on heavy volume,
+naming the funds. Top to bottom:
 
-1. **One table** (`insights.market_table`) for SPY / QQQ / SCHG / SCHD: daily % change
-   (last two closes in `data/raw/market/`, or the daily raw file if the market file is
-   missing), returns over 1W / 1M / 3M / 6M (5 / 21 / 63 /
-   126 bars) and RS vs SPY (`market.relative_strength`: 63-day return minus SPY's), all
-   with a sign and 2 decimals, right-aligned, green / red for up / down. Full width, in
-   the regular font. A note column shows "⚠ below support · heavy vol" (daily close below `Support` with RVOL20 ≥
-   `config.BREAKOUT_RVOL_CONFIRM`, 1.5; `insights.heavy_break`) and "⚠ stale" / "⚠ no
-   data" when a fund's newest close is older than the badge or missing. Under it, the
-   growth-vs-dividend label (`insights.rotation`, `config.ROTATION_*`):
+1. **One table** (`insights.market_table`) for `config.MARKET_HOME_FUNDS` (SPY, QQQ, IWM,
+   RSP), with closes from `data/raw/market/` (the daily raw file if the market file is
+   missing). All percentages have a sign and 2 decimals, and are green / red for up / down.
+   - **Last:** the live quote, else the newest close.
+   - **Day:** % change since the previous close.
+   - **Move:** the day's % move divided by the standard deviation of the 21 daily returns
+     before it (`insights.position_facts`), e.g. -3.4x.
+   - **vs 20d / 50d / 200d:** % from each average of closed bars.
+   - **Off high:** % from the highest close of the last 252 sessions, 0.00% at a new high.
+   - **1W / 1M:** returns over 5 and 21 bars.
+   - **RS vs SPY:** `market.relative_strength`, 63-day return minus SPY's.
+
+   A note column shows "⚠ below support · heavy vol" (daily close below `Support` with
+   RVOL20 ≥ `config.BREAKOUT_RVOL_CONFIRM`, 1.5; `insights.heavy_break`; RSP has no scan row,
+   so this never applies to it) and "⚠ stale" / "⚠ no data" / "⚠ no quote". Under the table,
+   the growth-vs-dividend label (`insights.rotation`, `config.ROTATION_*`, SCHG and SCHD
+   closes):
    - *Growth outperforming (last 63 days)*: the SCHG / SCHD close ratio is above its
      50-day SMA and SCHG's 63-day return beats SCHD's.
    - *Dividend/value outperforming (last 63 days)*: below the SMA and SCHD beats SCHG.
@@ -302,20 +310,24 @@ Under the badge one fact line:
 
    Raw prices are Yahoo adjusted closes (`auto_adjust=True`), so returns include
    dividends.
-2. **Market health** (`web/health.market_health`), three tiles with a large number, from
-   the market-context files (`data/raw/market/`):
-   - **VIX:** the close, its change in points since the previous close, and above or
-     below its 20-day average.
-   - **Credit: HYG / IEF:** the close ratio (high-yield company bonds vs 7–10 year
-     Treasuries), above or below its 50-day average, and its % change over 21 sessions.
-     IEF rather than TLT: its bonds are closer in length to HYG's, so the ratio moves
-     mostly with credit worry, not with long-term interest rates.
-   - **Breadth:** "N of 11" sector funds (`config.MARKET_SECTOR_FUNDS`) closed above
-     their 50-day average. Inside the tile, 11 small tiles on one row (green above / red below /
-     grey no data), each with the ticker, a short name (`config.MARKET_SECTOR_SHORT`,
-     "Tech") and its % from the 50-day average, sorted by that %, highest first; the full
-     name, close and average on hover. A fund without a file or enough history is left
-     out of the count and sorted last.
+2. **Market health** (`web/health.market_health`), tiles with a large number, from the
+   market-context files (`data/raw/market/`):
+   - **VIX:** the level, its change in points since the previous close, above or below its
+     20-day average, and the % of the past 252 closes it is above.
+   - **VIX / VIX3M:** the ratio and its value at the previous close. Live only with both quotes.
+   - **10-year yield:** `^TNX` in %, its change in points since the previous close and over
+     21 sessions.
+   - **US dollar:** the dollar index, its % change since the previous close and over 21 sessions.
+   - **Credit: HYG / IEF:** the ratio (high-yield company bonds vs 7–10 year Treasuries), its
+     % change since the previous close and over 21 sessions, and above or below its 50-day
+     average. IEF rather than TLT: its bonds are closer in length to HYG's, so the ratio
+     moves mostly with credit worry, not with long-term interest rates.
+   - **Breadth:** a full-width tile: "N of 11" sector funds (`config.MARKET_SECTOR_FUNDS`)
+     above their 50-day average. Inside it, 11 small tiles on one row sorted by today's %
+     change, highest first (green up / red down on the day / grey no data), each with the
+     ticker, a short name (`config.MARKET_SECTOR_SHORT`, "Tech"), today's % change and its %
+     from the 50-day average; the full name, price and average on hover. A fund without a
+     file or enough history is left out of the count.
 
    A tile shows "⚠ HYG stale" (or missing, or a bar-quality check) when a file is
    missing, older than the last closed session, or has an error row in the newest

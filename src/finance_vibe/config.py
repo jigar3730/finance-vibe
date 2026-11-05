@@ -258,16 +258,20 @@ MARKET_SECTOR_SHORT = {
 }
 # Broad market funds, for the home page's table and the growth-vs-dividend label.
 MARKET_INDEX_FUNDS = ("SPY", "QQQ", "IWM", "RSP", "SCHG", "SCHD")
+MARKET_HOME_FUNDS = ("SPY", "QQQ", "IWM", "RSP")  # the home table's rows
 # File symbol -> Yahoo symbol. VIX is an index (``^VIX``); its file is ``VIX_...csv``.
 MARKET_CONTEXT_TICKERS = {
     **{s: s for s in MARKET_INDEX_FUNDS},
     "VIX": "^VIX",
+    "VIX3M": "^VIX3M",  # 3-month volatility index (VIX / VIX3M)
+    "TNX": "^TNX",  # 10-year Treasury yield, in percent
+    "DXY": "DX-Y.NYB",  # US dollar index
     "HYG": "HYG",  # high-yield corporate bonds
     "IEF": "IEF",  # 7-10 year Treasuries (credit ratio HYG / IEF)
     **{s: s for s in MARKET_SECTOR_FUNDS},
 }
 # Indexes Yahoo reports without volume: the zero-volume quality check is skipped.
-MARKET_NO_VOLUME = frozenset({"VIX"})
+MARKET_NO_VOLUME = frozenset({"VIX", "VIX3M", "TNX", "DXY"})
 
 # Live quotes for the market home (data.market_snapshot). Their own file, never data/raw/.
 MARKET_SNAPSHOT_PATH = os.path.join(PROJECT_ROOT, "data", "live", "market_snapshot.json")

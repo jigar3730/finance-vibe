@@ -278,6 +278,10 @@ def market_changes(daily_folder: str) -> dict[str, Any] | None:
 # Display windows in daily bars.
 RETURN_WINDOWS = {"1W": 5, "1M": 21, "3M": 63, "6M": 126}
 RS_LOOKBACK = 63
+HOME_WINDOWS = ("1W", "1M")
+HOME_SMAS = (20, 50, 200)
+MOVE_BARS = 21
+HIGH_BARS = 252
 GROWTH_OUTPERFORMING = f"Growth outperforming (last {config.ROTATION_LOOKBACK} days)"
 DIVIDEND_OUTPERFORMING = f"Dividend/value outperforming (last {config.ROTATION_LOOKBACK} days)"
 MIXED = "Mixed"
@@ -331,6 +335,41 @@ def with_quote(df: pd.DataFrame | None, quote: dict[str, Any] | None) -> pd.Data
         return df
     today = pd.DataFrame({"Date": [pd.Timestamp(quote["date"])], "Close": [quote["last"]]})
     return pd.concat([df, today], ignore_index=True)
+
+
+def last_ma(close: pd.Series, bars: int) -> float | None:
+    """Newest simple moving average of ``close``, or None with too little history."""
+    ma = indicators.sma(close.reset_index(drop=True), bars)
+    return None if ma is None or pd.isna(ma.iloc[-1]) else float(ma.iloc[-1])
+
+
+def position_facts(closed: pd.DataFrame | None, quote: dict[str, Any] | None) -> dict[str, Any]:
+    """Where a fund stands: price, move size, distance from its averages and its high.
+
+    ``last`` is a new quote, else the newest close. ``move`` is the day's % move divided
+    by the standard deviation of the :data:`MOVE_BARS` daily returns before it. ``vs``
+    maps each of :data:`HOME_SMAS` to % from that average, and ``off_high`` is % from the
+    highest close in :data:`HIGH_BARS` sessions (0 at a new high). Averages and the high
+    use closed bars only.
+    """
+    empty = {"last": None, "move": None, "vs": dict.fromkeys(HOME_SMAS), "off_high": None}
+    if closed is None or closed.empty:
+        return empty
+    close = closed["Close"].reset_index(drop=True)
+    live = quote is not None and quote_is_new(closed, quote)
+    last = float(quote["last"]) if quote is not None and live else float(close.iloc[-1])
+    before = close if live else close.iloc[:-1]
+    returns = before.pct_change().dropna().tail(MOVE_BARS)
+    typical = float(returns.std()) if len(returns) == MOVE_BARS else 0.0
+    move = (last / float(before.iloc[-1]) - 1.0) / typical if typical > 0 else None
+    averages = {n: last_ma(close, n) for n in HOME_SMAS}
+    high = float(close.tail(HIGH_BARS).max()) if len(close) >= HIGH_BARS else None
+    return {
+        "last": last,
+        "move": move,
+        "vs": {n: None if ma is None else last / ma - 1.0 for n, ma in averages.items()},
+        "off_high": None if high is None else min(last / high - 1.0, 0.0),
+    }
 
 
 def _ret(close: pd.Series, bars: int) -> float | None:
@@ -473,21 +512,30 @@ def market_strip(
 def market_table(
     daily_breakout: pd.DataFrame, quotes: dict[str, dict[str, Any]] | None = None
 ) -> dict[str, Any]:
-    """The market home's one table: :func:`market_strip` facts merged with the
-    :func:`etf_relative` returns and RS vs SPY, one row per ETF, plus the rotation.
+    """The market home's one table for ``config.MARKET_HOME_FUNDS``: :func:`market_strip`
+    facts, :func:`position_facts`, and :func:`etf_relative` returns and RS vs SPY, one row
+    per fund, plus the rotation.
 
-    Closes come from the market silo (:func:`market_closes`); ``quotes`` carries daily
-    change, returns and RS through to the live price."""
-    strip = market_strip(daily_breakout, quotes=quotes, closes=market_closes)
-    rel = etf_relative(quotes=quotes, closes=market_closes)
+    Closes come from the market silo (:func:`market_closes`); ``quotes`` carries the
+    numbers through to the live price."""
+    quotes = quotes or {}
+    symbols = config.MARKET_HOME_FUNDS
+    strip = market_strip(daily_breakout, symbols, quotes, market_closes)
+    rel = etf_relative(symbols, quotes=quotes, closes=market_closes)
     by_symbol = {r["symbol"]: r for r in rel["rows"]}
     rows = [
-        {**r, "returns": by_symbol[r["symbol"]]["returns"], "rs": by_symbol[r["symbol"]]["rs"]}
+        {
+            **r,
+            **position_facts(market_closes(r["symbol"]), quotes.get(r["symbol"])),
+            "returns": by_symbol[r["symbol"]]["returns"],
+            "rs": by_symbol[r["symbol"]]["rs"],
+        }
         for r in strip["rows"]
     ]
     return {
         "rows": rows,
-        "windows": rel["windows"],
+        "windows": list(HOME_WINDOWS),
+        "smas": list(HOME_SMAS),
         "benchmark": rel["benchmark"],
         "rotation": rel["rotation"],
     }

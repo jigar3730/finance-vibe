@@ -1,4 +1,4 @@
-"""Market health facts for the home page: volatility, credit, breadth.
+"""Market health facts for the home page: volatility, rates, dollar, credit, breadth.
 
 Read from the market-context silo (``config.MARKET_CONTEXT_PROFILE``, written by
 :mod:`finance_vibe.data.market_ingest`). With live ``quotes``
@@ -20,18 +20,22 @@ from typing import Any
 
 import pandas as pd
 
-from finance_vibe import config, indicators
+from finance_vibe import config
 from finance_vibe.data import raw
 from finance_vibe.web import insights
 
 logger = logging.getLogger(__name__)
 
 VIX = "VIX"
+VIX3M = "VIX3M"
+TNX = "TNX"
+DXY = "DXY"
 CREDIT = ("HYG", "IEF")  # high-yield bonds / 7-10 year Treasuries
 VIX_MA_BARS = 20
 RATIO_MA_BARS = 50
 SECTOR_MA_BARS = 50
 MONTH_BARS = 21
+YEAR_BARS = 252
 
 
 def closes(symbol: str) -> pd.DataFrame | None:
@@ -47,9 +51,21 @@ def closes(symbol: str) -> pd.DataFrame | None:
     return None if df.empty else df
 
 
-def _last_ma(close: pd.Series, bars: int) -> float | None:
-    ma = indicators.sma(close.reset_index(drop=True), bars)
-    return None if ma is None or pd.isna(ma.iloc[-1]) else float(ma.iloc[-1])
+_last_ma = insights.last_ma
+
+
+def _level(df: pd.DataFrame, quote: dict[str, Any] | None) -> dict[str, Any]:
+    """A series' level (a new quote, else the newest close), the close before it and the
+    close about a month before it."""
+    close = df["Close"]
+    live = quote is not None and insights.quote_is_new(df, quote)
+    past = close if live else close.iloc[:-1]
+    return {
+        "level": float(quote["last"]) if quote is not None and live else float(close.iloc[-1]),
+        "live": live,
+        "previous": float(past.iloc[-1]) if len(past) else None,
+        "month_base": float(past.iloc[-MONTH_BARS]) if len(past) >= MONTH_BARS else None,
+    }
 
 
 def _as_of(df: pd.DataFrame) -> date:
@@ -78,22 +94,97 @@ def _flags(
 def volatility(
     vix: pd.DataFrame | None, quote: dict[str, Any] | None = None
 ) -> dict[str, Any] | None:
-    """VIX level, change vs the previous close (points), and its 20-day closing average."""
+    """VIX level, change vs the previous close (points), its 20-day closing average, and
+    ``rank``: the % of the past year's closes it is above (None under a year of history)."""
     if vix is None:
         return None
     c = vix["Close"]
     ma = _last_ma(c, VIX_MA_BARS)
-    live = insights.quote_is_new(vix, quote)
-    level = float(quote["last"]) if quote is not None and live else float(c.iloc[-1])
-    previous = c.iloc[-1] if live else (c.iloc[-2] if len(c) > 1 else None)
-    change = None if previous is None else float(level - previous)
+    now = _level(vix, quote)
+    level, previous = now["level"], now["previous"]
+    year = c.tail(YEAR_BARS)
     return {
         "level": level,
-        "change": change,
-        "live": live,
+        "change": None if previous is None else level - previous,
+        "live": now["live"],
         "ma": ma,
         "above_ma": None if ma is None else level > ma,
+        "rank": float((year < level).mean() * 100) if len(year) == YEAR_BARS else None,
         "as_of": _as_of(vix).isoformat(),
+    }
+
+
+def vol_curve(
+    vix: pd.DataFrame | None,
+    vix3m: pd.DataFrame | None,
+    quotes: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any] | None:
+    """VIX / VIX3M and the same ratio at the previous close. Live only with both quotes."""
+    if vix is None or vix3m is None:
+        return None
+    got = _ratio_now(vix, vix3m, (quotes or {}).get(VIX), (quotes or {}).get(VIX3M))
+    if got is None:
+        return None
+    return {k: got[k] for k in ("ratio", "live", "previous", "as_of")}
+
+
+def _ratio_now(
+    top: pd.DataFrame,
+    bottom: pd.DataFrame,
+    top_quote: dict[str, Any] | None,
+    bottom_quote: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Close ratio of two series on shared dates, moved to live only when both quotes are
+    new, so a ratio never mixes days."""
+    both = top.merge(bottom, on="Date", suffixes=(" T", " B")).sort_values("Date")
+    if both.empty:
+        return None
+    ratio = both[["Date"]].assign(Close=both["Close T"] / both["Close B"]).reset_index(drop=True)
+    live = insights.quote_is_new(both, top_quote) and insights.quote_is_new(both, bottom_quote)
+    quote = (
+        {"last": top_quote["last"] / bottom_quote["last"], "date": top_quote["date"]}
+        if (live and top_quote is not None and bottom_quote is not None)
+        else None
+    )
+    now = _level(ratio, quote)
+    return {
+        "ratio": now["level"],
+        "live": now["live"],
+        "previous": now["previous"],
+        "month_base": now["month_base"],
+        "series": ratio["Close"],
+        "as_of": _as_of(both).isoformat(),
+    }
+
+
+def rates(tnx: pd.DataFrame | None, quote: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """10-year Treasury yield in %, its change since the previous close and over about a
+    month, both in points."""
+    if tnx is None:
+        return None
+    now = _level(tnx, quote)
+    level, previous, base = now["level"], now["previous"], now["month_base"]
+    return {
+        "level": level,
+        "live": now["live"],
+        "change": None if previous is None else level - previous,
+        "month_change": None if base is None else level - base,
+        "as_of": _as_of(tnx).isoformat(),
+    }
+
+
+def dollar(dxy: pd.DataFrame | None, quote: dict[str, Any] | None = None) -> dict[str, Any] | None:
+    """US dollar index, its % change since the previous close and over about a month."""
+    if dxy is None:
+        return None
+    now = _level(dxy, quote)
+    level, previous, base = now["level"], now["previous"], now["month_base"]
+    return {
+        "level": level,
+        "live": now["live"],
+        "change": None if previous is None else level / previous - 1.0,
+        "month_change": None if base is None else level / base - 1.0,
+        "as_of": _as_of(dxy).isoformat(),
     }
 
 
@@ -102,39 +193,24 @@ def credit(
     ief: pd.DataFrame | None,
     quotes: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
-    """HYG / IEF ratio, its 50-day closing average, and its change over about a month.
-
-    Live only when both funds have a new quote, so the ratio never mixes days.
-    """
+    """HYG / IEF ratio, its 50-day closing average, and its % change since the previous
+    close and over about a month. Live only when both funds have a new quote."""
     quotes = quotes or {}
     if hyg is None or ief is None:
         return None
-    both = hyg.merge(ief, on="Date", suffixes=(" H", " I")).sort_values("Date")
-    if both.empty:
+    got = _ratio_now(hyg, ief, quotes.get(CREDIT[0]), quotes.get(CREDIT[1]))
+    if got is None:
         return None
-    ratio = (both["Close H"] / both["Close I"]).reset_index(drop=True)
-    ma = _last_ma(ratio, RATIO_MA_BARS)
-    h_quote, i_quote = quotes.get(CREDIT[0]), quotes.get(CREDIT[1])
-    live = (
-        h_quote is not None
-        and i_quote is not None
-        and insights.quote_is_new(both, h_quote)
-        and insights.quote_is_new(both, i_quote)
-    )
-    if live:
-        now = float(h_quote["last"] / i_quote["last"])  # type: ignore[index]
-        base = ratio.iloc[-MONTH_BARS] if len(ratio) >= MONTH_BARS else None
-    else:
-        now = float(ratio.iloc[-1])
-        base = ratio.iloc[-1 - MONTH_BARS] if len(ratio) > MONTH_BARS else None
-    month = None if base is None else float(now / base - 1.0)
+    now, previous, base = got["ratio"], got["previous"], got["month_base"]
+    ma = _last_ma(got["series"], RATIO_MA_BARS)
     return {
         "ratio": now,
-        "live": live,
+        "live": got["live"],
         "ma": ma,
         "above_ma": None if ma is None else now > ma,
-        "month_change": month,
-        "as_of": _as_of(both).isoformat(),
+        "day_change": None if previous is None else now / previous - 1.0,
+        "month_change": None if base is None else now / base - 1.0,
+        "as_of": got["as_of"],
     }
 
 
@@ -145,9 +221,9 @@ def breadth(
     """Sector funds above / below their 50-day closing average, with plain sector names.
 
     ``tiles`` lists every fund in ``config.MARKET_SECTOR_FUNDS`` order with its price
-    (a new live quote, else the close), ``live``, 50-day average, ``pct`` (price /
-    average - 1) and ``above`` (None without data);
-    ``ranked`` is the same tiles by ``pct``, highest first, funds without data last.
+    (a new live quote, else the close), ``live``, ``day`` (% change since the previous
+    close), 50-day average, ``pct`` (price / average - 1) and ``above`` (None without data);
+    ``ranked`` is the same tiles by ``day``, highest first, funds without data last.
     ``above`` / ``below`` / ``unknown`` list ``{"symbol", "name"}``.
     """
     quotes = quotes or {}
@@ -156,10 +232,10 @@ def breadth(
     for sym, name in config.MARKET_SECTOR_FUNDS.items():
         df = frames.get(sym)
         ma = None if df is None else _last_ma(df["Close"], SECTOR_MA_BARS)
-        close = None if df is None else float(df["Close"].iloc[-1])
-        live = insights.quote_is_new(df, quotes.get(sym))
-        if live:
-            close = float(quotes[sym]["last"])
+        now = None if df is None else _level(df, quotes.get(sym))
+        close = None if now is None else now["level"]
+        previous = None if now is None else now["previous"]
+        live = False if now is None else now["live"]
         if df is not None and ma is not None:
             dates.append(_as_of(df))
         above_ma = None if close is None or ma is None else close > ma
@@ -170,6 +246,7 @@ def breadth(
                 "short": config.MARKET_SECTOR_SHORT.get(sym, name),
                 "close": close,
                 "live": live,
+                "day": None if close is None or previous is None else close / previous - 1.0,
                 "ma": ma,
                 "pct": None if above_ma is None else close / ma - 1.0,  # type: ignore[operator]
                 "above": above_ma,
@@ -180,7 +257,7 @@ def breadth(
         return [{"symbol": t["symbol"], "name": t["name"]} for t in tiles if t["above"] is state]
 
     above, below = names(True), names(False)
-    ranked = sorted(tiles, key=lambda t: (t["pct"] is None, -(t["pct"] or 0.0)))
+    ranked = sorted(tiles, key=lambda t: (t["day"] is None, -(t["day"] or 0.0)))
     return {
         "tiles": tiles,
         "ranked": ranked,
@@ -196,18 +273,25 @@ def breadth(
 def market_health(
     expected: date, quotes: dict[str, dict[str, Any]] | None = None
 ) -> dict[str, Any]:
-    """Volatility, credit and breadth facts; ``expected`` is the last closed session.
+    """Volatility, rates, dollar, credit and breadth facts; ``expected`` is the last
+    closed session.
 
     ``quotes`` moves the levels to live prices. Every ``as_of`` stays the newest close.
     """
     quotes = quotes or {}
-    symbols = (VIX, *CREDIT, *config.MARKET_SECTOR_FUNDS)
+    symbols = (VIX, VIX3M, TNX, DXY, *CREDIT, *config.MARKET_SECTOR_FUNDS)
     frames = {s: closes(s) for s in symbols}
     errors = insights.quality_errors(config.MARKET_CONTEXT_PROFILE["logs_dir"])
     sectors = tuple(config.MARKET_SECTOR_FUNDS)
     return {
         "volatility": volatility(frames[VIX], quotes.get(VIX)),
         "volatility_flags": _flags((VIX,), frames, expected, errors),
+        "vol_curve": vol_curve(frames[VIX], frames[VIX3M], quotes),
+        "vol_curve_flags": _flags((VIX3M,), frames, expected, errors),
+        "rates": rates(frames[TNX], quotes.get(TNX)),
+        "rates_flags": _flags((TNX,), frames, expected, errors),
+        "dollar": dollar(frames[DXY], quotes.get(DXY)),
+        "dollar_flags": _flags((DXY,), frames, expected, errors),
         "credit": credit(frames[CREDIT[0]], frames[CREDIT[1]], quotes),
         "credit_flags": _flags(CREDIT, frames, expected, errors),
         "breadth": breadth(frames, quotes),

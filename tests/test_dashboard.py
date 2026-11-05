@@ -625,8 +625,8 @@ def test_home_live_quotes_overlay_table_and_tiles(
     client, tmp_path, monkeypatch, market_context_silo
 ):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
-    _write_market_context(market_context_silo, rising={"XLK", "SPY", "QQQ", "SCHG", "SCHD"})
-    _snapshot(("SPY", "QQQ", "SCHG", "VIX", "XLK"))
+    _write_market_context(market_context_silo, rising={"XLK", "SPY", "QQQ", "IWM", "RSP"})
+    _snapshot(("SPY", "QQQ", "IWM", "VIX", "XLK"))
     _now(monkeypatch, "2026-11-02T10:30:00-05:00")
     body = client.get("/").get_data(as_text=True)
     head = body.split('class="page-head"')[1].split("</div>")[0]
@@ -636,8 +636,9 @@ def test_home_live_quotes_overlay_table_and_tiles(
     assert '<meta http-equiv="refresh" content="300">' in body
     table = body.split('class="table overview-table"')[1].split("</table>")[0]
     assert "+179.33%" in table  # the quote 50.00 vs the last close 17.90
-    schd = table.split("SCHD")[1]
-    assert "⚠ no quote" in schd and "⚠ no quote" not in table.split("SCHD")[0]
+    assert '<td class="num">50.00</td>' in table  # Last
+    rsp = table.split('ticker-cell">RSP')[1]
+    assert "⚠ no quote" in rsp and "⚠ no quote" not in table.split('ticker-cell">RSP')[0]
     assert "50.00" in body.split("tile-volatility")[1]  # VIX moved to the quote
     assert "last 50.00" in body  # sector hover names the live price
     assert "Support and resistance (last close)" in body
@@ -645,7 +646,7 @@ def test_home_live_quotes_overlay_table_and_tiles(
 
 def test_home_table_survives_the_daily_raw_wipe(client, tmp_path, monkeypatch, market_context_silo):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")  # no daily raw files at all
-    _write_market_context(market_context_silo, rising={"SPY", "QQQ", "SCHG", "SCHD"})
+    _write_market_context(market_context_silo, rising={"SPY", "QQQ", "IWM", "RSP"})
     table = client.get("/").get_data(as_text=True).split('class="table overview-table"')[1]
     table = table.split("</table>")[0]
     assert "no data" not in table
@@ -695,17 +696,23 @@ def test_home_one_table_with_returns_and_rs(client, tmp_path, monkeypatch, marke
     headers = re.findall(r"<th[^>]*>([^<]*)", table)
     assert [h.strip() for h in headers] == [
         "Ticker",
-        "Daily",
+        "Last",
+        "Day",
+        "Move",
+        "vs 20d",
+        "vs 50d",
+        "vs 200d",
+        "Off high",
         "1W",
         "1M",
-        "3M",
-        "6M",
         "RS vs SPY",
         "",
     ]
     assert body.count("<table") == 1  # Today and the relative view are merged
-    for sym in ("SPY", "QQQ", "SCHG", "SCHD"):
+    for sym in ("SPY", "QQQ", "IWM", "RSP"):
         assert f'<td class="ticker-cell">{sym}</td>' in table
+    assert "SCHG<" not in table and "SCHD<" not in table  # they feed the label under it
+    assert 'class="fact-line"' not in body  # nothing to flag
     assert "63-day return minus SPY" in table  # the ? tooltip
     assert "Growth vs dividend" in body and "Mixed" in body
 
@@ -731,11 +738,9 @@ def test_home_table_formats_and_warnings(client, tmp_path, monkeypatch, market_c
     assert '<td class="num pos">+0.30%</td>' in qqq  # 2 decimals, sign, right-aligned
     assert '<span class="warn plain"' in qqq and "⚠ below support · heavy vol" in qqq
     facts = body.split('class="fact-line"')[1].split("</p>")[0]
-    assert " ".join(facts.split()) == (
-        "> 2 of 4 funds closed below support on heavy volume · VIX — · — sectors above 50-day"
-    )
-    schg = table.split('ticker-cell">SCHG')[1].split("</tr>")[0]
-    assert "⚠ no data" in schg
+    assert " ".join(facts.split()) == ">SPY, QQQ closed below support on heavy volume"
+    iwm = table.split('ticker-cell">IWM')[1].split("</tr>")[0]
+    assert "⚠ no data" in iwm
 
 
 def test_home_health_tiles_and_sector_tiles(client, tmp_path, monkeypatch, market_context_silo):
@@ -750,30 +755,34 @@ def test_home_health_tiles_and_sector_tiles(client, tmp_path, monkeypatch, marke
     assert '<div class="tile-value">2 of 11 <span class="tile-unit">' in breadth
     tiles = re.findall(
         r'class="sector-tile (\w+)" title="([^"]+)"><b>(\w+)</b><small>([^<]+)</small>'
-        r"<small>([^<]+)</small>",
+        r"<small>([^<]+)</small><small>50d ([^<]+)</small>",
         breadth,  # inside the Breadth tile
     )
     assert len(tiles) == 11
-    by_sym = {sym: (state, title, short, pct) for state, title, sym, short, pct in tiles}
+    by_sym = {sym: (state, title, short, day) for state, title, sym, short, day, _ in tiles}
     assert by_sym["XLK"][:3] == ("up", by_sym["XLK"][1], "Tech")
     assert by_sym["XLK"][1].startswith("Technology: close ")
     assert by_sym["XLU"][0] == "down" and by_sym["XLU"][2] == "Utilities"
     assert by_sym["XLE"][2] == "Energy" and by_sym["XLE"][3].startswith("+")
-    # Sorted by % from the 50-day average, highest first: the two rising funds lead.
+    assert all(t[5].endswith("%") for t in tiles)
+    # Sorted by today's % change, highest first: the two rising funds lead.
     assert {t[2] for t in tiles[:2]} == {"XLE", "XLK"}
-    pcts = [float(t[4].rstrip("%")) for t in tiles]
-    assert pcts == sorted(pcts, reverse=True)
+    days = [float(t[4].rstrip("%")) for t in tiles]
+    assert days == sorted(days, reverse=True)
     vix_credit = body.split('class="health"')[1].split('class="metric-tile tile-breadth"')[0]
     assert 'class="pos"' not in vix_credit and 'class="neg"' not in vix_credit  # neutral
-    facts = body.split('class="fact-line"')[1].split("</p>")[0]
-    assert "VIX +0.10" in facts and "2 of 11 sectors above 50-day" in facts
+    assert "since previous close" in body.split('tile-rates"')[1].split('class="metric-tile')[0]
+    assert "since previous close" in body.split('tile-dollar"')[1].split('class="metric-tile')[0]
+    curve = body.split('tile-vol-curve"')[1].split('class="metric-tile')[0]
+    assert "at previous close" in curve
 
 
 def test_home_health_without_data(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
     body = client.get("/").get_data(as_text=True)
     sec = body.split('class="health"')[1].split("</section>")[0]
-    assert sec.count("No data") == 3 and "⚠ VIX missing" in sec and "⚠ XLK missing" in sec
+    assert sec.count("No data") == 6 and "⚠ VIX missing" in sec and "⚠ XLK missing" in sec
+    assert "⚠ VIX3M missing" in sec and "⚠ TNX missing" in sec and "⚠ DXY missing" in sec
     assert sec.count('class="sector-tile nodata"') == 11
 
 

@@ -65,6 +65,7 @@ Rules for every dashboard template and stylesheet (`src/finance_vibe/web/templat
 | ---- | ------ | ------- |
 | % change | sign, 2 decimals | +0.48%, −1.77% |
 | Price, level, average | 2 decimals | 766.77 |
-| Change in points (VIX) | sign, 2 decimals | +2.22 |
+| Change in points (VIX, 10-year yield) | sign, 2 decimals | +2.22 |
+| Move vs typical daily move | sign, 1 decimal, x | -3.4x |
 | Ratio | 4 decimals | 0.8438 |
 | Count | "N of M" | 8 of 11 |
