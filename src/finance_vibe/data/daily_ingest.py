@@ -125,6 +125,11 @@ class NYSEHolidayCalendar(AbstractHolidayCalendar):
 _SESSION = CustomBusinessDay(calendar=NYSEHolidayCalendar())
 
 
+def is_session_day(day: date) -> bool:
+    """True when NYSE trades on ``day`` (early closes count as sessions)."""
+    return bool(_SESSION.is_on_offset(pd.Timestamp(day)))
+
+
 def last_complete_session(now: datetime | None = None) -> date:
     """Date of the newest NYSE session whose daily bar is complete at ``now``."""
     now = _market_now(now)

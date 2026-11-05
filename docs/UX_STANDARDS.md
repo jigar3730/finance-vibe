@@ -32,6 +32,9 @@ Rules for every dashboard template and stylesheet (`src/finance_vibe/web/templat
 - No disclaimers or "not a signal" notes.
 - One "as of" date per page, next to the title, not per row. Only an item that is
   older than that date gets a short ⚠ note (e.g. "⚠ HYG stale").
+- Exception: while the market home shows live quotes, its one badge gives both times:
+  "as of 10:25 ET · last close Wed 2026-11-04". Overdue quotes get "⚠ quotes N min old"
+  beside it, and a row with no quote gets "⚠ no quote".
 - Explanations only as short `?` tooltips (the `title` attribute), and only where a
   term needs explaining (HYG/IEF, RS vs SPY).
 - How far to trust a section (backtest result, untested, failed) is one `?` tooltip

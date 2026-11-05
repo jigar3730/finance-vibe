@@ -59,11 +59,13 @@ def _download_batch(
     retries=DOWNLOAD_RETRIES,
     backoff=DOWNLOAD_BACKOFF_SECONDS,
     timeout=DOWNLOAD_TIMEOUT_SECONDS,
+    prepost=False,
 ):
     """Fetch many tickers in one yfinance call, with retry + backoff.
 
     Raises the last exception once retries are exhausted; the caller logs
-    that as a batch-level failure for every ticker in the batch.
+    that as a batch-level failure for every ticker in the batch. ``prepost``
+    includes extended-hours bars; only intraday snapshots ask for them.
     """
     last_err: Exception | None = None
     for attempt in range(1, retries + 1):
@@ -77,6 +79,7 @@ def _download_batch(
                 progress=False,
                 auto_adjust=True,
                 timeout=timeout,
+                prepost=prepost,
             )
         except Exception as e:
             last_err = e

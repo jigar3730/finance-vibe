@@ -15,7 +15,7 @@ from flask import Flask, Response, abort, jsonify, redirect, render_template, re
 from werkzeug.wrappers import Response as RedirectResponse
 
 from finance_vibe import config
-from finance_vibe.data import raw
+from finance_vibe.data import market_snapshot, raw
 from finance_vibe.log import setup_logging
 from finance_vibe.web import health, insights, playbook
 from finance_vibe.web.playbook import (
@@ -427,10 +427,21 @@ def _page_as_of(*dates: str | None) -> str | None:
     return f"{newest:%a} {newest.date().isoformat()}"
 
 
+def _uses_quotes(table: dict[str, Any], market_health: dict[str, Any]) -> bool:
+    """True when any number on the market home comes from a live quote."""
+    return (
+        any(r["live"] for r in table["rows"])
+        or (market_health["volatility"] or {}).get("live", False)
+        or (market_health["credit"] or {}).get("live", False)
+        or any(t["live"] for t in market_health["breadth"]["tiles"])
+    )
+
+
 @app.route("/")
 def market() -> str:
     """Home: one table for SPY / QQQ / SCHG / SCHD, market health tiles, sector tiles,
-    then a card per ETF with a support-to-resistance position bar. Daily closes only."""
+    then a card per ETF with a support-to-resistance position bar. Live quotes overlay
+    the table and tiles when the snapshot is newer than the closes; cards stay on closes."""
     rows = _market(_latest_runs())
     expected = insights.expected_bars()
     for m in rows:
@@ -438,18 +449,32 @@ def market() -> str:
             m["symbol"], {"daily": m["daily"], "weekly": m["weekly"]}, expected
         )["daily"]["flags"]
     daily_bo = playbook.load_latest(LOG_DIRS["daily"])[2]
-    table = insights.market_table(daily_bo)
-    market_health = health.market_health(expected["daily"])
+    snapshot = market_snapshot.load_snapshot()
+    quotes = snapshot["quotes"] if snapshot else {}
+    table = insights.market_table(daily_bo, quotes)
+    market_health = health.market_health(expected["daily"], quotes)
     newest = max((r["as_of"] for r in table["rows"] if r["as_of"]), default=None)
     for r in table["rows"]:
         r["stale"] = r["as_of"] is None or (newest is not None and r["as_of"] < newest)
+    now = market_snapshot.now_et()
+    live = None
+    if snapshot and _uses_quotes(table, market_health):
+        live = market_snapshot.status(snapshot["fetched_at"], now)
     as_of = _page_as_of(
         newest,
         (market_health["volatility"] or {}).get("as_of"),
         (market_health["credit"] or {}).get("as_of"),
         market_health["breadth"]["as_of"],
     )
-    return render_template("market.html", rows=rows, table=table, health=market_health, as_of=as_of)
+    return render_template(
+        "market.html",
+        rows=rows,
+        table=table,
+        health=market_health,
+        as_of=as_of,
+        live=live,
+        auto_refresh=market_snapshot.in_window(now),
+    )
 
 
 @app.route("/market")

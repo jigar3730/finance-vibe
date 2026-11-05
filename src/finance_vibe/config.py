@@ -266,6 +266,17 @@ MARKET_CONTEXT_TICKERS = {
 # Indexes Yahoo reports without volume: the zero-volume quality check is skipped.
 MARKET_NO_VOLUME = frozenset({"VIX"})
 
+# Live quotes for the market home (data.market_snapshot). Their own file, never data/raw/.
+MARKET_SNAPSHOT_PATH = os.path.join(PROJECT_ROOT, "data", "live", "market_snapshot.json")
+MARKET_SNAPSHOT_TICKERS = {
+    **{s: s for s in ("SPY", "QQQ", "SCHG", "SCHD")},
+    **MARKET_CONTEXT_TICKERS,
+}
+MARKET_SNAPSHOT_PERIOD = "2d"
+MARKET_SNAPSHOT_INTERVAL = "5m"
+# The page warns past this; pre-market slots are 15 minutes apart.
+MARKET_SNAPSHOT_STALE_MINUTES = 20
+
 # Market tab growth-vs-dividend rotation (web.insights.rotation): SCHG / SCHD close
 # ratio vs its SMA, plus the spread of their returns over the lookback. Unvalidated.
 ROTATION_GROWTH, ROTATION_DIVIDEND = "SCHG", "SCHD"

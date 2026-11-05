@@ -23,6 +23,7 @@ the dashboard.
 | `data/raw/{weekly,daily}/` | Raw OHLCV CSVs (`*_10y_1wk.csv`, `*_5y_1d.csv`) |
 | `data/logs/{weekly,daily}/` | Dated scan outputs and ingest errors |
 | `data/raw/market/`, `data/logs/market/` | Market-context raw CSVs (`*_2y_1d.csv`), their ingest errors and quality reports |
+| `data/live/market_snapshot.json` | Latest live quotes for the market home; never read by a scanner |
 
 ## Pipeline
 
@@ -49,6 +50,7 @@ python -m finance_vibe.data.tickers
 python -m finance_vibe.data.ingest weekly
 python -m finance_vibe.data.daily_ingest                 # takes no mode
 python -m finance_vibe.data.market_ingest                # takes no mode; 14 tickers
+python -m finance_vibe.data.market_snapshot --now        # live quotes for the home page; not a pipeline stage
 python -m finance_vibe.scanners.coiled_cobra weekly
 python -m finance_vibe.scanners.breakout weekly
 ```
@@ -147,6 +149,31 @@ New York, so the cron line only has to cover that hour in the host's clock:
 - **Manual runs.** `scripts/run_daily_pipeline.sh --now` / `run_weekly_pipeline.sh --now`
   skip the time check; a passing manual daily run also satisfies that day's schedule.
 
+### Live quotes (`data.market_snapshot`)
+
+A third cron job, separate from the pipeline, keeps the market home current during the
+session:
+
+```cron
+*/5 8-16 * * 1-5 /opt/stacks/finance-vibe/scripts/run_market_snapshot.sh
+```
+
+The cron line fires every 5 minutes; the module checks the New York clock and the NYSE
+calendar and fetches every 15 minutes from 08:00 ET and every 5 minutes from 09:30 to
+16:15 ET. Each run is one Yahoo batch of 5-minute bars for
+`config.MARKET_SNAPSHOT_TICKERS`, written atomically to
+`data/live/market_snapshot.json`.
+
+- **Separate from scans.** Quotes never reach `data/raw/`, so scanners, `--as-of` and
+  golden outputs are unaffected.
+- **Bars used.** Today's bars before 16:00 ET, including pre-market. On half days,
+  after-hours bars up to 16:00 ET are included.
+- **Delay.** Yahoo is an unofficial feed. VIX runs about 15 minutes behind.
+- **Failures.** A failed or empty fetch keeps the previous file and is logged to
+  `snapshot_<date>.log` in `~/.local/state/finance-vibe/`. There is no email: the page
+  shows "⚠ quotes N min old" once quotes are more than 20 minutes behind
+  (`config.MARKET_SNAPSHOT_STALE_MINUTES`).
+
 ### Health checks and alerts
 
 After the pipeline exits 0, `scripts/check_{daily,weekly}_outputs.py` checks the run's
@@ -235,8 +262,19 @@ the tree, unused, until their removal is confirmed.
 
 ### Market home (`/`)
 
-Daily closes only (no live prices), laid out per `docs/UX_STANDARDS.md`. One "as of"
-badge next to the title: the newest daily close the page uses. Under it one fact line:
+Laid out per `docs/UX_STANDARDS.md`. One "as of" badge next to the title: the newest
+daily close the page uses, or "as of 10:25 ET · last close Wed 2026-11-04" while it shows
+live quotes.
+
+**Live quotes.** A quote applies only while it is from a later day than the symbol's
+newest close, so the page returns to closes as soon as that day's close is saved. It
+moves the table's daily change, returns and RS, the VIX level and change, the HYG / IEF
+ratio (only with both quotes) and the sector tiles. Every average still uses closed bars.
+The growth-vs-dividend label, heavy-volume support breaks and the support and resistance
+cards stay on closes. A row with no quote says "⚠ no quote". From 08:00 to 16:15 ET on
+session days the page reloads itself every 5 minutes.
+
+Under the badge one fact line:
 "N of 4 funds closed below support on heavy volume · VIX ±X.XX · N of 11 sectors above
 50-day". Top to bottom:
 
@@ -285,7 +323,7 @@ badge next to the title: the newest daily close the page uses. Under it one fact
    stale scan row, raw bar-quality issue).
 
 Explanations are `?` tooltips only. No charts, notes, scanner states or status names on
-this page.
+this page. Other pages stay on daily closes.
 
 **Market strip (`web/insights.market_strip`).** A bar under the nav (0.9rem, facts in white, labels grey) on every page except
 `/`, where the same facts are in its table. For each of SPY / QQQ / SCHG / SCHD:

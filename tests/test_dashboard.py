@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
-from datetime import date
+from datetime import date, datetime
 
 import pandas as pd
 import pytest
@@ -605,6 +606,80 @@ def test_home_has_one_as_of_badge_and_no_notes(client, tmp_path, monkeypatch, ma
         assert gone not in body
     assert 'class="market-strip"' not in body
     assert "level-chart" not in body and "lightweight-charts" not in body  # no charts
+
+
+def _snapshot(symbols, fetched="2026-11-02T10:25:00-05:00", day="2026-11-02", last=50.0):
+    quotes = {s: {"last": last, "time": f"{day}T10:25:00-05:00"} for s in symbols}
+    path = app_module.config.MARKET_SNAPSHOT_PATH
+    os.makedirs(os.path.dirname(path))
+    with open(path, "w") as handle:
+        json.dump({"fetched_at": fetched, "quotes": quotes}, handle)
+
+
+def _now(monkeypatch, text):
+    when = datetime.fromisoformat(text)
+    monkeypatch.setattr(app_module.market_snapshot, "now_et", lambda: when)
+
+
+def _daily_raw(tmp_path, symbols):
+    """Rising closes to Fri 2026-10-30, in the daily raw folder ``_market_logs`` points at."""
+    folder = tmp_path / "raw" / "daily"
+    folder.mkdir(parents=True)
+    dates = pd.bdate_range(end="2026-10-30", periods=80).strftime("%Y-%m-%d")
+    close = [10 + i * 0.1 for i in range(80)]
+    profile = app_module.config.TIMEFRAME_PROFILES["daily"]
+    for sym in symbols:
+        frame = pd.DataFrame(
+            {"Date": dates, "Open": close, "High": close, "Low": close, "Close": close, "Volume": 1}
+        )
+        frame.to_csv(app_module.config.get_raw_path(sym, profile), index=False)
+
+
+def test_home_live_quotes_overlay_table_and_tiles(
+    client, tmp_path, monkeypatch, market_context_silo
+):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _write_market_context(market_context_silo, rising={"XLK"})
+    _daily_raw(tmp_path, ("SPY", "QQQ", "SCHG", "SCHD"))
+    _snapshot(("SPY", "QQQ", "SCHG", "VIX", "XLK"))
+    _now(monkeypatch, "2026-11-02T10:30:00-05:00")
+    body = client.get("/").get_data(as_text=True)
+    head = body.split('class="page-head"')[1].split("</div>")[0]
+    assert "as of 10:25 ET · last close Fri 2026-10-30" in head
+    assert "min old" not in head
+    assert body.count("asof-badge") == 1
+    assert '<meta http-equiv="refresh" content="300">' in body
+    table = body.split('class="table overview-table"')[1].split("</table>")[0]
+    assert "+179.33%" in table  # the quote 50.00 vs the last close 17.90
+    schd = table.split("SCHD")[1]
+    assert "⚠ no quote" in schd and "⚠ no quote" not in table.split("SCHD")[0]
+    assert "50.00" in body.split("tile-volatility")[1]  # VIX moved to the quote
+    assert "last 50.00" in body  # sector hover names the live price
+    assert "Support and resistance (last close)" in body
+
+
+def test_home_warns_when_quotes_are_old(client, tmp_path, monkeypatch, market_context_silo):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _write_market_context(market_context_silo, rising={"XLK"})
+    _snapshot(("VIX",))
+    _now(monkeypatch, "2026-11-02T11:00:00-05:00")
+    head = client.get("/").get_data(as_text=True).split('class="page-head"')[1].split("</div>")[0]
+    assert "⚠ quotes 35 min old" in head
+
+
+def test_home_rolls_over_once_the_close_is_saved(
+    client, tmp_path, monkeypatch, market_context_silo
+):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _write_market_context(market_context_silo, rising={"XLK"})
+    # Quotes from the same day as the newest close: closes win, and it is 20:00, no refresh.
+    _snapshot(("VIX", "XLK"), fetched="2026-10-30T16:15:00-04:00", day="2026-10-30")
+    _now(monkeypatch, "2026-10-30T20:00:00-04:00")
+    body = client.get("/").get_data(as_text=True)
+    head = body.split('class="page-head"')[1].split("</div>")[0]
+    assert "as of Fri 2026-10-30" in head and " ET" not in head
+    assert 'http-equiv="refresh"' not in body
+    assert "⚠ no quote" not in body and "(last close)" not in body
 
 
 def test_home_text_has_no_verdict_or_status_words(

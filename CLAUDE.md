@@ -15,7 +15,7 @@ dashboard. It produces *signals* for review, not trades.
 - `src/finance_vibe/` — `config`, `log`, `indicators`, `market` (QQQ benchmark,
   RS, Cobra market gate), `pipeline` (orchestrator)
 - `src/finance_vibe/data/` — `tickers`, `ingest` (Yahoo download, both modes),
-  `daily_ingest`, `market_ingest` (VIX / HYG / IEF / sector funds → `data/raw/market/`, never scanned), `raw` (the raw CSV loader), `quality` (bar-quality flags → `data_quality_<date>.csv`, never changes scores)
+  `daily_ingest`, `market_ingest` (VIX / HYG / IEF / sector funds → `data/raw/market/`, never scanned), `market_snapshot` (live quotes for the market home → `data/live/`, not a pipeline stage), `raw` (the raw CSV loader), `quality` (bar-quality flags → `data_quality_<date>.csv`, never changes scores)
 - `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout` (`scan_history()` gives
   every bar's breakout states/status/score, same rules as the scan)
 - `src/finance_vibe/research/` — research only (RESEARCH.md): `universe` (point-in-time
@@ -25,7 +25,7 @@ dashboard. It produces *signals* for review, not trades.
 - `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home facts and levels, `/runs/ticker/<SYM>` history), `health.py` (market home: VIX, credit, sector breadth facts), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market relative view, market strip), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
-- `data/` — gitignored. `data/raw/{weekly|daily|market}/`, `data/logs/{weekly|daily|market}/`, `data/active_tickers.csv`, `data/research/`
+- `data/` — gitignored. `data/raw/{weekly|daily|market}/`, `data/logs/{weekly|daily|market}/`, `data/live/`, `data/active_tickers.csv`, `data/research/`
 - `scripts/` — cron runners, output health checks, test/lint/golden helpers
 
 ## Commands
@@ -85,7 +85,8 @@ If a doc disagrees with `pipeline.py` or `config.py`, the code wins.
   Read raw files only through `data.raw.load_raw` (contract, date cleanup,
   float64 prices and the as-of cut in one place), never a bare `read_csv`.
 - **Signals, not advice.** Keep scanner output informational. The home page
-  (`/`) is market facts only: no buy/sell or risk-on/off rule without a backtest.
+  (`/`) is market facts only: no buy/sell or risk-on/off rule without a backtest. It may
+  overlay live quotes; every other page and every scanner uses closed bars only.
   The Setups page (`/setups`, `web/playbook.py`) sorts signals by research evidence and shows
   support / resistance as context only (no trigger, stop or targets); don't add
   options metadata or position sizing without being asked.
@@ -173,4 +174,5 @@ rubric-versioned score change should you run `baseline --force` to re-record.
 command is `python -m finance_vibe.web.app`, not the pipeline). Host data
 volume: `/mnt/fast/finance-vibe-data` → `/app/data`. TZ is `America/New_York`.
 Cron runs the pipeline in the container via `scripts/run_{daily,weekly}_pipeline.sh`
+and live quotes via `scripts/run_market_snapshot.sh`
 (see `docs/operations.md`); rebuild the image after code changes.

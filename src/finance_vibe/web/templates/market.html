@@ -4,11 +4,14 @@
 {% macro pct(v) %}{% if v is not none %}{{ (v * 100)|signed(2) }}%{% else %}—{% endif %}{% endmacro %}
 {% macro sign_class(v) %}{{ 'pos' if v is not none and v > 0 else ('neg' if v is not none and v < 0 else '') }}{% endmacro %}
 {% macro flags(items) %}{% for f in items %}<span class="warn">⚠ {{ f|replace('_', ' ') }}</span> {% endfor %}{% endmacro %}
+{% block extra_head %}{% if auto_refresh %}<meta http-equiv="refresh" content="300">{% endif %}{% endblock %}
 {% block content %}
 <div class="market-page">
     <div class="page-head">
         <h1>🧭 Market</h1>
-        {% if as_of %}<span class="asof-badge">as of {{ as_of }}</span>{% endif %}
+        {% if live %}<span class="asof-badge">as of {{ live.label }}{% if as_of %} · last close {{ as_of }}{% endif %} <span class="tip" title="Yahoo prices, taken every 5 minutes in the session. VIX runs about 15 minutes behind.">?</span></span>
+        {% if live.old_minutes is not none %}<span class="warn">⚠ quotes {{ live.old_minutes }} min old</span>{% endif %}
+        {% elif as_of %}<span class="asof-badge">as of {{ as_of }}</span>{% endif %}
     </div>
     {% set v, b = health.volatility, health.breadth %}
     <p class="fact-line">
@@ -32,7 +35,8 @@
                 <td class="num {{ sign_class(r.rs) }}">{% if r.symbol == table.benchmark %}—{% else %}{{ pct(r.rs) }}{% endif %}</td>
                 <td class="note-cell">
                     {% if r.heavy_break %}<span class="warn plain" title="Daily close below Support with RVOL20 {{ r.rvol|num }} (1.50 or more)">⚠ below support · heavy vol</span>{% endif %}
-                    {% if r.stale %}<span class="warn plain" title="Newest daily close {{ r.as_of or 'missing' }}">⚠ {{ 'stale' if r.as_of else 'no data' }}</span>{% endif %}
+                    {% if r.stale %}<span class="warn plain" title="Newest daily close {{ r.as_of or 'missing' }}">⚠ {{ 'stale' if r.as_of else 'no data' }}</span>
+                    {% elif live and not r.live %}<span class="warn plain" title="No live price in the latest quotes; this row shows the last close">⚠ no quote</span>{% endif %}
                 </td>
             </tr>
             {% endfor %}
@@ -66,13 +70,13 @@
                 {{ flags(health.credit_flags) }}
             </div>
             <div class="metric-tile tile-breadth">
-                <div class="tile-label">Breadth <span class="tip" title="The 11 S&amp;P 500 sector funds: how many closed above their 50-day average. Tiles are sorted by % from that average, highest first; hover for the full name.">?</span></div>
+                <div class="tile-label">Breadth <span class="tip" title="The 11 S&amp;P 500 sector funds: how many are above their 50-day average, which uses closed days only. Tiles are sorted by % from that average, highest first; hover for the full name.">?</span></div>
                 {% if b.counted %}
                 <div class="tile-value">{{ b.above|length }} of {{ b.counted }} <span class="tile-unit">sectors above their 50-day average</span></div>
                 {% else %}<div class="tile-value">—</div><div class="tile-sub">No data</div>{% endif %}
                 <div class="sector-tiles">
                     {% for t in b.ranked %}
-                    <span class="sector-tile {{ 'up' if t.above else ('down' if t.above is not none else 'nodata') }}" title="{{ t.name }}: {% if t.above is none %}no data{% else %}close {{ t.close|num }}, 50-day average {{ t.ma|num }}{% endif %}"><b>{{ t.symbol }}</b><small>{{ t.short }}</small><small>{{ pct(t.pct) }}</small></span>
+                    <span class="sector-tile {{ 'up' if t.above else ('down' if t.above is not none else 'nodata') }}" title="{{ t.name }}: {% if t.above is none %}no data{% else %}{{ 'last' if t.live else 'close' }} {{ t.close|num }}, 50-day average {{ t.ma|num }}{% endif %}"><b>{{ t.symbol }}</b><small>{{ t.short }}</small><small>{{ pct(t.pct) }}</small></span>
                     {% endfor %}
                 </div>
                 {{ flags(health.breadth_flags) }}
@@ -81,7 +85,7 @@
     </section>
 
     <section class="etf-cards">
-        <h2>Support and resistance <span class="tip" title="From the daily breakout scan: the dot is the latest daily close between Support (left) and Resistance (right); outside the bar when the close is out of that range.">?</span></h2>
+        <h2>Support and resistance{% if live %} (last close){% endif %} <span class="tip" title="From the daily breakout scan: the dot is the latest daily close between Support (left) and Resistance (right); outside the bar when the close is out of that range.">?</span></h2>
         <div class="card-grid">
         {% for m in rows %}{% set d = m.daily or {} %}{% set bar = m.bar %}
             <article class="setup-card etf-card">

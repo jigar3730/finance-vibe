@@ -298,6 +298,25 @@ def daily_closes(symbol: str) -> pd.DataFrame | None:
         return None
 
 
+def quote_is_new(df: pd.DataFrame | None, quote: dict[str, Any] | None) -> bool:
+    """True when a live quote is from a later day than ``df``'s newest closed bar.
+
+    Once that day's close is saved the quote stops applying, so the page rolls over
+    to closes without any clock logic.
+    """
+    if df is None or df.empty or quote is None:
+        return False
+    return bool(quote["date"] > pd.Timestamp(df["Date"].iloc[-1]).date())
+
+
+def with_quote(df: pd.DataFrame | None, quote: dict[str, Any] | None) -> pd.DataFrame | None:
+    """``df`` with a new quote appended as today's row, for returns against closed bars."""
+    if df is None or quote is None or not quote_is_new(df, quote):
+        return df
+    today = pd.DataFrame({"Date": [pd.Timestamp(quote["date"])], "Close": [quote["last"]]})
+    return pd.concat([df, today], ignore_index=True)
+
+
 def _ret(close: pd.Series, bars: int) -> float | None:
     if len(close) <= bars:
         return None
@@ -338,14 +357,20 @@ def rotation(growth: pd.DataFrame | None, dividend: pd.DataFrame | None) -> dict
 
 
 def etf_relative(
-    symbols: tuple[str, ...] = playbook.MARKET_SYMBOLS, benchmark: str = "SPY"
+    symbols: tuple[str, ...] = playbook.MARKET_SYMBOLS,
+    benchmark: str = "SPY",
+    quotes: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Returns over :data:`RETURN_WINDOWS`, 63-day RS vs ``benchmark``, and the rotation label."""
+    """Returns over :data:`RETURN_WINDOWS`, 63-day RS vs ``benchmark``, and the rotation label.
+
+    With ``quotes``, returns and RS run to the live price. The rotation stays on closes.
+    """
+    quotes = quotes or {}
     frames = {s: daily_closes(s) for s in dict.fromkeys((*symbols, benchmark))}
-    bench = frames[benchmark]
+    bench = with_quote(frames[benchmark], quotes.get(benchmark))
     rows = []
     for sym in symbols:
-        df = frames[sym]
+        df = with_quote(frames[sym], quotes.get(sym))
         row: dict[str, Any] = {
             "symbol": sym,
             "as_of": None,
@@ -386,14 +411,18 @@ def _above(close: float | None, level: float | None) -> bool | None:
 
 
 def market_strip(
-    daily_breakout: pd.DataFrame, symbols: tuple[str, ...] = playbook.MARKET_SYMBOLS
+    daily_breakout: pd.DataFrame,
+    symbols: tuple[str, ...] = playbook.MARKET_SYMBOLS,
+    quotes: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Per ETF: last daily % change, close vs SMA50 / SMA200, and a heavy-volume support break.
 
-    The % change compares the last two closes in the daily raw file. The SMA
-    and support facts come from the latest daily breakout row (``heavy_break``:
-    :func:`heavy_break`). Plus the growth-vs-dividend label.
+    The % change compares the last two closes in the daily raw file, or a new live
+    quote in ``quotes`` with the last close (``live``). ``as_of`` is always the newest
+    close. The SMA and support facts come from the latest daily breakout row
+    (``heavy_break``: :func:`heavy_break`). Plus the growth-vs-dividend label.
     """
+    quotes = quotes or {}
     wanted = (*symbols, config.ROTATION_GROWTH, config.ROTATION_DIVIDEND)
     frames = {s: daily_closes(s) for s in dict.fromkeys(wanted)}
     rows = []
@@ -402,10 +431,12 @@ def market_strip(
         row = playbook.row_for(daily_breakout, sym) or {}
         last = None if df is None or df.empty else pd.Timestamp(df["Date"].iloc[-1])
         close = playbook.num(row.get("Close"))
+        shown = with_quote(df, quotes.get(sym))
         rows.append(
             {
                 "symbol": sym,
-                "change": None if df is None else _ret(df["Close"], 1),
+                "change": None if shown is None else _ret(shown["Close"], 1),
+                "live": quote_is_new(df, quotes.get(sym)),
                 "as_of": None if last is None else last.date().isoformat(),
                 "above_sma50": _above(close, playbook.num(row.get("SMA50"))),
                 "above_sma200": _above(close, playbook.num(row.get("SMA200"))),
@@ -417,11 +448,15 @@ def market_strip(
     return {"rows": rows, "rotation": rot["label"]}
 
 
-def market_table(daily_breakout: pd.DataFrame) -> dict[str, Any]:
+def market_table(
+    daily_breakout: pd.DataFrame, quotes: dict[str, dict[str, Any]] | None = None
+) -> dict[str, Any]:
     """The market home's one table: :func:`market_strip` facts merged with the
-    :func:`etf_relative` returns and RS vs SPY, one row per ETF, plus the rotation."""
-    strip = market_strip(daily_breakout)
-    rel = etf_relative()
+    :func:`etf_relative` returns and RS vs SPY, one row per ETF, plus the rotation.
+
+    ``quotes`` carries daily change, returns and RS through to the live price."""
+    strip = market_strip(daily_breakout, quotes=quotes)
+    rel = etf_relative(quotes=quotes)
     by_symbol = {r["symbol"]: r for r in rel["rows"]}
     rows = [
         {**r, "returns": by_symbol[r["symbol"]]["returns"], "rs": by_symbol[r["symbol"]]["rs"]}
