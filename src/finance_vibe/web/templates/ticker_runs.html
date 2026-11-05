@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}{{ symbol }} runs - Finance Vibe{% endblock %}
+{% block content %}
+    <a class="back" href="{{ url_for('runs') }}">← Back to runs</a>
+    <div class="page-head">
+        <h1>{{ symbol }} <span class="tip" title="This ticker in every saved run: breakout status and readiness from the breakout scan, Cobra Score only on days it qualified. Run closes, not live prices.">?</span></h1>
+        {% if as_of %}<span class="asof-badge">as of {{ as_of }}</span>{% endif %}
+        <a class="ticker-link" href="https://finviz.com/quote.ashx?t={{ symbol }}" target="_blank" rel="noopener noreferrer">Finviz ↗</a>
+    </div>
+
+    {% set labels = {'weekly': 'Weekly', 'daily': 'Daily'} %}
+    {% if not history.values()|map(attribute='rows')|select|list %}
+        <p class="muted">No runs include {{ symbol }}.</p>
+    {% else %}
+    <div class="kpi-row">
+        {% for mode, h in history.items() %}
+        <div class="kpi-card">
+            <div class="kpi-value">{{ h['rows']|length }} of {{ h['total'] }}</div>
+            <div class="kpi-label">{{ mode }} runs</div>
+        </div>
+        {% endfor %}
+    </div>
+
+    {% for mode, h in history.items() %}
+    <h2>{{ labels.get(mode, mode|capitalize) }}</h2>
+    {% if h['rows'] %}
+    <div class="table-container">
+        <table class="table">
+            <thead>
+                <tr>
+                    <th>Run</th><th>Close</th><th>Status</th><th>Readiness</th><th>Trend</th>
+                    <th>Breakout Distance</th><th>Cobra Score</th><th>Cobra Grade</th><th>Pages</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in h['rows'] %}
+                <tr>
+                    <td>{{ r['Day'] }}</td>
+                    <td>{{ r['Close']|num }}</td>
+                    <td>{{ r['Status']|text }}</td>
+                    <td>{{ r['Breakout Readiness']|num(0) }}</td>
+                    <td>{{ r['Trend']|text }}</td>
+                    <td>{{ r['Breakout Distance']|text }}</td>
+                    <td>{{ r['Cobra Score']|num(0) }}</td>
+                    <td>{{ r['Cobra Grade']|text }}</td>
+                    <td>
+                        {% if r['in_breakout'] %}<a href="{{ url_for('breakout_view', mode=mode, date=r['Date'], show='all') }}">Breakout</a>{% endif %}
+                        {% if r['in_breakout'] and r['in_cobra'] %} · {% endif %}
+                        {% if r['in_cobra'] %}<a href="{{ url_for('cobra_view', mode=mode, date=r['Date']) }}">Coiled Cobra</a>{% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="muted">No {{ mode }} runs include {{ symbol }}.</p>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
+{% endblock %}

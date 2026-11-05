@@ -72,6 +72,8 @@ def test_routes_registered():
     assert rules.get("/changes") == "changes"
     assert rules.get("/cobra/<mode>/<date>") == "cobra_view"
     assert rules.get("/breakout/<mode>/<date>") == "breakout_view"
+    assert rules.get("/runs/ticker") == "ticker_search"
+    assert rules.get("/runs/ticker/<symbol>") == "ticker_runs"
 
 
 def test_index_links_each_scanner_that_ran(client, breakout_logs, tmp_path):
@@ -82,6 +84,56 @@ def test_index_links_each_scanner_that_ran(client, breakout_logs, tmp_path):
     assert "/breakout/daily/2026-09-04" in body and "/cobra/daily/2026-09-04" not in body
     assert "/cobra/daily/2026-09-05" in body and "/breakout/daily/2026-09-05" not in body
     assert body.index("2026-09-05") < body.index("2026-09-04")  # newest first
+
+
+def test_runs_search_box_suggests_latest_symbols(client, breakout_logs):
+    body = client.get("/runs").get_data(as_text=True)
+    assert 'action="/runs/ticker"' in body and 'list="symbols"' in body
+    for sym in ("AAA", "BBB", "CCC", "DDD"):
+        assert f'<option value="{sym}">' in body
+
+
+@pytest.mark.parametrize(
+    ("query", "target"),
+    [
+        ("?symbol=+aaa+", "/runs/ticker/AAA"),
+        ("?symbol=", "/runs"),
+        ("?symbol=a/b", "/runs"),
+        ("", "/runs"),
+    ],
+)
+def test_ticker_search_redirects(client, breakout_logs, query, target):
+    response = client.get(f"/runs/ticker{query}")
+    assert response.status_code == 302 and response.headers["Location"].endswith(target)
+
+
+def test_ticker_runs_one_row_per_run(client, breakout_logs, tmp_path):
+    _write_scan(tmp_path / "daily", "2026-09-05")
+    _write_scan(tmp_path / "weekly", "2026-09-04")
+    pd.DataFrame([{"Symbol": "AAA", "Score": 88, "Grade": "A - Watch", "Close": 100.0}]).to_csv(
+        tmp_path / "daily" / "coiled_cobra_setups_2026-09-05.csv", index=False
+    )
+    response = client.get("/runs/ticker/AAA")
+    assert response.status_code == 200
+    body = response.get_data(as_text=True)
+    assert body.count("asof-badge") == 1 and "as of Sat 2026-09-05" in body
+    assert "2 of 2" in body and "1 of 1" in body
+    assert "Sat 2026-09-05" in body and "Fri 2026-09-04" in body
+    assert body.index("Sat 2026-09-05") < body.index("Fri 2026-09-04")  # newest first
+    assert "/cobra/daily/2026-09-05" in body and "/cobra/daily/2026-09-04" not in body
+    assert "/breakout/weekly/2026-09-04?show=all" in body
+    assert "PRE_BREAKOUT" in body and "88" in body and "100.00" in body
+    assert "95.00" not in body  # run closes only, no live price
+    nav = body.split('class="top-nav"')[1].split("</nav>")[0]
+    assert 'nav-link active" href="/runs"' in nav
+
+
+def test_ticker_runs_unknown_lowercase_and_unsafe(client, breakout_logs):
+    body = client.get("/runs/ticker/ZZZ").get_data(as_text=True)
+    assert "No runs include ZZZ." in body and "asof-badge" not in body
+    lower = client.get("/runs/ticker/aaa")
+    assert lower.status_code == 302 and lower.headers["Location"].endswith("/runs/ticker/AAA")
+    assert client.get("/runs/ticker/A%20B").status_code == 404
 
 
 def test_breakout_view_kpis(client, breakout_logs):

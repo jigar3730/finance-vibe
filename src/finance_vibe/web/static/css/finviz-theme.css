@@ -374,6 +374,28 @@ td.neg, .neg { color: var(--finviz-red); }
     font-size: 0.9rem;
 }
 
+/* Runs: ticker search */
+.ticker-search { display: flex; gap: 8px; margin: 0 0 20px; }
+.ticker-search input {
+    width: 12em;
+    padding: 6px 10px;
+    font-size: 1rem;
+    text-transform: uppercase;
+    background: var(--finviz-bg-card);
+    color: var(--finviz-text-strong);
+    border: 1px solid var(--finviz-border);
+    border-radius: 4px;
+}
+.ticker-search button {
+    padding: 6px 14px;
+    font-size: 1rem;
+    background: var(--finviz-bg-hover);
+    color: var(--finviz-text-strong);
+    border: 1px solid var(--finviz-border);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
 /* Market home */
 .market-page { font-size: 1.05rem; }
 .market-page h2 { color: var(--finviz-text-strong); margin: 28px 0 12px; }

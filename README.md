@@ -20,7 +20,7 @@ uv run python -m finance_vibe.pipeline          # weekly: refresh tickers + data
 uv run python -m finance_vibe.pipeline --mode daily
 uv run python -m finance_vibe.pipeline --reuse-raw          # keep raw data; scanners only
 uv run python -m finance_vibe.pipeline --as-of 2025-11-07   # replay a past date
-uv run python -m finance_vibe.web.app           # dashboard: market home, changes, setups (unproven), run pages at http://127.0.0.1:5000
+uv run python -m finance_vibe.web.app           # dashboard: market home, changes, setups (unproven), run pages + ticker history at http://127.0.0.1:5000
 uv run pytest -q
 ```
 
@@ -58,7 +58,7 @@ src/finance_vibe/
   pipeline.py         orchestrator (python -m finance_vibe.pipeline)
   data/               tickers.py, ingest.py, daily_ingest.py, market_ingest.py, raw.py, quality.py, ticker_manifest.csv
   scanners/           coiled_cobra.py, breakout.py
-  web/                app.py, playbook.py (Setups page sections, Market rows), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), templates/, static/
+  web/                app.py, playbook.py (Setups page sections, Market rows, Runs ticker history), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers
 tests/                pytest suite
 docs/                 scanner specs and operations

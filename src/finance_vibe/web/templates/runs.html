@@ -4,6 +4,12 @@
     <h1>📂 Runs</h1>
     <p>Each run date links to that day's Coiled Cobra setups and breakout readiness scan.</p>
 
+    <form class="ticker-search" action="{{ url_for('ticker_search') }}" method="get">
+        <input type="search" name="symbol" list="symbols" placeholder="Ticker" aria-label="Ticker" autocomplete="off" required>
+        <button type="submit">Show runs</button>
+        <datalist id="symbols">{% for s in symbols %}<option value="{{ s }}">{% endfor %}</datalist>
+    </form>
+
     {% set labels = {'weekly': '📅 Weekly', 'daily': '⚡ Daily'} %}
     <div class="container">
         {% for mode, mode_runs in runs.items() %}

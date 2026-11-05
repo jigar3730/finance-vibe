@@ -501,7 +501,41 @@ def changes() -> str | RedirectResponse:
 @app.route("/runs")
 def runs() -> str:
     """List run dates per mode with links to each scanner's page."""
-    return render_template("runs.html", runs=_list_runs())
+    return render_template(
+        "runs.html",
+        runs=_list_runs(),
+        symbols=sorted({s for f in LOG_DIRS.values() for s in playbook.known_symbols(f)}),
+    )
+
+
+@app.route("/runs/ticker")
+def ticker_search() -> RedirectResponse:
+    """The Runs search box: send a valid symbol to its history page, anything else back."""
+    symbol = request.args.get("symbol", "").strip().upper()
+    if not _SYMBOL.match(symbol):
+        return redirect(url_for("runs"))
+    return redirect(url_for("ticker_runs", symbol=symbol))
+
+
+@app.route("/runs/ticker/<symbol>")
+def ticker_runs(symbol: str) -> str | RedirectResponse:
+    """One ticker across every run: a row per run date and mode, run closes only."""
+    if symbol != symbol.upper():
+        return redirect(url_for("ticker_runs", symbol=symbol.upper()))
+    if not _SYMBOL.match(symbol):
+        abort(404)
+    history: dict[str, dict[str, Any]] = {}
+    for mode, folder in LOG_DIRS.items():
+        hist = playbook.ticker_history(folder, symbol)
+        hist["Day"] = [_page_as_of(d) for d in hist["Date"]]
+        history[mode] = {
+            "rows": hist.to_dict("records"),
+            "total": len(playbook.run_dates(folder)),
+        }
+    newest = max((r["Date"] for h in history.values() for r in h["rows"]), default=None)
+    return render_template(
+        "ticker_runs.html", symbol=symbol, history=history, as_of=_page_as_of(newest)
+    )
 
 
 @app.route("/cobra/<mode>/<date>")
