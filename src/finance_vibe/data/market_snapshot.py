@@ -3,7 +3,8 @@
 One Yahoo batch of 5-minute bars for ``config.MARKET_SNAPSHOT_TICKERS``, reduced to the
 newest price per symbol and written atomically to ``config.MARKET_SNAPSHOT_PATH``. Nothing
 here touches ``data/raw/``, so scanners, ``--as-of`` replays and golden outputs never see
-a quote. A failed fetch keeps the previous file; the page then shows how old it is.
+a quote. A failed fetch keeps the previous file, and a symbol missing from a partial fetch
+keeps its previous quote with its own fetch time; the page shows how old either one is.
 
     python -m finance_vibe.data.market_snapshot          # no-op unless a slot is due
     python -m finance_vibe.data.market_snapshot --now    # fetch regardless of the clock
@@ -30,7 +31,8 @@ logger = logging.getLogger(__name__)
 MARKET_TZ = ingest.MARKET_TZ
 PRE_MARKET_START = time(8, 0)
 REGULAR_OPEN = time(9, 30)
-REGULAR_CLOSE = time(16, 0)
+# VIX and other indexes have no bars before the open and run about 15 minutes behind.
+QUOTES_EXPECTED_FROM = time(9, 50)
 LAST_SLOT = time(16, 15)
 PRE_MARKET_EVERY_MINUTES = 15
 CRON_EVERY_MINUTES = 5
@@ -59,7 +61,7 @@ def is_due(now: datetime) -> bool:
 
 
 def latest_quote(frame: pd.DataFrame, day: date) -> dict[str, Any] | None:
-    """Newest usable price from ``frame``'s bars on ``day``, ignoring bars from 16:00 ET on.
+    """Newest usable price from ``frame``'s bars on ``day``, ignoring after-hours bars.
 
     Returns None when the symbol has no bar that day (an index before the open, say)
     or its newest price is not a positive number.
@@ -69,7 +71,7 @@ def latest_quote(frame: pd.DataFrame, day: date) -> dict[str, Any] | None:
         return None
     index = pd.DatetimeIndex(close.index)
     index = index.tz_localize(MARKET_TZ) if index.tz is None else index.tz_convert(MARKET_TZ)
-    keep = (index.date == day) & (index.time < REGULAR_CLOSE)
+    keep = (index.date == day) & (index.time < daily_ingest.session_close(day))
     if not keep.any():
         return None
     last = float(close[keep].iloc[-1])
@@ -116,18 +118,39 @@ def take_snapshot(now: datetime | None = None) -> bool:
             logger.warning(f"{name}: unusable snapshot data: {e}")
             continue
         if quote is not None:
-            quotes[name] = quote
+            quotes[name] = quote | {"fetched_at": now.isoformat()}
     if not quotes:
         logger.warning("Market snapshot: no quotes returned, keeping the previous file.")
         return False
+    got = len(quotes)
+    quotes = _carried_quotes(symbols, quotes, now.date()) | quotes
     _write_atomic({"fetched_at": now.isoformat(), "quotes": quotes}, config.MARKET_SNAPSHOT_PATH)
-    logger.info(f"Market snapshot: {len(quotes)} of {len(symbols)} quotes.")
+    logger.info(f"Market snapshot: {got} of {len(symbols)} quotes, {len(quotes) - got} carried.")
     return True
 
 
+def _carried_quotes(
+    symbols: dict[str, str], fresh: dict[str, dict[str, Any]], day: date
+) -> dict[str, dict[str, Any]]:
+    """Same-day quotes from the previous file for symbols this fetch did not return."""
+    previous = load_snapshot()
+    if previous is None:
+        return {}
+    return {
+        name: {
+            "last": quote["last"],
+            "time": quote["time"].isoformat(),
+            "fetched_at": quote["fetched_at"].isoformat(),
+        }
+        for name, quote in previous["quotes"].items()
+        if name in symbols and name not in fresh and quote["date"] == day
+    }
+
+
 def load_snapshot() -> dict[str, Any] | None:
-    """The snapshot as ``{"fetched_at", "quotes": {symbol: {"last", "date"}}}``, or None
-    when the file is missing or unreadable. A malformed quote is left out."""
+    """The snapshot as ``{"fetched_at", "quotes": {symbol: {"last", "date", "time",
+    "fetched_at"}}}``, or None when the file is missing or unreadable. A malformed quote
+    is left out."""
     try:
         with open(config.MARKET_SNAPSHOT_PATH) as handle:
             payload = json.load(handle)
@@ -142,31 +165,62 @@ def load_snapshot() -> dict[str, Any] | None:
     for symbol, quote in items:
         try:
             last = float(quote["last"])
-            day = datetime.fromisoformat(quote["time"]).astimezone(MARKET_TZ).date()
+            when = datetime.fromisoformat(quote["time"]).astimezone(MARKET_TZ)
+            got_at = datetime.fromisoformat(quote["fetched_at"]).astimezone(MARKET_TZ)
         except (KeyError, TypeError, ValueError) as exc:
             logger.warning("Market snapshot quote for %s unreadable: %s", symbol, exc)
             continue
         if last > 0:
-            quotes[symbol] = {"last": last, "date": day}
+            quotes[symbol] = {"last": last, "date": when.date(), "time": when, "fetched_at": got_at}
     return {"fetched_at": fetched, "quotes": quotes}
 
 
-def status(fetched_at: datetime, now: datetime) -> dict[str, Any]:
-    """Badge label for a snapshot, plus ``old_minutes`` once it is overdue, else None.
+def _old_minutes(fetched_at: datetime, now: datetime) -> int | None:
+    """Minutes since ``fetched_at`` once it is overdue, else None.
 
-    Lateness counts only up to that day's last slot, so the final quotes of a session
-    are not called old while the page waits for the evening's closes.
+    On the day of the fetch, lateness counts only up to that day's last slot, so the final
+    quotes of a session are not called old while the page waits for the evening's closes.
+    A fetch from an earlier day is measured to ``now``.
     """
     now = now.astimezone(MARKET_TZ)
     fetched_at = fetched_at.astimezone(MARKET_TZ)
-    last_slot = datetime.combine(fetched_at.date(), LAST_SLOT, tzinfo=MARKET_TZ)
-    behind = min(now, last_slot) - fetched_at
-    overdue = behind > timedelta(minutes=config.MARKET_SNAPSHOT_STALE_MINUTES)
+    due = now
+    if fetched_at.date() == now.date():
+        due = min(now, datetime.combine(now.date(), LAST_SLOT, tzinfo=MARKET_TZ))
+    overdue = due - fetched_at > timedelta(minutes=config.MARKET_SNAPSHOT_STALE_MINUTES)
+    return int((now - fetched_at).total_seconds() // 60) if overdue else None
+
+
+def status(fetched_at: datetime, now: datetime) -> dict[str, Any]:
+    """Badge label for a snapshot, plus ``old_minutes`` once it is overdue, else None."""
+    now = now.astimezone(MARKET_TZ)
+    fetched_at = fetched_at.astimezone(MARKET_TZ)
     fmt = "%H:%M ET" if fetched_at.date() == now.date() else "%a %H:%M ET"
-    return {
-        "label": fetched_at.strftime(fmt),
-        "old_minutes": int((now - fetched_at).total_seconds() // 60) if overdue else None,
-    }
+    return {"label": fetched_at.strftime(fmt), "old_minutes": _old_minutes(fetched_at, now)}
+
+
+def quote_note(
+    close_day: date | None,
+    quote: dict[str, Any] | None,
+    snapshot: dict[str, Any] | None,
+    now: datetime,
+) -> str | None:
+    """Why a symbol's number is not current while the snapshot is: "no quote", "quote N
+    min old", or None.
+
+    None when the symbol's close already covers the snapshot's day, when the whole snapshot
+    is overdue (the page says so once), and for a missing quote before indexes can have one.
+    """
+    if snapshot is None or close_day is None:
+        return None
+    fetched = snapshot["fetched_at"]
+    if close_day >= fetched.date() or _old_minutes(fetched, now) is not None:
+        return None
+    if quote is None:
+        early = fetched.date() == now.date() and now.time() < QUOTES_EXPECTED_FROM
+        return None if early else "no quote"
+    minutes = _old_minutes(quote["fetched_at"], now)
+    return None if minutes is None else f"quote {minutes} min old"
 
 
 def main(argv: list[str] | None = None) -> int:

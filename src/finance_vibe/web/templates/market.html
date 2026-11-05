@@ -44,7 +44,7 @@
                 <td class="note-cell">
                     {% if r.heavy_break %}<span class="warn plain" title="Daily close below Support with RVOL20 {{ r.rvol|num }} (1.50 or more)">⚠ below support · heavy vol</span>{% endif %}
                     {% if r.stale %}<span class="warn plain" title="Newest daily close {{ r.as_of or 'missing' }}">⚠ {{ 'stale' if r.as_of else 'no data' }}</span>
-                    {% elif live and not r.live %}<span class="warn plain" title="No live price in the latest quotes; this row shows the last close">⚠ no quote</span>{% endif %}
+                    {% elif r.quote_note %}<span class="warn plain" title="This row's price is not from the latest fetch">⚠ {{ r.quote_note }}</span>{% endif %}
                     {% for check in r.quality %}<span class="warn plain" title="Bar-quality error in the newest market report">⚠ {{ check|replace('_', ' ') }}</span> {% endfor %}
                 </td>
             </tr>

@@ -326,7 +326,11 @@ def market_bars(symbol: str) -> pd.DataFrame | None:
 
 def market_closes(symbol: str) -> pd.DataFrame | None:
     """``Date`` / ``Close`` from :func:`market_bars`."""
-    bars = market_bars(symbol)
+    return closes_of(market_bars(symbol))
+
+
+def closes_of(bars: pd.DataFrame | None) -> pd.DataFrame | None:
+    """The ``Date`` / ``Close`` columns of daily bars."""
     return None if bars is None else bars[["Date", "Close"]]
 
 
@@ -339,6 +343,14 @@ def quote_is_new(df: pd.DataFrame | None, quote: dict[str, Any] | None) -> bool:
     if df is None or df.empty or quote is None:
         return False
     return bool(quote["date"] > pd.Timestamp(df["Date"].iloc[-1]).date())
+
+
+def price_now(df: pd.DataFrame, quote: dict[str, Any] | None) -> tuple[float, bool]:
+    """The price to show for a non-empty ``df`` and whether it is live: a new quote, else
+    the newest close."""
+    if quote is not None and quote_is_new(df, quote):
+        return float(quote["last"]), True
+    return float(df["Close"].iloc[-1]), False
 
 
 def with_quote(df: pd.DataFrame | None, quote: dict[str, Any] | None) -> pd.DataFrame | None:
@@ -389,8 +401,7 @@ def position_facts(closed: pd.DataFrame | None, quote: dict[str, Any] | None) ->
     if closed is None or closed.empty:
         return empty
     close = closed["Close"].reset_index(drop=True)
-    live = quote is not None and quote_is_new(closed, quote)
-    last = float(quote["last"]) if quote is not None and live else float(close.iloc[-1])
+    last, live = price_now(closed, quote)
     before = close if live else close.iloc[:-1]
     returns = before.pct_change().dropna().tail(MOVE_BARS)
     typical = float(returns.std()) if len(returns) == MOVE_BARS else 0.0
@@ -406,7 +417,10 @@ def position_facts(closed: pd.DataFrame | None, quote: dict[str, Any] | None) ->
     }
 
 
-def levels_table(quotes: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+def levels_table(
+    quotes: dict[str, dict[str, Any]] | None = None,
+    load_bars: Callable[[str], pd.DataFrame | None] = market_bars,
+) -> list[dict[str, Any]]:
     """Per ``config.MARKET_HOME_FUNDS`` fund: the live quote or close, then its levels.
 
     ``prior_high`` / ``prior_low`` are the newest closed session's. ``support`` /
@@ -417,16 +431,12 @@ def levels_table(quotes: dict[str, dict[str, Any]] | None = None) -> list[dict[s
     rows = []
     for symbol in config.MARKET_HOME_FUNDS:
         row: dict[str, Any] = {"symbol": symbol, "last": None, "levels": {}}
-        bars = market_bars(symbol)
+        bars = load_bars(symbol)
         if bars is not None and not bars.empty:
-            quote = quotes.get(symbol)
-            live = quote is not None and quote_is_new(bars, quote)
             newest = bars.iloc[-1]
             window = bars.iloc[-1 - STRUCTURE_BARS : -1]
             full = len(window) == STRUCTURE_BARS
-            row["last"] = (
-                float(quote["last"]) if quote is not None and live else float(newest["Close"])
-            )
+            row["last"] = price_now(bars, quotes.get(symbol))[0]
             row["levels"] = {
                 "prior_high": float(newest["High"]),
                 "prior_low": float(newest["Low"]),
@@ -568,6 +578,7 @@ def market_strip(
                 "above_sma50": _above(close, playbook.num(row.get("SMA50"))),
                 "above_sma200": _above(close, playbook.num(row.get("SMA200"))),
                 "heavy_break": heavy_break(row),
+                "scan_date": _row_date(row),
                 "rvol": playbook.num(row.get("RVOL20")),
             }
         )
@@ -576,23 +587,34 @@ def market_strip(
 
 
 def market_table(
-    daily_breakout: pd.DataFrame, quotes: dict[str, dict[str, Any]] | None = None
+    daily_breakout: pd.DataFrame,
+    quotes: dict[str, dict[str, Any]] | None = None,
+    load_bars: Callable[[str], pd.DataFrame | None] = market_bars,
 ) -> dict[str, Any]:
     """The market home's one table for ``config.MARKET_HOME_FUNDS``: :func:`market_strip`
     facts, :func:`position_facts`, and :func:`etf_relative` returns and RS vs SPY, one row
     per fund, plus the rotation.
 
-    Closes come from the market silo (:func:`market_closes`); ``quotes`` carries the
-    numbers through to the live price."""
+    Bars come from ``load_bars`` (the market silo); ``quotes`` carries the numbers through
+    to the live price. A heavy-volume support break shows only when the scan it comes from
+    is dated the row's newest close, so an earlier scan's break never sits beside a newer
+    close."""
     quotes = quotes or {}
     symbols = config.MARKET_HOME_FUNDS
-    strip = market_strip(daily_breakout, symbols, quotes, market_closes)
-    rel = etf_relative(symbols, quotes=quotes, closes=market_closes)
+
+    def closes(symbol: str) -> pd.DataFrame | None:
+        return closes_of(load_bars(symbol))
+
+    strip = market_strip(daily_breakout, symbols, quotes, closes)
+    rel = etf_relative(symbols, quotes=quotes, closes=closes)
     by_symbol = {r["symbol"]: r for r in rel["rows"]}
     rows = [
         {
             **r,
-            **position_facts(market_closes(r["symbol"]), quotes.get(r["symbol"])),
+            **position_facts(closes(r["symbol"]), quotes.get(r["symbol"])),
+            "heavy_break": r["heavy_break"]
+            and r["as_of"] is not None
+            and r["scan_date"] == date.fromisoformat(r["as_of"]),
             "returns": by_symbol[r["symbol"]]["returns"],
             "rs": by_symbol[r["symbol"]]["rs"],
         }

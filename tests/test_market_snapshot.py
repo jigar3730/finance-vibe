@@ -10,11 +10,12 @@ import pandas as pd
 import pytest
 
 from finance_vibe import config
-from finance_vibe.data import ingest, market_snapshot
+from finance_vibe.data import daily_ingest, ingest, market_snapshot
 from finance_vibe.web import health, insights
 
 ET = market_snapshot.MARKET_TZ
 THU = date(2026, 11, 5)
+STAMP = "2026-11-05T10:00:00-05:00"
 
 
 def _et(day: date, hour: int, minute: int = 0) -> datetime:
@@ -83,8 +84,9 @@ def test_take_snapshot_writes_file_and_never_touches_raw(tmp_path, monkeypatch):
     assert market_snapshot.take_snapshot(_et(THU, 10, 26)) is True
     loaded = market_snapshot.load_snapshot()
     assert loaded["fetched_at"] == _et(THU, 10, 26)
-    assert loaded["quotes"]["SPY"] == {"last": 746.28, "date": THU}
-    assert loaded["quotes"]["VIX"] == {"last": 21.68, "date": THU}  # saved under its file name
+    spy, vix = loaded["quotes"]["SPY"], loaded["quotes"]["VIX"]  # VIX: under its file name
+    assert (spy["last"], spy["date"], vix["last"]) == (746.28, THU, 21.68)
+    assert spy["fetched_at"] == _et(THU, 10, 26) and spy["time"] == _et(THU, 10, 25)
     assert "QQQ" not in loaded["quotes"]
     assert not config.MARKET_SNAPSHOT_PATH.startswith(config.MARKET_CONTEXT_PROFILE["raw_dir"])
     assert os.listdir(os.path.dirname(config.MARKET_SNAPSHOT_PATH)) == ["snapshot.json"]
@@ -94,7 +96,13 @@ def _write_previous() -> None:
     os.makedirs(os.path.dirname(config.MARKET_SNAPSHOT_PATH))
     payload = {
         "fetched_at": "2026-11-05T10:00:00-05:00",
-        "quotes": {"SPY": {"last": 750.0, "time": "2026-11-05T10:00:00-05:00"}},
+        "quotes": {
+            "SPY": {
+                "last": 750.0,
+                "time": "2026-11-05T10:00:00-05:00",
+                "fetched_at": "2026-11-05T10:00:30-05:00",
+            }
+        },
     }
     with open(config.MARKET_SNAPSHOT_PATH, "w") as handle:
         json.dump(payload, handle)
@@ -142,9 +150,10 @@ def test_load_snapshot_missing_file_and_bad_quote():
     payload = {
         "fetched_at": "2026-11-05T10:00:00-05:00",
         "quotes": {
-            "SPY": {"last": "x", "time": "2026-11-05T10:00:00-05:00"},
-            "QQQ": {"last": 0, "time": "2026-11-05T10:00:00-05:00"},
-            "IEF": {"last": 91.0, "time": "2026-11-05T10:00:00-05:00"},
+            "SPY": {"last": "x", "time": STAMP, "fetched_at": STAMP},
+            "QQQ": {"last": 0, "time": STAMP, "fetched_at": STAMP},
+            "HYG": {"last": 77.0, "time": STAMP},  # no fetch time
+            "IEF": {"last": 91.0, "time": STAMP, "fetched_at": STAMP},
         },
     }
     with open(config.MARKET_SNAPSHOT_PATH, "w") as handle:
@@ -314,3 +323,83 @@ def test_breadth_ranks_by_todays_move_and_keeps_the_50_day_count():
     assert got["ranked"][1]["day"] == pytest.approx(-0.10)
     assert got["ranked"][-1]["day"] is None  # funds without data sort last
     assert {s["symbol"] for s in got["above"]} == {"XLE"}
+
+
+def test_status_flags_a_snapshot_from_an_earlier_day():
+    got = market_snapshot.status(_et(THU, 16, 15), _et(date(2026, 11, 6), 11, 0))
+    assert got == {"label": "Thu 16:15 ET", "old_minutes": 1125}
+
+
+def test_partial_fetch_keeps_missing_quotes_with_their_own_fetch_time(monkeypatch):
+    _write_previous()
+    fresh = {"QQQ": _bars(THU, ["10:25"], [660.0])}
+    monkeypatch.setattr(ingest, "_download_batch", lambda *a, **k: _batch(fresh))
+    assert market_snapshot.take_snapshot(_et(THU, 10, 26)) is True
+    loaded = market_snapshot.load_snapshot()
+    assert loaded["fetched_at"] == _et(THU, 10, 26)
+    assert loaded["quotes"]["QQQ"]["fetched_at"] == _et(THU, 10, 26)
+    spy = loaded["quotes"]["SPY"]
+    assert spy["last"] == 750.0 and spy["time"] == _et(THU, 10, 0)
+    assert spy["fetched_at"].minute == 0 and spy["fetched_at"].second == 30
+
+
+def test_partial_fetch_does_not_carry_yesterdays_quotes(monkeypatch):
+    _write_previous()  # quotes from Thursday
+    friday = date(2026, 11, 6)
+    fresh = {"QQQ": _bars(friday, ["10:25"], [660.0])}
+    monkeypatch.setattr(ingest, "_download_batch", lambda *a, **k: _batch(fresh))
+    assert market_snapshot.take_snapshot(_et(friday, 10, 26)) is True
+    assert list(market_snapshot.load_snapshot()["quotes"]) == ["QQQ"]
+
+
+def _snap(fetched, **quotes):
+    return {"fetched_at": fetched, "quotes": quotes}
+
+
+def test_quote_note():
+    note = market_snapshot.quote_note
+    wed = date(2026, 11, 4)
+    fresh = {"fetched_at": _et(THU, 10, 25)}
+    old = {"fetched_at": _et(THU, 9, 40)}
+    snapshot = _snap(_et(THU, 10, 25))
+    now = _et(THU, 10, 30)
+    assert note(wed, fresh, snapshot, now) is None
+    assert note(wed, old, snapshot, now) == "quote 50 min old"
+    assert note(wed, None, snapshot, now) == "no quote"
+    assert note(THU, None, snapshot, now) is None  # today's close already saved
+    assert note(None, None, snapshot, now) is None
+    assert note(wed, None, None, now) is None
+    # The whole snapshot is overdue: the page says so once, not per symbol.
+    assert note(wed, None, snapshot, _et(THU, 11, 0)) is None
+    # Indexes have no bars before the open, and run behind after it.
+    assert note(wed, None, _snap(_et(THU, 9, 45)), _et(THU, 9, 45)) is None
+    assert note(wed, None, _snap(_et(THU, 9, 50)), _et(THU, 9, 50)) == "no quote"
+
+
+@pytest.mark.parametrize(
+    ("day", "hour"),
+    [
+        (date(2026, 11, 27), 13),  # day after Thanksgiving
+        (date(2026, 12, 24), 13),  # Christmas Eve, a Thursday
+        (date(2025, 7, 3), 13),
+        (date(2026, 11, 5), 16),
+        (date(2026, 7, 2), 16),  # July 3, 2026 is the holiday; the day before is a full session
+        (date(2026, 11, 20), 16),  # a Friday in November, not after Thanksgiving
+        (date(2027, 12, 24), 16),  # Christmas observed: closed, so not an early close
+    ],
+)
+def test_session_close(day, hour):
+    assert daily_ingest.session_close(day).hour == hour
+
+
+def test_latest_quote_ignores_after_hours_bars_on_a_half_day():
+    day = date(2026, 11, 27)
+    frame = _bars(day, ["12:55", "13:00", "15:55"], [740.0, 741.0, 790.0])
+    assert market_snapshot.latest_quote(frame, day)["last"] == 740.0
+
+
+def test_price_now():
+    df = _closes([10.0, 11.0])
+    assert insights.price_now(df, None) == (11.0, False)
+    assert insights.price_now(df, {"last": 12.0, "date": THU}) == (12.0, True)
+    assert insights.price_now(df, {"last": 12.0, "date": date(2026, 11, 4)}) == (11.0, False)

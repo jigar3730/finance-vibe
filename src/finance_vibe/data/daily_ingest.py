@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import os
-from datetime import date, datetime
+from datetime import date, datetime, time
 
 import pandas as pd
 from pandas.tseries.holiday import (
@@ -45,6 +45,8 @@ MARKET_TZ = ingest.MARKET_TZ
 # A day's bar is final once the 16:00 ET close has passed plus a buffer for
 # Yahoo to publish the close (half-day sessions close earlier, so are covered).
 DAY_FINAL_HOUR_ET = 17
+REGULAR_CLOSE = time(16, 0)
+EARLY_CLOSE = time(13, 0)
 
 
 def _market_now(now: datetime | None) -> datetime:
@@ -128,6 +130,19 @@ _SESSION = CustomBusinessDay(calendar=NYSEHolidayCalendar())
 def is_session_day(day: date) -> bool:
     """True when NYSE trades on ``day`` (early closes count as sessions)."""
     return bool(_SESSION.is_on_offset(pd.Timestamp(day)))
+
+
+def session_close(day: date) -> time:
+    """Regular close of an NYSE session: 13:00 ET on July 3, Christmas Eve and the day
+    after Thanksgiving when they trade, else 16:00 ET."""
+    stamp = pd.Timestamp(day)
+    after_thanksgiving = day.month == 11 and day.weekday() == 4 and 23 <= day.day <= 29
+    fixed = (day.month, day.day) in {(7, 3), (12, 24)}
+    return (
+        EARLY_CLOSE
+        if _SESSION.is_on_offset(stamp) and (after_thanksgiving or fixed)
+        else REGULAR_CLOSE
+    )
 
 
 def last_complete_session(now: datetime | None = None) -> date:

@@ -22,7 +22,7 @@ from typing import Any
 import pandas as pd
 
 from finance_vibe import config
-from finance_vibe.data import daily_ingest, raw
+from finance_vibe.data import daily_ingest, market_snapshot, raw
 from finance_vibe.web import insights
 
 logger = logging.getLogger(__name__)
@@ -60,10 +60,10 @@ def _level(df: pd.DataFrame, quote: dict[str, Any] | None) -> dict[str, Any]:
     """A series' level (a new quote, else the newest close), the close before it and the
     close about a month before it."""
     close = df["Close"]
-    live = quote is not None and insights.quote_is_new(df, quote)
+    level, live = insights.price_now(df, quote)
     past = close if live else close.iloc[:-1]
     return {
-        "level": float(quote["last"]) if quote is not None and live else float(close.iloc[-1]),
+        "level": level,
         "live": live,
         "previous": float(past.iloc[-1]) if len(past) else None,
         "month_base": float(past.iloc[-MONTH_BARS]) if len(past) >= MONTH_BARS else None,
@@ -79,7 +79,10 @@ def _flags(
     frames: dict[str, pd.DataFrame | None],
     expected: date,
     errors: dict[str, list[str]],
+    snapshot: dict[str, Any] | None = None,
+    now: datetime | None = None,
 ) -> list[str]:
+    quotes = (snapshot or {}).get("quotes", {})
     out = []
     for sym in symbols:
         df = frames.get(sym)
@@ -89,6 +92,9 @@ def _flags(
         checks = list(errors.get(sym, []))
         if _as_of(df) < expected and "stale" not in checks:
             checks.append("stale")
+        if now is not None:
+            note = market_snapshot.quote_note(_as_of(df), quotes.get(sym), snapshot, now)
+            checks += [note] if note else []
         out += [f"{sym} {c.replace('_', ' ')}" for c in checks]
     return out
 
@@ -319,29 +325,36 @@ def scanned_breadth(now: datetime) -> dict[str, Any] | None:
 
 
 def market_health(
-    expected: date, quotes: dict[str, dict[str, Any]] | None = None
+    expected: date, snapshot: dict[str, Any] | None = None, now: datetime | None = None
 ) -> dict[str, Any]:
     """Volatility, rates, dollar, credit and breadth facts; ``expected`` is the last
     closed session.
 
-    ``quotes`` moves the levels to live prices. Every ``as_of`` stays the newest close.
+    ``snapshot``'s quotes move the levels to live prices, and flags name any symbol without
+    a current quote at ``now``. Every ``as_of`` stays the newest close. ``errors`` is the
+    newest market bar-quality report.
     """
-    quotes = quotes or {}
+    quotes = (snapshot or {}).get("quotes", {})
     symbols = (VIX, VIX3M, TNX, DXY, *CREDIT, *config.MARKET_SECTOR_FUNDS)
     frames = {s: closes(s) for s in symbols}
     errors = insights.quality_errors(config.MARKET_CONTEXT_PROFILE["logs_dir"])
     sectors = tuple(config.MARKET_SECTOR_FUNDS)
+
+    def flags(symbols: tuple[str, ...]) -> list[str]:
+        return _flags(symbols, frames, expected, errors, snapshot, now)
+
     return {
+        "errors": errors,
         "volatility": volatility(frames[VIX], quotes.get(VIX)),
-        "volatility_flags": _flags((VIX,), frames, expected, errors),
+        "volatility_flags": flags((VIX,)),
         "vol_curve": vol_curve(frames[VIX], frames[VIX3M], quotes),
-        "vol_curve_flags": _flags((VIX3M,), frames, expected, errors),
+        "vol_curve_flags": flags((VIX3M,)),
         "rates": rates(frames[TNX], quotes.get(TNX)),
-        "rates_flags": _flags((TNX,), frames, expected, errors),
+        "rates_flags": flags((TNX,)),
         "dollar": dollar(frames[DXY], quotes.get(DXY)),
-        "dollar_flags": _flags((DXY,), frames, expected, errors),
+        "dollar_flags": flags((DXY,)),
         "credit": credit(frames[CREDIT[0]], frames[CREDIT[1]], quotes),
-        "credit_flags": _flags(CREDIT, frames, expected, errors),
+        "credit_flags": flags(CREDIT),
         "breadth": breadth(frames, quotes),
-        "breadth_flags": _flags(sectors, frames, expected, errors),
+        "breadth_flags": flags(sectors),
     }

@@ -7,6 +7,7 @@ import os
 import re
 import time
 from concurrent.futures import ThreadPoolExecutor
+from functools import cache
 from typing import Any
 
 import pandas as pd
@@ -446,15 +447,19 @@ def market() -> str:
     daily_bo = playbook.load_latest(LOG_DIRS["daily"])[2]
     snapshot = market_snapshot.load_snapshot()
     quotes = snapshot["quotes"] if snapshot else {}
-    table = insights.market_table(daily_bo, quotes)
-    market_health = health.market_health(expected["daily"], quotes)
-    quality = insights.quality_errors(config.MARKET_CONTEXT_PROFILE["logs_dir"])
+    now = market_snapshot.now_et()
+    load_bars = cache(insights.market_bars)  # each fund's file is read once per request
+    table = insights.market_table(daily_bo, quotes, load_bars)
+    market_health = health.market_health(expected["daily"], snapshot, now)
     newest = max((r["as_of"] for r in table["rows"] if r["as_of"]), default=None)
     for r in table["rows"]:
         r["stale"] = r["as_of"] is None or (newest is not None and r["as_of"] < newest)
-        checks = quality.get(r["symbol"], [])
+        checks = market_health["errors"].get(r["symbol"], [])
         r["quality"] = [c for c in checks if not (r["stale"] and c == "stale")]
-    now = market_snapshot.now_et()
+        close_day = pd.Timestamp(r["as_of"]).date() if r["as_of"] else None
+        r["quote_note"] = market_snapshot.quote_note(
+            close_day, quotes.get(r["symbol"]), snapshot, now
+        )
     live = None
     if snapshot and _uses_quotes(table, market_health):
         live = market_snapshot.status(snapshot["fetched_at"], now)
@@ -468,7 +473,7 @@ def market() -> str:
         "market.html",
         table=table,
         health=market_health,
-        levels=insights.levels_table(quotes),
+        levels=insights.levels_table(quotes, load_bars),
         scanned=health.scanned_breadth(now),
         since=health.since_last_close(table, market_health),
         as_of=as_of,

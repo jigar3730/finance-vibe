@@ -138,6 +138,7 @@ New York, so the cron line only has to cover that hour in the host's clock:
 30 18,22 * * 1-5 /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
 0 18 * * 5       /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
 # host clock UTC: fire at every UTC hour those slots can map to (EDT and EST)
+5 21,22 * * 1-5    /opt/stacks/finance-vibe/scripts/run_market_close.sh
 30 22,23,2,3 * * * /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
 0 22,23 * * 5      /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
 ```
@@ -169,7 +170,10 @@ A third cron job, separate from the pipeline, keeps the market home current duri
 session:
 
 ```cron
+# host clock America/New_York (mediabox)
 */5 8-16 * * 1-5 /opt/stacks/finance-vibe/scripts/run_market_snapshot.sh
+# host clock UTC: every UTC hour those slots can map to (EDT and EST)
+*/5 12-21 * * 1-5 /opt/stacks/finance-vibe/scripts/run_market_snapshot.sh
 ```
 
 The cron line fires every 5 minutes; the module checks the New York clock and the NYSE
@@ -180,13 +184,16 @@ calendar and fetches every 15 minutes from 08:00 ET and every 5 minutes from 09:
 
 - **Separate from scans.** Quotes never reach `data/raw/`, so scanners, `--as-of` and
   golden outputs are unaffected.
-- **Bars used.** Today's bars before 16:00 ET, including pre-market. On half days,
-  after-hours bars up to 16:00 ET are included.
+- **Bars used.** Today's bars up to the session's close, including pre-market:
+  `daily_ingest.session_close`, 16:00 ET, or 13:00 ET on half days.
 - **Delay.** Yahoo is an unofficial feed. VIX runs about 15 minutes behind.
 - **Failures.** A failed or empty fetch keeps the previous file and is logged to
   `snapshot_<date>.log` in `~/.local/state/finance-vibe/`. There is no email: the page
   shows "⚠ quotes N min old" once quotes are more than 20 minutes behind
-  (`config.MARKET_SNAPSHOT_STALE_MINUTES`).
+  (`config.MARKET_SNAPSHOT_STALE_MINUTES`). A symbol missing from a partial fetch keeps its
+  same-day quote and its own fetch time. Its row or tile then shows "⚠ quote N min old", or
+  "⚠ no quote" with no earlier quote that day (not before 09:50 ET, since indexes have no
+  bars until after the open).
 
 ### Health checks and alerts
 
@@ -286,7 +293,8 @@ newest close, so the page returns to closes as soon as that day's close is saved
 moves the table's daily change, returns and RS, the VIX level and change, the HYG / IEF
 ratio (only with both quotes) and the sector tiles. Every average still uses closed bars.
 The growth-vs-dividend label, heavy-volume support breaks, the scanned-tickers tile and the
-levels stay on closes. A row with no quote says "⚠ no quote". From 08:00 to 16:15 ET on
+levels stay on closes. A row or tile without a current quote says "⚠ no quote" or "⚠ quote
+N min old". From 08:00 to 16:15 ET on
 session days the page reloads itself every 5 minutes.
 
 A line above the table appears only when a fund closed below support on heavy volume,
@@ -305,8 +313,9 @@ naming the funds. Top to bottom:
    - **RS vs SPY:** `market.relative_strength`, 63-day return minus SPY's.
 
    A note column shows "⚠ below support · heavy vol" (daily close below `Support` with
-   RVOL20 ≥ `config.BREAKOUT_RVOL_CONFIRM`, 1.5; `insights.heavy_break`; RSP has no scan row,
-   so this never applies to it), "⚠ stale" / "⚠ no data" / "⚠ no quote", and any error row
+   RVOL20 ≥ `config.BREAKOUT_RVOL_CONFIRM`, 1.5; `insights.heavy_break`; only when the scan is
+   dated the row's newest close, so it is hidden from 17:05 ET until that evening's scan;
+   RSP has no scan row, so this never applies to it), "⚠ stale" / "⚠ no data" / "⚠ no quote" / "⚠ quote N min old", and any error row
    for the fund in the newest market bar-quality report. Under the table,
    the growth-vs-dividend label (`insights.rotation`, `config.ROTATION_*`, SCHG and SCHD
    closes):

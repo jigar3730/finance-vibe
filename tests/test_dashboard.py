@@ -609,7 +609,9 @@ def test_home_has_one_as_of_badge_and_no_notes(client, tmp_path, monkeypatch, ma
 
 
 def _snapshot(symbols, fetched="2026-11-02T10:25:00-05:00", day="2026-11-02", last=50.0):
-    quotes = {s: {"last": last, "time": f"{day}T10:25:00-05:00"} for s in symbols}
+    quotes = {
+        s: {"last": last, "time": f"{day}T10:25:00-05:00", "fetched_at": fetched} for s in symbols
+    }
     path = app_module.config.MARKET_SNAPSHOT_PATH
     os.makedirs(os.path.dirname(path))
     with open(path, "w") as handle:
@@ -722,7 +724,7 @@ def test_home_table_formats_and_warnings(client, tmp_path, monkeypatch, market_c
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
     daily = tmp_path / "d" / "breakout_setups_2026-10-20.csv"
     df = pd.read_csv(daily)
-    df["RVOL20"], df["Close"] = 2.16, 750.0
+    df["RVOL20"], df["Close"], df["AsOf Date"] = 2.16, 750.0, "2026-10-30"
     df.to_csv(daily, index=False)
     raw = tmp_path / "raw" / "daily"
     raw.mkdir(parents=True)
@@ -868,6 +870,55 @@ def test_home_table_shows_bar_quality_errors(client, tmp_path, monkeypatch, mark
     ).to_csv(report, index=False)
     table = client.get("/").get_data(as_text=True).split('class="table overview-table"')[1]
     assert "⚠ ohlc incoherent" in table.split('ticker-cell">SPY')[1].split("</tr>")[0]
+
+
+def test_home_hides_a_support_break_from_an_older_scan(
+    client, tmp_path, monkeypatch, market_context_silo
+):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    daily = tmp_path / "d" / "breakout_setups_2026-10-20.csv"
+    df = pd.read_csv(daily)
+    df["RVOL20"], df["Close"], df["AsOf Date"] = 2.16, 750.0, "2026-10-29"
+    df.to_csv(daily, index=False)
+    _bars_file(market_context_silo, "SPY")  # closes through 2026-10-30: newer than the scan
+    body = client.get("/").get_data(as_text=True)
+    assert "below support" not in body and 'class="fact-line"' not in body
+
+
+def test_home_flags_tiles_without_a_current_quote(
+    client, tmp_path, monkeypatch, market_context_silo
+):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _write_market_context(market_context_silo, rising={"XLK"})
+    _snapshot(("SPY", "HYG", "TNX"))
+    path = app_module.config.MARKET_SNAPSHOT_PATH
+    with open(path) as handle:
+        payload = json.load(handle)
+    payload["quotes"]["TNX"]["fetched_at"] = "2026-11-02T09:55:00-05:00"
+    with open(path, "w") as handle:
+        json.dump(payload, handle)
+    _now(monkeypatch, "2026-11-02T10:30:00-05:00")
+    body = client.get("/").get_data(as_text=True)
+    assert "⚠ VIX no quote" in body.split('tile-volatility"')[1].split('class="metric-tile')[0]
+    assert "⚠ TNX quote 35 min old" in body.split('tile-rates"')[1].split('class="metric-tile')[0]
+    credit = body.split('tile-credit"')[1].split('class="metric-tile')[0]
+    assert "⚠ IEF no quote" in credit and "HYG no quote" not in credit
+    assert "min old" not in body.split('class="page-head"')[1].split("</div>")[0]
+
+
+def test_home_reads_each_funds_file_once(client, tmp_path, monkeypatch, market_context_silo):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _write_market_context(market_context_silo, rising={"SPY", "QQQ", "IWM", "RSP"})
+    calls = []
+    real = app_module.insights.market_bars
+
+    def counted(symbol):
+        calls.append(symbol)
+        return real(symbol)
+
+    monkeypatch.setattr(app_module.insights, "market_bars", counted)
+    assert client.get("/").status_code == 200
+    assert sorted(calls) == sorted({*app_module.config.MARKET_HOME_FUNDS, "SCHG", "SCHD"})
 
 
 def test_home_since_last_close_line(client, tmp_path, monkeypatch, market_context_silo):

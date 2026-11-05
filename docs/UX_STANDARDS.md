@@ -34,7 +34,7 @@ Rules for every dashboard template and stylesheet (`src/finance_vibe/web/templat
   older than that date gets a short ⚠ note (e.g. "⚠ HYG stale").
 - Exception: while the market home shows live quotes, its one badge gives both times:
   "as of 10:25 ET · last close Wed 2026-11-04". Overdue quotes get "⚠ quotes N min old"
-  beside it, and a row with no quote gets "⚠ no quote".
+  beside it. A row or tile without a current quote gets "⚠ no quote" or "⚠ quote N min old".
 - Explanations only as short `?` tooltips (the `title` attribute), and only where a
   term needs explaining (HYG/IEF, RS vs SPY).
 - How far to trust a section (backtest result, untested, failed) is one `?` tooltip
