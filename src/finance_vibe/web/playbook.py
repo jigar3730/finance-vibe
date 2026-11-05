@@ -100,6 +100,75 @@ def load_previous_breakout(folder: str, date: str | None) -> pd.DataFrame:
     )
 
 
+TICKER_HISTORY_COLUMNS = [
+    "Date",
+    "Close",
+    "Status",
+    "Breakout Readiness",
+    "Trend",
+    "Breakout Distance",
+    "Cobra Score",
+    "Cobra Grade",
+    "in_breakout",
+    "in_cobra",
+]
+# Breakout CSV columns copied into the history; Cobra ones are renamed with a prefix.
+_HISTORY_BREAKOUT = ["Close", "Status", "Breakout Readiness", "Trend", "Breakout Distance"]
+_HISTORY_COBRA = {"Score": "Cobra Score", "Grade": "Cobra Grade"}
+
+
+def _symbol_row(path: str, symbol: str, *, breakout: bool) -> dict[str, Any] | None:
+    """The first row for ``symbol`` (case- and whitespace-insensitive) in one CSV, or None."""
+    df = read_scan(path)
+    if breakout:
+        df = relabel_triggered_watch(df)
+    if "Symbol" not in df.columns:
+        return None
+    hit = df[df["Symbol"].astype(str).str.strip().str.upper() == symbol]
+    return None if hit.empty else hit.iloc[0].to_dict()  # type: ignore[return-value]
+
+
+def ticker_history(folder: str, symbol: str) -> pd.DataFrame:
+    """One row per run date in ``folder`` that lists ``symbol``, newest first.
+
+    Breakout fields come from the breakout CSV (every scanned ticker); ``Cobra Score``
+    and ``Cobra Grade`` are NaN when the ticker did not qualify as a Cobra setup.
+    """
+    symbol = symbol.strip().upper()
+    rows: list[dict[str, Any]] = []
+    for date, prefixes in sorted(run_dates(folder).items(), reverse=True):
+        bo = cb = None
+        if BREAKOUT_PREFIX in prefixes:
+            bo = _symbol_row(
+                os.path.join(folder, f"{BREAKOUT_PREFIX}{date}.csv"), symbol, breakout=True
+            )
+        if COBRA_PREFIX in prefixes:
+            cb = _symbol_row(
+                os.path.join(folder, f"{COBRA_PREFIX}{date}.csv"), symbol, breakout=False
+            )
+        if bo is None and cb is None:
+            continue
+        row: dict[str, Any] = {
+            "Date": date,
+            "in_breakout": bo is not None,
+            "in_cobra": cb is not None,
+        }
+        row |= {c: (bo or {}).get(c, float("nan")) for c in _HISTORY_BREAKOUT}
+        row |= {new: (cb or {}).get(old, float("nan")) for old, new in _HISTORY_COBRA.items()}
+        if bo is None and cb is not None:
+            row["Close"] = cb.get("Close", float("nan"))
+        rows.append(row)
+    return pd.DataFrame(rows, columns=TICKER_HISTORY_COLUMNS)
+
+
+def known_symbols(folder: str) -> list[str]:
+    """Sorted symbols in the newest breakout CSV in ``folder`` (search suggestions)."""
+    breakout = load_latest(folder)[2]
+    if "Symbol" not in breakout.columns:
+        return []
+    return sorted(set(breakout["Symbol"].dropna().astype(str).str.strip().str.upper()))
+
+
 # ---------------------------------------------------------------------------
 # Home page sections
 # ---------------------------------------------------------------------------

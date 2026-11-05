@@ -103,6 +103,49 @@ def test_load_latest_picks_the_newest_breakout_run(tmp_path):
     assert pb.load_latest(str(tmp_path / "missing"))[0] is None
 
 
+def test_ticker_history_one_row_per_run_newest_first(tmp_path):
+    pd.DataFrame(
+        [_bo(" aaa", "WATCH", 40, **{"Breakout Triggered": True}), _bo("B", "WATCH", 5)]
+    ).to_csv(tmp_path / "breakout_setups_2026-10-19.csv", index=False)
+    pd.DataFrame([_bo("B", "PRE_BREAKOUT", 10)]).to_csv(
+        tmp_path / "breakout_setups_2026-10-20.csv", index=False
+    )
+    pd.DataFrame([_bo("AAA", "PRE_BREAKOUT", 70, Close=51.5, Trend="BULLISH")]).to_csv(
+        tmp_path / "breakout_setups_2026-10-21.csv", index=False
+    )
+    pd.DataFrame([_cobra("AAA", 82)]).to_csv(
+        tmp_path / "coiled_cobra_setups_2026-10-21.csv", index=False
+    )
+    hist = pb.ticker_history(str(tmp_path), "aaa ")
+    assert list(hist.columns) == pb.TICKER_HISTORY_COLUMNS
+    assert list(hist["Date"]) == ["2026-10-21", "2026-10-19"]  # 10-20 has no AAA row
+    newest, oldest = hist.iloc[0], hist.iloc[1]
+    assert newest["Close"] == 51.5 and newest["Trend"] == "BULLISH"
+    assert newest["Cobra Score"] == 82 and newest["Cobra Grade"] == "A - Watch"
+    assert newest["in_cobra"] and newest["in_breakout"]
+    assert oldest["Status"] == "BREAKOUT_TRIGGERED"  # old WATCH + trigger flag relabelled
+    assert pd.isna(oldest["Cobra Score"]) and not oldest["in_cobra"]
+
+
+def test_ticker_history_unknown_ticker_or_folder_is_empty(tmp_path):
+    pd.DataFrame([_bo("B", "PRE_BREAKOUT", 10)]).to_csv(
+        tmp_path / "breakout_setups_2026-10-20.csv", index=False
+    )
+    assert pb.ticker_history(str(tmp_path), "ZZZ").empty
+    assert pb.ticker_history(str(tmp_path / "missing"), "B").empty
+
+
+def test_known_symbols_from_the_newest_breakout_run(tmp_path):
+    pd.DataFrame([_bo("old", "PRE_BREAKOUT", 10)]).to_csv(
+        tmp_path / "breakout_setups_2026-10-19.csv", index=False
+    )
+    pd.DataFrame([_bo(" zz", "PRE_BREAKOUT", 10), _bo("AB", "WATCH", 5)]).to_csv(
+        tmp_path / "breakout_setups_2026-10-20.csv", index=False
+    )
+    assert pb.known_symbols(str(tmp_path)) == ["AB", "ZZ"]
+    assert pb.known_symbols(str(tmp_path / "missing")) == []
+
+
 # ---------------------------------------------------------------------------
 # Market fixtures
 # ---------------------------------------------------------------------------
