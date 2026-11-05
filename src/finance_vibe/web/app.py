@@ -133,7 +133,12 @@ def _list_runs() -> dict[str, list[dict[str, object]]]:
     for mode, folder in LOG_DIRS.items():
         dates = playbook.run_dates(folder)
         runs[mode] = [
-            {"date": d, "cobra": COBRA_PREFIX in p, "breakout": BREAKOUT_PREFIX in p}
+            {
+                "date": d,
+                "day": _page_as_of(d),
+                "cobra": COBRA_PREFIX in p,
+                "breakout": BREAKOUT_PREFIX in p,
+            }
             for d, p in sorted(dates.items(), reverse=True)
         ]
     return runs
@@ -501,9 +506,12 @@ def changes() -> str | RedirectResponse:
 @app.route("/runs")
 def runs() -> str:
     """List run dates per mode with links to each scanner's page."""
+    runs = _list_runs()
+    newest = max((str(r["date"]) for mode_runs in runs.values() for r in mode_runs), default=None)
     return render_template(
         "runs.html",
-        runs=_list_runs(),
+        runs=runs,
+        as_of=_page_as_of(newest),
         symbols=sorted({s for f in LOG_DIRS.values() for s in playbook.known_symbols(f)}),
     )
 

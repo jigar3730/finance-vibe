@@ -84,6 +84,9 @@ def test_index_links_each_scanner_that_ran(client, breakout_logs, tmp_path):
     assert "/breakout/daily/2026-09-04" in body and "/cobra/daily/2026-09-04" not in body
     assert "/cobra/daily/2026-09-05" in body and "/breakout/daily/2026-09-05" not in body
     assert body.index("2026-09-05") < body.index("2026-09-04")  # newest first
+    assert "Sat 2026-09-05" in body and "Fri 2026-09-04" in body  # weekday on each date
+    assert body.count("asof-badge") == 1 and "as of Sat 2026-09-05" in body
+    assert "<p>Each run date" not in body  # the intro is a ? tooltip now
 
 
 def test_runs_search_box_suggests_latest_symbols(client, breakout_logs):

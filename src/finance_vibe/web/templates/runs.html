@@ -1,8 +1,10 @@
 {% extends "base.html" %}
 {% block title %}Runs - Finance Vibe{% endblock %}
 {% block content %}
-    <h1>📂 Runs</h1>
-    <p>Each run date links to that day's Coiled Cobra setups and breakout readiness scan.</p>
+    <div class="page-head">
+        <h1>📂 Runs <span class="tip" title="Each run date links to that day's Coiled Cobra setups and breakout readiness scan. Search a ticker to see it across every run.">?</span></h1>
+        {% if as_of %}<span class="asof-badge">as of {{ as_of }}</span>{% endif %}
+    </div>
 
     <form class="ticker-search" action="{{ url_for('ticker_search') }}" method="get">
         <input type="search" name="symbol" list="symbols" placeholder="Ticker" aria-label="Ticker" autocomplete="off" required>
@@ -19,7 +21,7 @@
                 <ul>
                 {% for run in mode_runs %}
                     <li>
-                        <strong>{{ run['date'] }}</strong>
+                        <strong>{{ run['day'] }}</strong>
                         {% if run['cobra'] %}<a href="{{ url_for('cobra_view', mode=mode, date=run['date']) }}">Coiled Cobra</a>{% endif %}
                         {% if run['cobra'] and run['breakout'] %} · {% endif %}
                         {% if run['breakout'] %}<a href="{{ url_for('breakout_view', mode=mode, date=run['date']) }}">Breakout</a>{% endif %}
