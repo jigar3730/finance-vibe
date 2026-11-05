@@ -474,6 +474,7 @@ def market() -> str:
         table=table,
         health=market_health,
         levels=insights.levels_table(quotes, load_bars),
+        events=insights.next_events(now),
         scanned=health.scanned_breadth(now),
         since=health.since_last_close(table, market_health),
         as_of=as_of,

@@ -281,6 +281,37 @@ MARKET_SNAPSHOT_INTERVAL = "5m"
 # The page warns past this; pre-market slots are 15 minutes apart.
 MARKET_SNAPSHOT_STALE_MINUTES = 20
 
+# Scheduled releases for the market home, hand-copied on 2026-11-05 and updated about once
+# a year. Name -> (release time ET, dates). FOMC dates are the decision day (the meeting's
+# second day), and its 2027 dates are tentative until confirmed at the meeting before.
+# Sources: federalreserve.gov/monetarypolicy/fomccalendars.htm,
+# bls.gov/schedule/news_release/empsit.htm, bls.gov/schedule/news_release/cpi.htm
+MARKET_EVENTS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "Jobs report": (
+        "08:30",
+        (
+            "2026-11-06", "2026-12-04", "2027-01-08", "2027-02-05", "2027-03-05", "2027-04-02",
+            "2027-05-07", "2027-06-04", "2027-07-02", "2027-08-06", "2027-09-03", "2027-10-08",
+            "2027-11-05", "2027-12-03",
+        ),
+    ),
+    "CPI": (
+        "08:30",
+        (
+            "2026-11-10", "2026-12-10", "2027-01-13", "2027-02-11", "2027-03-10", "2027-04-13",
+            "2027-05-12", "2027-06-10", "2027-07-14", "2027-08-11", "2027-09-14", "2027-10-14",
+            "2027-11-10", "2027-12-10",
+        ),
+    ),
+    "FOMC": (
+        "14:00",
+        (
+            "2026-12-09", "2027-01-27", "2027-03-17", "2027-04-28", "2027-06-09", "2027-07-28",
+            "2027-09-15", "2027-10-27", "2027-12-08",
+        ),
+    ),
+}  # fmt: skip
+
 # Breadth across the scanned tickers (data.universe_breadth), rewritten by each daily run.
 UNIVERSE_BREADTH_PATH = os.path.join(MARKET_CONTEXT_PROFILE["logs_dir"], "universe_breadth.json")
 

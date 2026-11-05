@@ -997,6 +997,18 @@ def test_home_scanned_tickers_without_a_file(client, tmp_path, monkeypatch, mark
     assert "No data" in tile
 
 
+def test_home_next_events_line(client, tmp_path, monkeypatch, market_context_silo):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _now(monkeypatch, "2026-11-05T13:00:00-05:00")
+    body = client.get("/").get_data(as_text=True)
+    line = body.split('<span class="label">Next</span>')[1].split("</p>")[0]
+    assert '<span title="Fri 2026-11-06 08:30 ET">Jobs report tomorrow</span>' in line
+    assert "CPI in 5 days" in line and "FOMC in 34 days" in line
+    assert "dates need updating" not in line
+    _now(monkeypatch, "2028-01-03T13:00:00-05:00")
+    assert "⚠ CPI dates need updating" in client.get("/").get_data(as_text=True)
+
+
 def test_old_market_link_redirects_home(client):
     response = client.get("/market")
     assert response.status_code == 301

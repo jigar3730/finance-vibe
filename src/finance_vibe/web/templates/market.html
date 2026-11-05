@@ -54,6 +54,12 @@
             <span class="label">Growth vs dividend</span> <strong>{{ rot.label }}</strong>
             <span class="tip" title="SCHG / SCHD close ratio{% if rot.ratio is not none %} {{ rot.ratio|num(4) }} vs its 50-day average {{ rot.ma|num(4) }}, SCHG minus SCHD return over 63 days {{ pct(rot.spread) }}{% endif %}. Outperforming needs both the ratio and the return gap on the same side; otherwise Mixed.">?</span>
         </p>
+        <p class="rotation-line">
+            <span class="label">Next</span>
+            {% for e in events["items"] %}<span title="{{ e.detail }}">{{ e.name }} {{ e.when }}</span>{% if not loop.last %} · {% endif %}{% endfor %}
+            <span class="tip" title="Scheduled release dates copied from the Federal Reserve and BLS calendars. They can change, and FOMC dates are tentative until confirmed at the meeting before. Hover an item for its date and time.">?</span>
+            {% for name in events.missing %}<span class="warn plain">⚠ {{ name }} dates need updating</span> {% endfor %}
+        </p>
     </section>
 
     <section class="health">

@@ -324,6 +324,11 @@ naming the funds. Top to bottom:
    - *Dividend/value outperforming (last 63 days)*: below the SMA and SCHD beats SCHG.
    - *Mixed*: anything else, or too little history.
 
+   Under that, "Next" (`insights.next_events`, `config.MARKET_EVENTS`): the next jobs report,
+   CPI and FOMC decision, soonest first, in calendar days ("CPI in 5 days"), with the date
+   and time on hover. A release leaves the line at its time. "⚠ CPI dates need updating"
+   appears when a kind's dates run out.
+
    Raw prices are Yahoo adjusted closes (`auto_adjust=True`), so returns include
    dividends.
 2. **Market health** (`web/health.market_health`), tiles with a large number, from the
@@ -397,6 +402,10 @@ run"). The old `/changes?show=all` link redirects to `/setups?show=all#since-las
   wipes `data/raw/weekly/` first).
 - **Clear old data:** `scripts/clean_data_volume.sh --dry-run`, then
   `--target raw|logs|all`. Raw files come back on the next run; logs do not.
+- **Update event dates:** copy new dates into `config.MARKET_EVENTS` from the Federal Reserve
+  and BLS calendars named there. The lists run through December 2027. Check them if a release
+  is rescheduled, as the BLS calendar can change. `tests/test_market_events.py` checks each
+  date falls on a trading day of the expected weekday where one applies.
 - **Add tickers:** edit `STATIC_TICKERS` in `config.py` or add rows to
   `src/finance_vibe/data/ticker_manifest.csv`.
 - **Change lookback or cadence:** edit `TIMEFRAME_PROFILES` in `config.py`.

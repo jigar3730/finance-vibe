@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import os
 from collections.abc import Callable
-from datetime import date, datetime
+from datetime import date, datetime, time
 from typing import Any
 
 import pandas as pd
@@ -359,6 +359,36 @@ def with_quote(df: pd.DataFrame | None, quote: dict[str, Any] | None) -> pd.Data
         return df
     today = pd.DataFrame({"Date": [pd.Timestamp(quote["date"])], "Close": [quote["last"]]})
     return pd.concat([df, today], ignore_index=True)
+
+
+def next_events(now: datetime) -> dict[str, Any]:
+    """The next release of each ``config.MARKET_EVENTS`` kind at ``now``, soonest first.
+
+    ``items`` hold ``name``, ``when`` ("today" / "tomorrow" / "in N days", in calendar
+    days) and ``detail`` (the date and time). A release counts as past from its time, so it
+    leaves the list then. ``missing`` names kinds whose dates have run out.
+    """
+    now = now.astimezone(daily_ingest.MARKET_TZ)
+    items: list[dict[str, Any]] = []
+    missing: list[str] = []
+    for name, (clock, days) in config.MARKET_EVENTS.items():
+        hour, minute = (int(part) for part in clock.split(":"))
+        moments = (
+            datetime.combine(
+                date.fromisoformat(day), time(hour, minute), tzinfo=daily_ingest.MARKET_TZ
+            )
+            for day in days
+        )
+        moment = min((m for m in moments if m > now), default=None)
+        if moment is None:
+            missing.append(name)
+            continue
+        gap = (moment.date() - now.date()).days
+        when = {0: "today", 1: "tomorrow"}.get(gap, f"in {gap} days")
+        detail = f"{moment:%a} {moment.date().isoformat()} {clock} ET"
+        items.append({"name": name, "when": when, "detail": detail, "moment": moment})
+    items.sort(key=lambda item: item["moment"])
+    return {"items": items, "missing": missing}
 
 
 def last_ma(close: pd.Series, bars: int) -> float | None:
