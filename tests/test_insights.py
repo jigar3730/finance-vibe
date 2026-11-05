@@ -427,3 +427,24 @@ def test_market_strip_without_data(raw_silo):
         for r in got["rows"]
     )
     assert got["rotation"] == insights.MIXED
+
+
+def test_market_closes_prefers_the_market_folder_and_falls_back(raw_silo, tmp_path, monkeypatch):
+    profile = dict(config.MARKET_CONTEXT_PROFILE) | {"raw_dir": str(tmp_path / "market")}
+    (tmp_path / "market").mkdir()
+    monkeypatch.setattr(config, "MARKET_CONTEXT_PROFILE", profile)
+    raw_silo("SPY", "daily", date(2026, 10, 29))
+    assert insights.market_closes("SPY")["Date"].iloc[-1] == pd.Timestamp("2026-10-29")
+    frame = pd.DataFrame(
+        {
+            "Date": ["2026-10-30"],
+            "Open": [1.0],
+            "High": [1.0],
+            "Low": [1.0],
+            "Close": [1.0],
+            "Volume": [1],
+        }
+    )
+    frame.to_csv(config.get_raw_path("SPY", profile), index=False)
+    assert insights.market_closes("SPY")["Date"].iloc[-1] == pd.Timestamp("2026-10-30")
+    assert insights.daily_closes("SPY")["Date"].iloc[-1] == pd.Timestamp("2026-10-29")

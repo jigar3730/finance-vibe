@@ -39,8 +39,8 @@ schedule (weekly Fridays 18:00 ET, daily 18:30 ET with a 22:30 retry), and
 3. `data.ingest` (weekly) / `data.daily_ingest` (daily) → `data/raw/{mode}/<TICKER>_<period>_<interval>.csv`, plus a bar-quality report `data/logs/{mode}/data_quality_<date>.csv`
 4. `scanners.coiled_cobra` → `data/logs/{mode}/coiled_cobra_setups_<date>.csv`
 5. `scanners.breakout` → `data/logs/{mode}/breakout_setups_<date>.csv`
-6. `data.market_ingest` (daily only) → VIX, HYG, IEF and the 11 sector funds for the market home page, in their
-   own folder `data/raw/market/` (the scanners never see them), plus `data/logs/market/data_quality_<date>.csv`
+6. `data.market_ingest` (daily only, also by itself at 17:05 ET) → broad funds, VIX, HYG, IEF and the 11 sector funds for the market home page, in their
+   own folder `data/raw/market/` (no scanner reads it), plus `data/logs/market/data_quality_<date>.csv`
 
 Separately from the pipeline, `data.market_snapshot` (cron, every few minutes in the session) saves live quotes
 to `data/live/market_snapshot.json` for the market home page. They never reach `data/raw/` or a scanner.

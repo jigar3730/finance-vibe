@@ -49,7 +49,7 @@ Each stage also runs on its own:
 python -m finance_vibe.data.tickers
 python -m finance_vibe.data.ingest weekly
 python -m finance_vibe.data.daily_ingest                 # takes no mode
-python -m finance_vibe.data.market_ingest                # takes no mode; 14 tickers
+python -m finance_vibe.data.market_ingest                # takes no mode; 20 tickers
 python -m finance_vibe.data.market_snapshot --now        # live quotes for the home page; not a pipeline stage
 python -m finance_vibe.scanners.coiled_cobra weekly
 python -m finance_vibe.scanners.breakout weekly
@@ -72,10 +72,12 @@ python -m finance_vibe.scanners.breakout weekly
   today's bar from every daily CSV while the session is still trading (final from
   17:00 ET, `DAY_FINAL_HOUR_ET`), so a mid-session run scans yesterday's close. It also
   holds the NYSE holiday calendar (`last_complete_session`) used by the daily health check.
-- **`data.market_ingest`** (daily, last stage) downloads `config.MARKET_CONTEXT_TICKERS`
-  for the market home page: VIX (Yahoo `^VIX`, saved as `VIX_2y_1d.csv`), HYG and IEF
-  (credit), and the 11 sector funds in `MARKET_SECTOR_FUNDS` (breadth). They are not in
-  the ticker list and live in `data/raw/market/`, so neither scanner sees them. Same
+- **`data.market_ingest`** (daily, last stage, and by itself at 17:05 ET) downloads
+  `config.MARKET_CONTEXT_TICKERS` for the market home page: the broad funds in
+  `MARKET_INDEX_FUNDS` (SPY, QQQ, IWM, RSP, SCHG, SCHD), VIX (Yahoo `^VIX`, saved as
+  `VIX_2y_1d.csv`), HYG and IEF (credit), and the 11 sector funds in `MARKET_SECTOR_FUNDS`
+  (breadth). They live in `data/raw/market/`, which no scanner reads, including the copies
+  of SPY, QQQ and others that are also scanned. Same
   download, OHLCV contract, today's-bar rule and `MIN_SAVE_ROWS` as `daily_ingest`.
   The folder is not wiped: a ticker that fails keeps its old file, which the quality
   report then flags `stale`. Failures go to `data/logs/market/ingest_errors_<date>.csv`;
@@ -125,6 +127,7 @@ New York, so the cron line only has to cover that hour in the host's clock:
 
 ```cron
 # host clock America/New_York (mediabox)
+5 17 * * 1-5     /opt/stacks/finance-vibe/scripts/run_market_close.sh
 30 18,22 * * 1-5 /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
 0 18 * * 5       /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
 # host clock UTC: fire at every UTC hour those slots can map to (EDT and EST)
@@ -134,11 +137,15 @@ New York, so the cron line only has to cover that hour in the host's clock:
 
 - **Weekly: Fridays 18:00 ET.** The ingestor keeps the week's bar once that Friday's
   close has passed, so a Friday-evening run scans the week that just closed.
+- **Market close: Monday–Friday 17:05 ET.** `run_market_close.sh` runs `data.market_ingest`
+  by itself, so the home page has the day's closes without waiting for the scan. A failure
+  is only logged (`market_close_<date>.log`), since the 18:30 run downloads the same files.
 - **Daily: Monday–Friday 18:30 ET, retry at 22:30 ET.** Daily bars are final from
   17:00 ET, and 18:30 starts after the Friday weekly run. Yahoo sometimes publishes the
   close late (on 2026-10-07 it was still blank at 21:00 ET), so the 22:30 slot re-runs
   the pipeline unless the 18:30 run passed its health check (it leaves
-  `daily_ok_<date>`). Weekends are skipped; market holidays still run, and the health
+  `daily_ok_<date>`). If only market-context data failed (it leaves
+  `daily_market_retry_<date>`), the retry runs just `data.market_ingest`. Weekends are skipped; market holidays still run, and the health
   check then expects the previous session's bar.
 - **Locks.** Each runner holds a lock so runs cannot overlap; the daily runner also
   waits for the weekly lock (up to 30 min), since both refresh `active_tickers.csv`.
@@ -182,7 +189,8 @@ session (daily) or the week that just closed (weekly), at most 20% of tickers fa
 to ingest, and `data_quality_<date>.csv` exists with no error rows for the market
 ETFs (other tickers' errors are only counted). The daily check also fails when a
 market-context file is missing, or `data/logs/market/data_quality_<date>.csv` is missing
-or has an error row (e.g. a stale VIX file). Run one by hand with
+or has an error row (e.g. a stale VIX file). It exits 1 for a problem with the scan's
+outputs and 2 when only market-context data failed. Run one by hand with
 `docker exec -i finance_vibe python - < scripts/check_daily_outputs.py`.
 
 `scripts/notify_email.py` (stdlib only, runs on the host) emails an alert with the end
@@ -205,7 +213,7 @@ dashboard and the next scheduled run pick it up.
 
 | Route | Contents |
 | ----- | -------- |
-| `/` | Market home: a "Today" table for SPY / QQQ / SCHG / SCHD (daily change, close vs 50- and 200-day averages, heavy-volume support break, growth vs dividend), Market health (VIX, HYG/IEF credit ratio, sectors above their 50-day average), the relative view (returns, RS vs SPY), then a card per ETF (weekly trend / MTF and close vs 50-day average, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
+| `/` | Market home (closes from `data/raw/market/`, plus live quotes in the session): a "Today" table for SPY / QQQ / SCHG / SCHD (daily change, close vs 50- and 200-day averages, heavy-volume support break, growth vs dividend), Market health (VIX, HYG/IEF credit ratio, sectors above their 50-day average), the relative view (returns, RS vs SPY), then a card per ETF (weekly trend / MTF and close vs 50-day average, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
 | `/market` | Redirects (301) to `/` |
 | `/setups` | Setups (unproven), by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), since last run (new weekly CONFIRMED, stock list in / out, status-change counts), counts of signals that failed in-sample |
 | `/changes` | Market facts that changed since the previous daily run (SMA50 / SMA200 crossings, new heavy-volume support breaks, growth-vs-dividend label) |
@@ -279,7 +287,8 @@ Under the badge one fact line:
 50-day". Top to bottom:
 
 1. **One table** (`insights.market_table`) for SPY / QQQ / SCHG / SCHD: daily % change
-   (last two closes in the daily raw file), returns over 1W / 1M / 3M / 6M (5 / 21 / 63 /
+   (last two closes in `data/raw/market/`, or the daily raw file if the market file is
+   missing), returns over 1W / 1M / 3M / 6M (5 / 21 / 63 /
    126 bars) and RS vs SPY (`market.relative_strength`: 63-day return minus SPY's), all
    with a sign and 2 decimals, right-aligned, green / red for up / down. Full width, in
    the regular font. A note column shows "⚠ below support · heavy vol" (daily close below `Support` with RVOL20 ≥

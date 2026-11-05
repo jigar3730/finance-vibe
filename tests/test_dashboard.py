@@ -621,26 +621,11 @@ def _now(monkeypatch, text):
     monkeypatch.setattr(app_module.market_snapshot, "now_et", lambda: when)
 
 
-def _daily_raw(tmp_path, symbols):
-    """Rising closes to Fri 2026-10-30, in the daily raw folder ``_market_logs`` points at."""
-    folder = tmp_path / "raw" / "daily"
-    folder.mkdir(parents=True)
-    dates = pd.bdate_range(end="2026-10-30", periods=80).strftime("%Y-%m-%d")
-    close = [10 + i * 0.1 for i in range(80)]
-    profile = app_module.config.TIMEFRAME_PROFILES["daily"]
-    for sym in symbols:
-        frame = pd.DataFrame(
-            {"Date": dates, "Open": close, "High": close, "Low": close, "Close": close, "Volume": 1}
-        )
-        frame.to_csv(app_module.config.get_raw_path(sym, profile), index=False)
-
-
 def test_home_live_quotes_overlay_table_and_tiles(
     client, tmp_path, monkeypatch, market_context_silo
 ):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
-    _write_market_context(market_context_silo, rising={"XLK"})
-    _daily_raw(tmp_path, ("SPY", "QQQ", "SCHG", "SCHD"))
+    _write_market_context(market_context_silo, rising={"XLK", "SPY", "QQQ", "SCHG", "SCHD"})
     _snapshot(("SPY", "QQQ", "SCHG", "VIX", "XLK"))
     _now(monkeypatch, "2026-11-02T10:30:00-05:00")
     body = client.get("/").get_data(as_text=True)
@@ -656,6 +641,15 @@ def test_home_live_quotes_overlay_table_and_tiles(
     assert "50.00" in body.split("tile-volatility")[1]  # VIX moved to the quote
     assert "last 50.00" in body  # sector hover names the live price
     assert "Support and resistance (last close)" in body
+
+
+def test_home_table_survives_the_daily_raw_wipe(client, tmp_path, monkeypatch, market_context_silo):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")  # no daily raw files at all
+    _write_market_context(market_context_silo, rising={"SPY", "QQQ", "SCHG", "SCHD"})
+    table = client.get("/").get_data(as_text=True).split('class="table overview-table"')[1]
+    table = table.split("</table>")[0]
+    assert "no data" not in table
+    assert "+0.56%" in table  # 17.90 vs 17.80, from the market folder
 
 
 def test_home_warns_when_quotes_are_old(client, tmp_path, monkeypatch, market_context_silo):

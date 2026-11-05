@@ -8,7 +8,8 @@
 #             it also starts after the Friday 18:00 weekly run.
 #   22:30 ET  retry, only if the 18:30 run did not pass its health check (Yahoo
 #             sometimes publishes the daily close hours late; on 2026-10-07 it was
-#             still blank at 21:00 ET).
+#             still blank at 21:00 ET). When only market-context data failed, the
+#             retry re-runs just data.market_ingest instead of the whole pipeline.
 #
 # This script exits unless it is 18:xx or 22:xx on a weekday in New York, so the
 # cron line only has to cover those slots in the host's clock:
@@ -49,6 +50,7 @@ now_hour="$(TZ=America/New_York date +%H)"
 now_dow="$(TZ=America/New_York date +%u)"   # 1 = Monday .. 7 = Sunday
 today="$(TZ=America/New_York date +%Y-%m-%d)"
 ok_marker="$LOG_DIR/daily_ok_$today"
+market_retry_marker="$LOG_DIR/daily_market_retry_$today"
 
 attempt="manual"
 if [[ "${1:-}" != "--now" ]]; then
@@ -89,23 +91,30 @@ if ! flock -w "$WEEKLY_WAIT_SECONDS" 8; then
     exit 1
 fi
 
+run_label="pipeline --mode daily"
+run_module=(finance_vibe.pipeline --mode daily)
+if [[ "$attempt" == "retry" && -e "$market_retry_marker" ]]; then
+    run_label="data.market_ingest"
+    run_module=(finance_vibe.data.market_ingest)
+fi
+
 status=0
 {
-    echo "=== daily pipeline start ($attempt attempt) $(TZ=America/New_York date -Is) ==="
+    echo "=== daily $run_label start ($attempt attempt) $(TZ=America/New_York date -Is) ==="
     # timeout runs inside the container so it kills the pipeline and its stage
     # subprocesses (its whole process group), not just the docker client.
-    docker exec "$CONTAINER" timeout "$RUN_TIMEOUT" python -m finance_vibe.pipeline --mode daily || status=$?
-    echo "=== daily pipeline end $(TZ=America/New_York date -Is) exit=$status ==="
+    docker exec "$CONTAINER" timeout "$RUN_TIMEOUT" python -m "${run_module[@]}" || status=$?
+    echo "=== daily $run_label end $(TZ=America/New_York date -Is) exit=$status ==="
 } >> "$log" 2>&1
 
 if [[ "$status" -eq 124 ]]; then
     alert "daily pipeline TIMED OUT after $RUN_TIMEOUT" \
-          "pipeline --mode daily was stopped after $RUN_TIMEOUT ($attempt attempt)."
+          "$run_label was stopped after $RUN_TIMEOUT ($attempt attempt)."
     exit "$status"
 fi
 if [[ "$status" -ne 0 ]]; then
     alert "daily pipeline FAILED (exit $status)" \
-          "pipeline --mode daily exited with status $status ($attempt attempt)."
+          "$run_label exited with status $status ($attempt attempt)."
     exit "$status"
 fi
 
@@ -113,14 +122,19 @@ check=0
 docker exec -i "$CONTAINER" python - < "$SCRIPT_DIR/check_daily_outputs.py" >> "$log" 2>&1 || check=$?
 if [[ "$check" -ne 0 ]]; then
     if [[ "$attempt" == "first" ]]; then
-        echo "$(date -Is) health check failed; will retry at ${RETRY_HOUR_ET}:30 ET" >> "$log"
+        if [[ "$check" -eq 2 ]]; then
+            touch "$market_retry_marker"
+            echo "$(date -Is) health check failed on market data only; will re-fetch it at ${RETRY_HOUR_ET}:30 ET" >> "$log"
+        else
+            echo "$(date -Is) health check failed; will retry at ${RETRY_HOUR_ET}:30 ET" >> "$log"
+        fi
     else
         alert "daily pipeline finished but its outputs look wrong" \
-              "The pipeline exited 0, but the post-run health check failed ($attempt attempt; details at the end of the log)."
+              "$run_label exited 0, but the post-run health check failed ($attempt attempt; details at the end of the log)."
     fi
     exit 3
 fi
 
 touch "$ok_marker"
-find "$LOG_DIR" -maxdepth 1 -name 'daily_ok_*' -mtime +14 -delete
+find "$LOG_DIR" -maxdepth 1 \( -name 'daily_ok_*' -o -name 'daily_market_retry_*' \) -mtime +14 -delete
 exit 0

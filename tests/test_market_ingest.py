@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
 from datetime import date, datetime
 from pathlib import Path
@@ -41,12 +42,13 @@ def silo(tmp_path, monkeypatch):
     return profile
 
 
-def test_market_context_has_vix_credit_and_eleven_sectors():
+def test_market_context_has_funds_vix_credit_and_eleven_sectors():
     tickers = config.MARKET_CONTEXT_TICKERS
     assert tickers["VIX"] == "^VIX" and {"HYG", "IEF"} <= set(tickers)
     assert len(config.MARKET_SECTOR_FUNDS) == 11 and set(config.MARKET_SECTOR_FUNDS) <= set(tickers)
-    # Never mixed into the scanned universe or its raw silos.
-    assert not set(tickers) & set(config.STATIC_TICKERS)
+    assert {"SPY", "QQQ", "IWM", "RSP", "SCHG", "SCHD"} <= set(tickers)
+    # Only the broad funds may also be scanned, and scanners read a different folder.
+    assert set(tickers) & set(config.STATIC_TICKERS) <= set(config.MARKET_INDEX_FUNDS)
     raw = config.MARKET_CONTEXT_PROFILE["raw_dir"]
     assert raw not in {p["raw_dir"] for p in config.TIMEFRAME_PROFILES.values()}
 
@@ -107,3 +109,19 @@ def _mkdirs(path: str) -> str:
 
 def _logs(silo):
     return list(Path(silo["logs_dir"]).iterdir())
+
+
+def _health_check_module():
+    path = Path(__file__).resolve().parents[1] / "scripts" / "check_daily_outputs.py"
+    spec = importlib.util.spec_from_file_location("check_daily_outputs", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize(
+    ("scan", "market", "code"),
+    [([], [], 0), (["x"], [], 1), (["x"], ["y"], 1), ([], ["y"], 2)],
+)
+def test_health_check_exit_code_tells_the_retry_what_failed(scan, market, code):
+    assert _health_check_module().exit_code(scan, market) == code

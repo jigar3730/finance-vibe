@@ -5,8 +5,10 @@ Piped into the container by ``run_daily_pipeline.sh``:
     docker exec -i finance_vibe python - < scripts/check_daily_outputs.py
 
 A run can exit 0 and still be wrong (a stale day, a Yahoo outage, an empty
-stage), so this checks the outputs themselves. It prints one line per problem
-and exits 1 if there are any.
+stage), so this checks the outputs themselves. It prints one line per problem.
+
+Exit codes: 0 all fine; 1 a problem with the scan's outputs (the retry re-runs the
+pipeline); 2 only market-context problems (the retry re-runs just ``data.market_ingest``).
 """
 
 from __future__ import annotations
@@ -50,6 +52,12 @@ def market_context_problems(stamp: str) -> list[str]:
             f"{r.Symbol} (market context) data quality {r.Check} ({r.Date}): {r.Detail}"
         )
     return problems
+
+
+def exit_code(scan_problems: list[str], market_problems: list[str]) -> int:
+    if scan_problems:
+        return 1
+    return 2 if market_problems else 0
 
 
 def main() -> int:
@@ -97,13 +105,14 @@ def main() -> int:
         for r in dq[dq["Symbol"].isin(MARKET_SYMBOLS)].itertuples(index=False):
             problems.append(f"{r.Symbol} data quality {r.Check} ({r.Date}): {r.Detail}")
 
-    problems += market_context_problems(stamp)
+    market_problems = market_context_problems(stamp)
+    code = exit_code(problems, market_problems)
 
-    if problems:
+    if code:
         print("HEALTH CHECK FAILED:")
-        for p in problems:
+        for p in [*problems, *market_problems]:
             print(f"  - {p}")
-        return 1
+        return code
     print(
         f"health check ok: outputs for {stamp}, newest bar {want.date()}, ingest errors {errors}/{tickers}, "
         f"data-quality errors {dq_errors}"

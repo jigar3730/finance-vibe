@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from datetime import date, datetime
 from typing import Any
 
@@ -298,6 +299,21 @@ def daily_closes(symbol: str) -> pd.DataFrame | None:
         return None
 
 
+def market_closes(symbol: str) -> pd.DataFrame | None:
+    """``Date`` / ``Close`` from the market silo, which the 18:30 raw wipe never touches.
+
+    Falls back to the daily raw file when the silo has no usable file for ``symbol``.
+    """
+    path = config.get_raw_path(symbol, config.MARKET_CONTEXT_PROFILE)
+    if not os.path.isfile(path):
+        return daily_closes(symbol)
+    try:
+        return raw.load_raw(path)[["Date", "Close"]]
+    except (OSError, ValueError) as exc:
+        logger.warning("Market-context raw for %s unreadable: %s", symbol, exc)
+        return daily_closes(symbol)
+
+
 def quote_is_new(df: pd.DataFrame | None, quote: dict[str, Any] | None) -> bool:
     """True when a live quote is from a later day than ``df``'s newest closed bar.
 
@@ -360,13 +376,16 @@ def etf_relative(
     symbols: tuple[str, ...] = playbook.MARKET_SYMBOLS,
     benchmark: str = "SPY",
     quotes: dict[str, dict[str, Any]] | None = None,
+    closes: Callable[[str], pd.DataFrame | None] | None = None,
 ) -> dict[str, Any]:
     """Returns over :data:`RETURN_WINDOWS`, 63-day RS vs ``benchmark``, and the rotation label.
 
     With ``quotes``, returns and RS run to the live price. The rotation stays on closes.
+    ``closes`` loads a symbol's bars (default :func:`daily_closes`).
     """
     quotes = quotes or {}
-    frames = {s: daily_closes(s) for s in dict.fromkeys((*symbols, benchmark))}
+    closes = closes or daily_closes
+    frames = {s: closes(s) for s in dict.fromkeys((*symbols, benchmark))}
     bench = with_quote(frames[benchmark], quotes.get(benchmark))
     rows = []
     for sym in symbols:
@@ -387,7 +406,7 @@ def etf_relative(
         rows.append(row)
     for sym in (config.ROTATION_GROWTH, config.ROTATION_DIVIDEND):
         if sym not in frames:
-            frames[sym] = daily_closes(sym)
+            frames[sym] = closes(sym)
     rot = rotation(frames[config.ROTATION_GROWTH], frames[config.ROTATION_DIVIDEND])
     return {"rows": rows, "windows": list(RETURN_WINDOWS), "benchmark": benchmark, "rotation": rot}
 
@@ -414,6 +433,7 @@ def market_strip(
     daily_breakout: pd.DataFrame,
     symbols: tuple[str, ...] = playbook.MARKET_SYMBOLS,
     quotes: dict[str, dict[str, Any]] | None = None,
+    closes: Callable[[str], pd.DataFrame | None] | None = None,
 ) -> dict[str, Any]:
     """Per ETF: last daily % change, close vs SMA50 / SMA200, and a heavy-volume support break.
 
@@ -421,10 +441,12 @@ def market_strip(
     quote in ``quotes`` with the last close (``live``). ``as_of`` is always the newest
     close. The SMA and support facts come from the latest daily breakout row
     (``heavy_break``: :func:`heavy_break`). Plus the growth-vs-dividend label.
+    ``closes`` loads a symbol's bars (default :func:`daily_closes`).
     """
     quotes = quotes or {}
+    closes = closes or daily_closes
     wanted = (*symbols, config.ROTATION_GROWTH, config.ROTATION_DIVIDEND)
-    frames = {s: daily_closes(s) for s in dict.fromkeys(wanted)}
+    frames = {s: closes(s) for s in dict.fromkeys(wanted)}
     rows = []
     for sym in symbols:
         df = frames[sym]
@@ -454,9 +476,10 @@ def market_table(
     """The market home's one table: :func:`market_strip` facts merged with the
     :func:`etf_relative` returns and RS vs SPY, one row per ETF, plus the rotation.
 
-    ``quotes`` carries daily change, returns and RS through to the live price."""
-    strip = market_strip(daily_breakout, quotes=quotes)
-    rel = etf_relative(quotes=quotes)
+    Closes come from the market silo (:func:`market_closes`); ``quotes`` carries daily
+    change, returns and RS through to the live price."""
+    strip = market_strip(daily_breakout, quotes=quotes, closes=market_closes)
+    rel = etf_relative(quotes=quotes, closes=market_closes)
     by_symbol = {r["symbol"]: r for r in rel["rows"]}
     rows = [
         {**r, "returns": by_symbol[r["symbol"]]["returns"], "rs": by_symbol[r["symbol"]]["rs"]}

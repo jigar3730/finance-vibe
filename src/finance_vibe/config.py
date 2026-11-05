@@ -218,9 +218,9 @@ DQ_JUMP_PCT = 0.40  # a close-to-close move this large may be a split or a bad p
 DQ_PRICE_TOL = 1e-6  # relative slack when checking High/Low against Open/Close
 
 # Market context (home page): an index and funds downloaded only for the market facts,
-# by data.market_ingest at the end of each daily run. They live in their own silo so
-# neither scanner ever sees them (and no scan CSV changes). Same OHLCV contract and
-# bar-quality checks as the scanned universe.
+# by data.market_ingest at 17:05 ET and at the end of each daily run. They live in their
+# own silo so neither scanner ever sees them (and no scan CSV changes), even for symbols
+# also in the scanned universe. Same OHLCV contract and bar-quality checks as that universe.
 MARKET_CONTEXT_PROFILE = {
     "period": "2y",
     "interval": "1d",
@@ -256,8 +256,11 @@ MARKET_SECTOR_SHORT = {
     "XLV": "Health",
     "XLY": "Discr.",
 }
+# Broad market funds, for the home page's table and the growth-vs-dividend label.
+MARKET_INDEX_FUNDS = ("SPY", "QQQ", "IWM", "RSP", "SCHG", "SCHD")
 # File symbol -> Yahoo symbol. VIX is an index (``^VIX``); its file is ``VIX_...csv``.
 MARKET_CONTEXT_TICKERS = {
+    **{s: s for s in MARKET_INDEX_FUNDS},
     "VIX": "^VIX",
     "HYG": "HYG",  # high-yield corporate bonds
     "IEF": "IEF",  # 7-10 year Treasuries (credit ratio HYG / IEF)
@@ -268,10 +271,7 @@ MARKET_NO_VOLUME = frozenset({"VIX"})
 
 # Live quotes for the market home (data.market_snapshot). Their own file, never data/raw/.
 MARKET_SNAPSHOT_PATH = os.path.join(PROJECT_ROOT, "data", "live", "market_snapshot.json")
-MARKET_SNAPSHOT_TICKERS = {
-    **{s: s for s in ("SPY", "QQQ", "SCHG", "SCHD")},
-    **MARKET_CONTEXT_TICKERS,
-}
+MARKET_SNAPSHOT_TICKERS = MARKET_CONTEXT_TICKERS
 MARKET_SNAPSHOT_PERIOD = "2d"
 MARKET_SNAPSHOT_INTERVAL = "5m"
 # The page warns past this; pre-market slots are 15 minutes apart.

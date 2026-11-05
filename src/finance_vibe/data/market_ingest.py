@@ -1,8 +1,8 @@
-"""Market-context download: VIX, credit and sector funds for the home page's market facts.
+"""Market-context download: index funds, VIX, credit and sector funds for the home page.
 
-These tickers are not part of the scanned universe. Files go to
-``data/raw/market/`` (``config.MARKET_CONTEXT_PROFILE``), never
-``data/raw/{daily,weekly}/``, so neither scanner sees them. They get the same
+Runs by itself at 17:05 ET (``scripts/run_market_close.sh``) and as the daily pipeline's
+last stage. Files go to ``data/raw/market/`` (``config.MARKET_CONTEXT_PROFILE``), never
+``data/raw/{daily,weekly}/``, so no scanner reads these copies. They get the same
 Yahoo download, OHLCV contract, in-progress-bar rule and bar-quality report
 (``data/logs/market/data_quality_<date>.csv``) as the daily ingest.
 
