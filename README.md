@@ -41,6 +41,7 @@ schedule (weekly Fridays 18:00 ET, daily 18:30 ET with a 22:30 retry), and
 5. `scanners.breakout` → `data/logs/{mode}/breakout_setups_<date>.csv`
 6. `data.market_ingest` (daily only, also by itself at 17:05 ET) → broad funds, VIX, HYG, IEF and the 11 sector funds for the market home page, in their
    own folder `data/raw/market/` (no scanner reads it), plus `data/logs/market/data_quality_<date>.csv`
+7. `data.universe_breadth` (daily only) → counts across the scanned tickers for the market home page, in `data/logs/market/universe_breadth.json`
 
 Separately from the pipeline, `data.market_snapshot` (cron, every few minutes in the session) saves live quotes
 to `data/live/market_snapshot.json` for the market home page. They never reach `data/raw/` or a scanner.
@@ -59,7 +60,7 @@ src/finance_vibe/
   indicators.py       EMA/SMA/RSI/ATR/MACD/BB/KC/OBV (pandas-ta 0.4.71b0 semantics)
   market.py           QQQ benchmark frame, relative strength, Cobra market gate
   pipeline.py         orchestrator (python -m finance_vibe.pipeline)
-  data/               tickers.py, ingest.py, daily_ingest.py, market_ingest.py, market_snapshot.py, raw.py, quality.py, ticker_manifest.csv
+  data/               tickers.py, ingest.py, daily_ingest.py, market_ingest.py, market_snapshot.py, universe_breadth.py, raw.py, quality.py, ticker_manifest.csv
   scanners/           coiled_cobra.py, breakout.py
   web/                app.py, playbook.py (Setups page sections, Market rows, Runs ticker history), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers

@@ -13,15 +13,16 @@ the last closed session, or has an error row in the newest market
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pandas as pd
 
 from finance_vibe import config
-from finance_vibe.data import raw
+from finance_vibe.data import daily_ingest, raw
 from finance_vibe.web import insights
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ RATIO_MA_BARS = 50
 SECTOR_MA_BARS = 50
 MONTH_BARS = 21
 YEAR_BARS = 252
+SCAN_GRACE = timedelta(hours=2)
 
 
 def closes(symbol: str) -> pd.DataFrame | None:
@@ -247,6 +249,11 @@ def breadth(
                 "close": close,
                 "live": live,
                 "day": None if close is None or previous is None else close / previous - 1.0,
+                "crossed": (
+                    None
+                    if df is None or close is None
+                    else insights.crossed_ma(df["Close"], close, live, SECTOR_MA_BARS)
+                ),
                 "ma": ma,
                 "pct": None if above_ma is None else close / ma - 1.0,  # type: ignore[operator]
                 "above": above_ma,
@@ -268,6 +275,47 @@ def breadth(
         "total": len(config.MARKET_SECTOR_FUNDS),
         "as_of": max(dates).isoformat() if dates else None,
     }
+
+
+def since_last_close(table: dict[str, Any], market_health_facts: dict[str, Any]) -> list[str]:
+    """Plain sentences for what crossed since the previous close: a home fund or sector
+    fund through its 50- or 200-day average, or VIX / VIX3M through 1.0000."""
+    groups: dict[tuple[str, int], list[str]] = {}
+    for row in table["rows"]:
+        for bars, side in row["crossed"].items():
+            if side:
+                groups.setdefault((side, bars), []).append(row["symbol"])
+    for tile in market_health_facts["breadth"]["ranked"]:
+        if tile["crossed"]:
+            groups.setdefault((tile["crossed"], SECTOR_MA_BARS), []).append(tile["symbol"])
+    lines = [
+        f"{', '.join(names)} crossed {side} the {bars}-day average"
+        for (side, bars), names in sorted(groups.items(), key=lambda g: (-g[0][1], g[0][0]))
+    ]
+    curve = market_health_facts["vol_curve"]
+    if curve and curve["previous"] is not None:
+        was, now = curve["previous"] > 1.0, curve["ratio"] > 1.0
+        if was != now:
+            lines.append(f"VIX / VIX3M crossed {'above' if now else 'below'} 1.0000")
+    return lines
+
+
+def scanned_breadth(now: datetime) -> dict[str, Any] | None:
+    """The cached counts across the scanned tickers, or None without a readable file.
+
+    ``stale`` is measured :data:`SCAN_GRACE` behind ``now``, so the page does not warn
+    between a session's bars becoming final and that evening's scan finishing.
+    """
+    try:
+        with open(config.UNIVERSE_BREADTH_PATH) as handle:
+            got = json.load(handle)
+        day = date.fromisoformat(got["date"])
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        logger.warning("Universe breadth unreadable: %s", exc)
+        return None
+    return got | {"stale": day < daily_ingest.last_complete_session(now - SCAN_GRACE)}
 
 
 def market_health(

@@ -42,6 +42,7 @@ python -m finance_vibe.pipeline --as-of 2025-11-07       # replay a past date
 | 3 | `scanners.coiled_cobra` | `coiled_cobra_setups_<date>.csv` |
 | 4 | `scanners.breakout` | `breakout_setups_<date>.csv` |
 | 5 | `data.market_ingest` (daily only) | raw CSVs in `data/raw/market/` and `data/logs/market/data_quality_<date>.csv` (skipped with `--reuse-raw`) |
+| 6 | `data.universe_breadth` (daily only) | `data/logs/market/universe_breadth.json` (skipped with `--reuse-raw`) |
 
 Each stage also runs on its own:
 
@@ -50,6 +51,7 @@ python -m finance_vibe.data.tickers
 python -m finance_vibe.data.ingest weekly
 python -m finance_vibe.data.daily_ingest                 # takes no mode
 python -m finance_vibe.data.market_ingest                # takes no mode; 23 tickers
+python -m finance_vibe.data.universe_breadth             # counts from the daily raw files
 python -m finance_vibe.data.market_snapshot --now        # live quotes for the home page; not a pipeline stage
 python -m finance_vibe.scanners.coiled_cobra weekly
 python -m finance_vibe.scanners.breakout weekly
@@ -85,6 +87,10 @@ python -m finance_vibe.scanners.breakout weekly
   the stage always exits 0, so it never fails the pipeline. Its quality report
   (`data/logs/market/data_quality_<date>.csv`) skips `zero_volume` for VIX, VIX3M,
   TNX and DXY (`MARKET_NO_VOLUME`; an index has no volume).
+- **`data.universe_breadth`** (daily, last stage) counts the scanned tickers above their
+  50- and 200-day averages and at 252-session highs and lows, for the newest session and the
+  one before, into `data/logs/market/universe_breadth.json`. It only reads raw files, a bad
+  file is skipped, and the stage always exits 0. Page loads read the JSON, not 277 files.
 - **Bar-quality report (`data.quality`).** After each ingest (weekly: `ingest.main`;
   daily: `daily_ingest.ingest_daily`, after today's bar is dropped) every raw CSV is
   checked and each issue is written to `data_quality_<date>.csv`
@@ -214,7 +220,7 @@ dashboard and the next scheduled run pick it up.
 
 | Route | Contents |
 | ----- | -------- |
-| `/` | Market home (closes from `data/raw/market/`, plus live quotes in the session): one table for SPY / QQQ / IWM / RSP (last, day, move size, % from averages and high, returns, RS vs SPY, growth vs dividend), Market health (VIX, VIX / VIX3M, 10-year yield, dollar, HYG/IEF credit ratio, sector breadth), then a card per ETF (weekly trend / MTF and close vs 50-day average, weekly and daily states, a daily chart with Support / Resistance, row freshness) |
+| `/` | Market home (closes from `data/raw/market/`, plus live quotes in the session): one table for SPY / QQQ / IWM / RSP (last, day, move size, % from averages and high, returns, RS vs SPY, growth vs dividend), Market health (VIX, VIX / VIX3M, 10-year yield, dollar, HYG/IEF credit ratio, sector breadth), breadth across the scanned tickers, then a levels table |
 | `/market` | Redirects (301) to `/` |
 | `/setups` | Setups (unproven), by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), since last run (new weekly CONFIRMED, stock list in / out, status-change counts), counts of signals that failed in-sample |
 | `/changes` | Market facts that changed since the previous daily run (SMA50 / SMA200 crossings, new heavy-volume support breaks, growth-vs-dividend label) |
@@ -279,8 +285,8 @@ live quotes.
 newest close, so the page returns to closes as soon as that day's close is saved. It
 moves the table's daily change, returns and RS, the VIX level and change, the HYG / IEF
 ratio (only with both quotes) and the sector tiles. Every average still uses closed bars.
-The growth-vs-dividend label, heavy-volume support breaks and the support and resistance
-cards stay on closes. A row with no quote says "⚠ no quote". From 08:00 to 16:15 ET on
+The growth-vs-dividend label, heavy-volume support breaks, the scanned-tickers tile and the
+levels stay on closes. A row with no quote says "⚠ no quote". From 08:00 to 16:15 ET on
 session days the page reloads itself every 5 minutes.
 
 A line above the table appears only when a fund closed below support on heavy volume,
@@ -300,7 +306,8 @@ naming the funds. Top to bottom:
 
    A note column shows "⚠ below support · heavy vol" (daily close below `Support` with
    RVOL20 ≥ `config.BREAKOUT_RVOL_CONFIRM`, 1.5; `insights.heavy_break`; RSP has no scan row,
-   so this never applies to it) and "⚠ stale" / "⚠ no data" / "⚠ no quote". Under the table,
+   so this never applies to it), "⚠ stale" / "⚠ no data" / "⚠ no quote", and any error row
+   for the fund in the newest market bar-quality report. Under the table,
    the growth-vs-dividend label (`insights.rotation`, `config.ROTATION_*`, SCHG and SCHD
    closes):
    - *Growth outperforming (last 63 days)*: the SCHG / SCHD close ratio is above its
@@ -332,16 +339,22 @@ naming the funds. Top to bottom:
    A tile shows "⚠ HYG stale" (or missing, or a bar-quality check) when a file is
    missing, older than the last closed session, or has an error row in the newest
    `data/logs/market/data_quality_<date>.csv`. The tiles themselves stay uncoloured.
-3. **Support and resistance**, a card per ETF (`playbook.position_bar`, macro in
-   `templates/_macros.html`): the daily close, and a bar from the daily scan's `Support`
-   (left end) to `Resistance` (right end) with a dot at the close. Every card has the
-   same layout: the bar, Support and Resistance under its ends, then one status line
-   (the price is in the card header): "between support and resistance", or, with a
-   hollow dot just outside that end of the bar, "below support by 1.20%" (red) or
-   "above resistance by …" (green).
-   SMA 20 / 50 / 200 underneath. A card
-   header shows the ETF's daily freshness flags (`insights.etf_freshness`: missing or
-   stale scan row, raw bar-quality issue).
+3. **Scanned tickers** (`data.universe_breadth`, `health.scanned_breadth`), a full-width tile
+   from closes only: how many of the scanned tickers are above their 50- and 200-day
+   averages, and new highs / new lows (a close at a 252-session extreme), each next to its
+   value at the previous close. The list is screener-picked and changes over time, so it is
+   not S&P breadth and the page only compares it with the previous session. It shows "⚠
+   scanned tickers stale" when the counts are older than the last session that closed
+   more than 2 hours ago, so it stays quiet until that evening's scan has run.
+4. **Levels** (`insights.levels_table`), one table for the same funds as the top table, from
+   closed bars in the market folder: Last (live quote or close), the newest closed session's
+   high and low, Resistance and Support (same rule as the breakout scan: highest high and
+   lowest low of the 20 bars before that session), and SMA 20 / 50 / 200. A level is green
+   when Last is above it and red when Last is below it.
+
+**Since last close.** A line under the badge lists what crossed since the previous close
+(`health.since_last_close`): a home fund or sector fund through its 50- or 200-day average,
+or VIX / VIX3M through 1.0000. It is hidden when nothing crossed.
 
 Explanations are `?` tooltips only. No charts, notes, scanner states or status names on
 this page. Other pages stay on daily closes.

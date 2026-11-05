@@ -119,10 +119,12 @@ def test_in_process_stage_lists_match_subprocess(monkeypatch):
 def test_market_context_download_runs_last_in_daily_only(monkeypatch):
     calls = _fake_stages(monkeypatch)
     pipeline.run_workflow(["--mode", "daily", "--in-process"])
-    assert calls[-1] == ("market_ingest", [])  # after both scanners
+    names = [c[0] for c in calls]
+    assert names[-2:] == ["market_ingest", "universe_breadth"]  # after both scanners
+    assert calls[-1][1] == []
     calls.clear()
     pipeline.run_workflow(["--mode", "weekly", "--in-process"])
-    assert "market_ingest" not in [c[0] for c in calls]
+    assert not {"market_ingest", "universe_breadth"} & {c[0] for c in calls}
 
 
 @pytest.mark.parametrize("kind", ["fail", "boom"])

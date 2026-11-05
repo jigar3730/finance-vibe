@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% block title %}Market - Finance Vibe{% endblock %}
-{% from "_macros.html" import position_bar %}
 {% macro pct(v) %}{% if v is not none %}{{ (v * 100)|signed(2) }}%{% else %}—{% endif %}{% endmacro %}
 {% macro sign_class(v) %}{{ 'pos' if v is not none and v > 0 else ('neg' if v is not none and v < 0 else '') }}{% endmacro %}
 {% macro flags(items) %}{% for f in items %}<span class="warn">⚠ {{ f|replace('_', ' ') }}</span> {% endfor %}{% endmacro %}
@@ -16,6 +15,8 @@
     {% set v, b = health.volatility, health.breadth %}
     {% set breaks = table.rows|selectattr('heavy_break')|map(attribute='symbol')|list %}
     {% if breaks %}<p class="fact-line">{{ breaks|join(', ') }} closed below support on heavy volume</p>{% endif %}
+
+    {% if since %}<p class="since-line"><span class="label">Since last close</span> {{ since|join(' · ') }}</p>{% endif %}
 
     {% set rot = table.rotation %}
     <section class="overview">
@@ -44,6 +45,7 @@
                     {% if r.heavy_break %}<span class="warn plain" title="Daily close below Support with RVOL20 {{ r.rvol|num }} (1.50 or more)">⚠ below support · heavy vol</span>{% endif %}
                     {% if r.stale %}<span class="warn plain" title="Newest daily close {{ r.as_of or 'missing' }}">⚠ {{ 'stale' if r.as_of else 'no data' }}</span>
                     {% elif live and not r.live %}<span class="warn plain" title="No live price in the latest quotes; this row shows the last close">⚠ no quote</span>{% endif %}
+                    {% for check in r.quality %}<span class="warn plain" title="Bar-quality error in the newest market report">⚠ {{ check|replace('_', ' ') }}</span> {% endfor %}
                 </td>
             </tr>
             {% endfor %}
@@ -119,26 +121,35 @@
                 </div>
                 {{ flags(health.breadth_flags) }}
             </div>
+            <div class="metric-tile tile-scanned">
+                <div class="tile-label">Scanned tickers{% if scanned %} at the {{ scanned.date }} close{% endif %} <span class="tip" title="The tickers the scanners cover, from closes only. New highs and lows are closes at a 252-session extreme. The list is screener-picked and changes over time, so this is not S&amp;P breadth; compare it with the previous close only.">?</span></div>
+                {% if scanned %}{% set now_c, was = scanned.current, scanned.previous %}
+                <div class="scanned-facts">
+                    <div><div class="tile-value">{{ now_c.above_50 }} of {{ now_c.counted_50 }}</div><div class="tile-sub">above 50-day average</div><div class="tile-sub">{{ was.above_50 }} of {{ was.counted_50 }} at previous close</div></div>
+                    <div><div class="tile-value">{{ now_c.above_200 }} of {{ now_c.counted_200 }}</div><div class="tile-sub">above 200-day average</div><div class="tile-sub">{{ was.above_200 }} of {{ was.counted_200 }} at previous close</div></div>
+                    <div><div class="tile-value">{{ now_c.new_highs }} / {{ now_c.new_lows }}</div><div class="tile-sub">new highs / new lows</div><div class="tile-sub">{{ was.new_highs }} / {{ was.new_lows }} at previous close</div></div>
+                </div>
+                {% if scanned.stale %}<span class="warn">⚠ scanned tickers stale</span>{% endif %}
+                {% else %}<div class="tile-value">—</div><div class="tile-sub">No data</div>{% endif %}
+            </div>
         </div>
     </section>
 
-    <section class="etf-cards">
-        <h2>Support and resistance{% if live %} (last close){% endif %} <span class="tip" title="From the daily breakout scan: the dot is the latest daily close between Support (left) and Resistance (right); outside the bar when the close is out of that range.">?</span></h2>
-        <div class="card-grid">
-        {% for m in rows %}{% set d = m.daily or {} %}{% set bar = m.bar %}
-            <article class="setup-card etf-card">
-                <header class="setup-head">
-                    <a class="ticker-link setup-symbol" href="https://finviz.com/quote.ashx?t={{ m.symbol }}" target="_blank" rel="noopener noreferrer">{{ m.symbol }}</a>
-                    <span class="card-close">{{ d.get('Close')|num }}</span>
-                    {{ flags(m.flags) }}
-                </header>
-                {{ position_bar(bar) }}
-                <p class="sma-line">
-                    {% for n in [20, 50, 200] %}<span class="label">SMA {{ n }}</span> {{ d.get('SMA' ~ n)|num }}{% if not loop.last %} · {% endif %}{% endfor %}
-                </p>
-            </article>
-        {% endfor %}
-        </div>
+    <section class="levels">
+        <h2>Levels <span class="tip" title="From closed bars. Prior high and low are the newest closed session's. Support and Resistance are the lowest low and highest high of the 20 sessions before it. Green: Last is above the level. Red: Last is below it.">?</span></h2>
+        <table class="table overview-table levels-table">
+            <tr><th>Ticker</th><th class="num">Last</th>{% for label in ['Prior high', 'Prior low', 'Resistance', 'Support', 'SMA 20', 'SMA 50', 'SMA 200'] %}<th class="num">{{ label }}</th>{% endfor %}<th></th></tr>
+            {% for r in levels %}
+            <tr>
+                <td class="ticker-cell"><a class="ticker-link" href="https://finviz.com/quote.ashx?t={{ r.symbol }}" target="_blank" rel="noopener noreferrer">{{ r.symbol }}</a></td>
+                <td class="num">{{ r.last|num }}</td>
+                {% for key in ['prior_high', 'prior_low', 'resistance', 'support', 'sma20', 'sma50', 'sma200'] %}{% set level = r.levels.get(key) %}
+                <td class="num {{ '' if level is none or r.last is none or r.last == level else ('pos' if r.last > level else 'neg') }}">{{ level|num }}</td>
+                {% endfor %}
+                <td></td>
+            </tr>
+            {% endfor %}
+        </table>
     </section>
 </div>
 {% endblock %}

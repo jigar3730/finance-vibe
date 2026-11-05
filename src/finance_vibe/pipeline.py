@@ -60,6 +60,9 @@ STAGES: tuple[Stage, ...] = (
     # Market-context funds for the home page, into their own silo. Last, so a Yahoo
     # hiccup here never blocks the scans.
     Stage("finance_vibe.data.market_ingest", modes=("daily",), pass_mode=False, ingest=True),
+    # Counts for the home page from the raw files just downloaded. Skipped on a replay,
+    # which must not overwrite today's counts with a past date's raw files.
+    Stage("finance_vibe.data.universe_breadth", modes=("daily",), pass_mode=False, ingest=True),
 )
 
 

@@ -15,14 +15,14 @@ dashboard. It produces *signals* for review, not trades.
 - `src/finance_vibe/` — `config`, `log`, `indicators`, `market` (QQQ benchmark,
   RS, Cobra market gate), `pipeline` (orchestrator)
 - `src/finance_vibe/data/` — `tickers`, `ingest` (Yahoo download, both modes),
-  `daily_ingest`, `market_ingest` (broad funds / VIX / HYG / IEF / sector funds → `data/raw/market/`, a folder no scanner reads), `market_snapshot` (live quotes for the market home → `data/live/`, not a pipeline stage), `raw` (the raw CSV loader), `quality` (bar-quality flags → `data_quality_<date>.csv`, never changes scores)
+  `daily_ingest`, `market_ingest` (broad funds / VIX / HYG / IEF / sector funds → `data/raw/market/`, a folder no scanner reads), `universe_breadth` (counts across the scanned tickers → `data/logs/market/`), `market_snapshot` (live quotes for the market home → `data/live/`, not a pipeline stage), `raw` (the raw CSV loader), `quality` (bar-quality flags → `data_quality_<date>.csv`, never changes scores)
 - `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout` (`scan_history()` gives
   every bar's breakout states/status/score, same rules as the scan)
 - `src/finance_vibe/research/` — research only (RESEARCH.md): `universe` (point-in-time
   membership, `config.RESEARCH_*`), `events` (§3 E1/E2/E3, `history_panel`), `labels` (§4–§5
   forward labels + random/SPY benchmarks, holdout sealed), `stats` + `insample` (§7 scorecard).
   Not used by the pipeline.
-- `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home facts and levels, `/runs/ticker/<SYM>` history), `health.py` (market home: VIX, credit, sector breadth facts), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market relative view, market strip), `templates/`, `static/`
+- `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home facts and levels, `/runs/ticker/<SYM>` history), `health.py` (market home: VIX, rates, dollar, credit, sector and scanned-ticker breadth, since last close), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market table and levels, market strip), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
 - `data/` — gitignored. `data/raw/{weekly|daily|market}/`, `data/logs/{weekly|daily|market}/`, `data/live/`, `data/active_tickers.csv`, `data/research/`
@@ -58,7 +58,8 @@ Stages are declared in `pipeline.STAGES` (dotted module names) and run as
 `main(argv)`), in order: wipe `data/raw/{mode}/` (unless `--reuse-raw`/`--as-of`)
 → `data.tickers` → `data.ingest` (weekly) or `data.daily_ingest` (daily; drops
 today's bar before 17:00 ET) → `scanners.coiled_cobra` → `scanners.breakout`
-→ `data.market_ingest` (daily only; market-context funds for the home page).
+→ `data.market_ingest` (daily only; market-context funds for the home page)
+→ `data.universe_breadth` (daily only; counts across the scanned tickers).
 Outputs land in `data/logs/{mode}/` with a `_<date>` suffix.
 
 If a doc disagrees with `pipeline.py` or `config.py`, the code wins.

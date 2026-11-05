@@ -17,6 +17,7 @@ import pandas as pd
 
 from finance_vibe import config, indicators, market
 from finance_vibe.data import daily_ingest, ingest, quality, raw
+from finance_vibe.scanners.breakout import STRUCTURE_BARS
 from finance_vibe.web import playbook
 
 logger = logging.getLogger(__name__)
@@ -280,6 +281,7 @@ RETURN_WINDOWS = {"1W": 5, "1M": 21, "3M": 63, "6M": 126}
 RS_LOOKBACK = 63
 HOME_WINDOWS = ("1W", "1M")
 HOME_SMAS = (20, 50, 200)
+CROSS_SMAS = (50, 200)
 MOVE_BARS = 21
 HIGH_BARS = 252
 GROWTH_OUTPERFORMING = f"Growth outperforming (last {config.ROTATION_LOOKBACK} days)"
@@ -303,19 +305,29 @@ def daily_closes(symbol: str) -> pd.DataFrame | None:
         return None
 
 
-def market_closes(symbol: str) -> pd.DataFrame | None:
-    """``Date`` / ``Close`` from the market silo, which the 18:30 raw wipe never touches.
+def market_bars(symbol: str) -> pd.DataFrame | None:
+    """Daily bars from the market silo, which the 18:30 raw wipe never touches.
 
     Falls back to the daily raw file when the silo has no usable file for ``symbol``.
     """
-    path = config.get_raw_path(symbol, config.MARKET_CONTEXT_PROFILE)
-    if not os.path.isfile(path):
-        return daily_closes(symbol)
-    try:
-        return raw.load_raw(path)[["Date", "Close"]]
-    except (OSError, ValueError) as exc:
-        logger.warning("Market-context raw for %s unreadable: %s", symbol, exc)
-        return daily_closes(symbol)
+    paths = (
+        config.get_raw_path(symbol, config.MARKET_CONTEXT_PROFILE),
+        config.get_raw_path(symbol, config.TIMEFRAME_PROFILES["daily"]),
+    )
+    for path in paths:
+        if not os.path.isfile(path):
+            continue
+        try:
+            return raw.load_raw(path)
+        except (OSError, ValueError) as exc:
+            logger.warning("Raw file %s unreadable: %s", path, exc)
+    return None
+
+
+def market_closes(symbol: str) -> pd.DataFrame | None:
+    """``Date`` / ``Close`` from :func:`market_bars`."""
+    bars = market_bars(symbol)
+    return None if bars is None else bars[["Date", "Close"]]
 
 
 def quote_is_new(df: pd.DataFrame | None, quote: dict[str, Any] | None) -> bool:
@@ -343,16 +355,37 @@ def last_ma(close: pd.Series, bars: int) -> float | None:
     return None if ma is None or pd.isna(ma.iloc[-1]) else float(ma.iloc[-1])
 
 
+def crossed_ma(close: pd.Series, last: float, live: bool, bars: int) -> str | None:
+    """ "above" / "below" when ``last`` moved to that side of the ``bars``-day average since
+    the previous close, else None. With ``live`` the newest close is that previous close."""
+    before = close if live else close.iloc[:-1]
+    if before.empty:
+        return None
+    was_ma, now_ma = last_ma(before, bars), last_ma(close, bars)
+    if was_ma is None or now_ma is None:
+        return None
+    was, now = float(before.iloc[-1]) > was_ma, last > now_ma
+    if was == now:
+        return None
+    return "above" if now else "below"
+
+
 def position_facts(closed: pd.DataFrame | None, quote: dict[str, Any] | None) -> dict[str, Any]:
     """Where a fund stands: price, move size, distance from its averages and its high.
 
     ``last`` is a new quote, else the newest close. ``move`` is the day's % move divided
     by the standard deviation of the :data:`MOVE_BARS` daily returns before it. ``vs``
     maps each of :data:`HOME_SMAS` to % from that average, and ``off_high`` is % from the
-    highest close in :data:`HIGH_BARS` sessions (0 at a new high). Averages and the high
-    use closed bars only.
+    highest close in :data:`HIGH_BARS` sessions (0 at a new high). ``crossed`` maps each of
+    :data:`CROSS_SMAS` to :func:`crossed_ma`. Averages and the high use closed bars only.
     """
-    empty = {"last": None, "move": None, "vs": dict.fromkeys(HOME_SMAS), "off_high": None}
+    empty = {
+        "last": None,
+        "move": None,
+        "vs": dict.fromkeys(HOME_SMAS),
+        "off_high": None,
+        "crossed": dict.fromkeys(CROSS_SMAS),
+    }
     if closed is None or closed.empty:
         return empty
     close = closed["Close"].reset_index(drop=True)
@@ -369,7 +402,40 @@ def position_facts(closed: pd.DataFrame | None, quote: dict[str, Any] | None) ->
         "move": move,
         "vs": {n: None if ma is None else last / ma - 1.0 for n, ma in averages.items()},
         "off_high": None if high is None else min(last / high - 1.0, 0.0),
+        "crossed": {n: crossed_ma(close, last, live, n) for n in CROSS_SMAS},
     }
+
+
+def levels_table(quotes: dict[str, dict[str, Any]] | None = None) -> list[dict[str, Any]]:
+    """Per ``config.MARKET_HOME_FUNDS`` fund: the live quote or close, then its levels.
+
+    ``prior_high`` / ``prior_low`` are the newest closed session's. ``support`` /
+    ``resistance`` follow the breakout scan: lowest low / highest high of the 20 bars
+    before that session. SMAs use closed bars.
+    """
+    quotes = quotes or {}
+    rows = []
+    for symbol in config.MARKET_HOME_FUNDS:
+        row: dict[str, Any] = {"symbol": symbol, "last": None, "levels": {}}
+        bars = market_bars(symbol)
+        if bars is not None and not bars.empty:
+            quote = quotes.get(symbol)
+            live = quote is not None and quote_is_new(bars, quote)
+            newest = bars.iloc[-1]
+            window = bars.iloc[-1 - STRUCTURE_BARS : -1]
+            full = len(window) == STRUCTURE_BARS
+            row["last"] = (
+                float(quote["last"]) if quote is not None and live else float(newest["Close"])
+            )
+            row["levels"] = {
+                "prior_high": float(newest["High"]),
+                "prior_low": float(newest["Low"]),
+                "support": float(window["Low"].min()) if full else None,
+                "resistance": float(window["High"].max()) if full else None,
+                **{f"sma{n}": last_ma(bars["Close"], n) for n in HOME_SMAS},
+            }
+        rows.append(row)
+    return rows
 
 
 def _ret(close: pd.Series, bars: int) -> float | None:

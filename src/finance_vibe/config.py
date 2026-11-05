@@ -281,6 +281,9 @@ MARKET_SNAPSHOT_INTERVAL = "5m"
 # The page warns past this; pre-market slots are 15 minutes apart.
 MARKET_SNAPSHOT_STALE_MINUTES = 20
 
+# Breadth across the scanned tickers (data.universe_breadth), rewritten by each daily run.
+UNIVERSE_BREADTH_PATH = os.path.join(MARKET_CONTEXT_PROFILE["logs_dir"], "universe_breadth.json")
+
 # Market tab growth-vs-dividend rotation (web.insights.rotation): SCHG / SCHD close
 # ratio vs its SMA, plus the spread of their returns over the lookback. Unvalidated.
 ROTATION_GROWTH, ROTATION_DIVIDEND = "SCHG", "SCHD"

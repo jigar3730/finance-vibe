@@ -440,22 +440,20 @@ def _uses_quotes(table: dict[str, Any], market_health: dict[str, Any]) -> bool:
 @app.route("/")
 def market() -> str:
     """Home: one table for ``config.MARKET_HOME_FUNDS``, market health tiles, sector tiles,
-    then a card per ETF with a support-to-resistance position bar. Live quotes overlay
-    the table and tiles when the snapshot is newer than the closes; cards stay on closes."""
-    rows = _market(_latest_runs())
+    breadth across the scanned tickers, then a levels table. Live quotes overlay the
+    numbers when the snapshot is newer than the closes; levels and averages use closes."""
     expected = insights.expected_bars()
-    for m in rows:
-        m["flags"] = insights.etf_freshness(
-            m["symbol"], {"daily": m["daily"], "weekly": m["weekly"]}, expected
-        )["daily"]["flags"]
     daily_bo = playbook.load_latest(LOG_DIRS["daily"])[2]
     snapshot = market_snapshot.load_snapshot()
     quotes = snapshot["quotes"] if snapshot else {}
     table = insights.market_table(daily_bo, quotes)
     market_health = health.market_health(expected["daily"], quotes)
+    quality = insights.quality_errors(config.MARKET_CONTEXT_PROFILE["logs_dir"])
     newest = max((r["as_of"] for r in table["rows"] if r["as_of"]), default=None)
     for r in table["rows"]:
         r["stale"] = r["as_of"] is None or (newest is not None and r["as_of"] < newest)
+        checks = quality.get(r["symbol"], [])
+        r["quality"] = [c for c in checks if not (r["stale"] and c == "stale")]
     now = market_snapshot.now_et()
     live = None
     if snapshot and _uses_quotes(table, market_health):
@@ -468,9 +466,11 @@ def market() -> str:
     )
     return render_template(
         "market.html",
-        rows=rows,
         table=table,
         health=market_health,
+        levels=insights.levels_table(quotes),
+        scanned=health.scanned_breadth(now),
+        since=health.since_last_close(table, market_health),
         as_of=as_of,
         live=live,
         auto_refresh=market_snapshot.in_window(now),

@@ -413,7 +413,9 @@ td.neg, .neg { color: var(--finviz-red); }
     align-items: stretch;
     gap: 14px;
 }
-.tile-breadth { grid-column: 1 / -1; }
+.tile-breadth, .tile-scanned { grid-column: 1 / -1; }
+.scanned-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.since-line { margin: 0 0 16px; color: var(--finviz-text-strong); }
 @media (max-width: 1200px) { .tile-row { grid-template-columns: 1fr 1fr; } }
 .metric-tile {
     background: var(--finviz-bg-card);

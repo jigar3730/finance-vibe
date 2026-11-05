@@ -641,7 +641,8 @@ def test_home_live_quotes_overlay_table_and_tiles(
     assert "⚠ no quote" in rsp and "⚠ no quote" not in table.split('ticker-cell">RSP')[0]
     assert "50.00" in body.split("tile-volatility")[1]  # VIX moved to the quote
     assert "last 50.00" in body  # sector hover names the live price
-    assert "Support and resistance (last close)" in body
+    levels = body.split('class="levels"')[1].split("</section>")[0]
+    assert '<td class="num">50.00</td>' in levels  # Last, against levels from closes
 
 
 def test_home_table_survives_the_daily_raw_wipe(client, tmp_path, monkeypatch, market_context_silo):
@@ -674,7 +675,7 @@ def test_home_rolls_over_once_the_close_is_saved(
     head = body.split('class="page-head"')[1].split("</div>")[0]
     assert "as of Fri 2026-10-30" in head and " ET" not in head
     assert 'http-equiv="refresh"' not in body
-    assert "⚠ no quote" not in body and "(last close)" not in body
+    assert "⚠ no quote" not in body
 
 
 def test_home_text_has_no_verdict_or_status_words(
@@ -708,7 +709,7 @@ def test_home_one_table_with_returns_and_rs(client, tmp_path, monkeypatch, marke
         "RS vs SPY",
         "",
     ]
-    assert body.count("<table") == 1  # Today and the relative view are merged
+    assert body.count("<table") == 2  # the merged market table, then the levels table
     for sym in ("SPY", "QQQ", "IWM", "RSP"):
         assert f'<td class="ticker-cell">{sym}</td>' in table
     assert "SCHG<" not in table and "SCHD<" not in table  # they feed the label under it
@@ -781,54 +782,168 @@ def test_home_health_without_data(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
     body = client.get("/").get_data(as_text=True)
     sec = body.split('class="health"')[1].split("</section>")[0]
-    assert sec.count("No data") == 6 and "⚠ VIX missing" in sec and "⚠ XLK missing" in sec
+    assert sec.count("No data") == 7 and "⚠ VIX missing" in sec and "⚠ XLK missing" in sec
     assert "⚠ VIX3M missing" in sec and "⚠ TNX missing" in sec and "⚠ DXY missing" in sec
     assert sec.count('class="sector-tile nodata"') == 11
 
 
-def test_home_cards_have_position_bar_and_smas(client, tmp_path, monkeypatch, market_context_silo):
-    body = _home(client, tmp_path, monkeypatch, market_context_silo)
-    spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
-    # Fixture: Support 758.79, Resistance 781.62, Close 760.0 -> 5.3% along the bar.
-    assert 'style="left: 5.3%"' in spy
-    labels = spy.split('class="pos-labels"')[1].split("</div>")[0]
-    assert labels.index("Support</span> 758.79") < labels.index("Resistance</span> 781.62")
-    status = spy.split('<div class="pos-status">')[1].split("</div>")[0]
-    assert status.strip() == "between support and resistance"  # price is in the header
-    assert '<span class="card-close">760.00</span>' in spy
-    assert (
-        "SMA 20</span> 770.62" in spy
-        and "SMA 50</span> 767.26" in spy
-        and "SMA 200</span> —" in spy
+def test_position_bar_macro_outside_the_range():
+    macro = app.jinja_env.get_template("_macros.html").module.position_bar
+    below = macro(
+        app_module.playbook.position_bar({"Close": 750.0, "Support": 758.79, "Resistance": 781.62})
     )
-    assert "⚠ stale" in spy.split("</header>")[0]  # daily row is a session behind
-    assert "states-table" not in body and "weekly trend" not in body
-    assert "No support / resistance" in body.split("quote.ashx?t=SCHG")[1].split("</article>")[0]
-
-
-def test_home_card_close_outside_the_range(client, tmp_path, monkeypatch, market_context_silo):
-    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
-    daily = tmp_path / "d" / "breakout_setups_2026-10-20.csv"
-    df = pd.read_csv(daily)
-    df.loc[df["Symbol"] == "SPY", "Close"] = 750.0  # below support 758.79
-    df.loc[df["Symbol"] == "QQQ", "Close"] = 800.0  # above resistance 781.62
-    df.to_csv(daily, index=False)
-    body = client.get("/").get_data(as_text=True)
-    spy = body.split("quote.ashx?t=SPY")[1].split("</article>")[0]
-    qqq = body.split("quote.ashx?t=QQQ")[1].split("</article>")[0]
-    assert 'class="pos-dot pos-dot-out" style="left: -14px"' in spy
-    status = spy.split('<div class="pos-status neg">')[1].split("</div>")[0]
-    assert status.strip() == "below support by 1.16%"
-    assert 'style="left: calc(100% + 14px)"' in qqq
-    assert '<div class="pos-status pos">' in qqq and "above resistance by 2.35%" in qqq
+    assert 'class="pos-dot pos-dot-out" style="left: -14px"' in below
+    assert "below support by 1.16%" in below and '<div class="pos-status neg">' in below
+    above = macro(
+        app_module.playbook.position_bar({"Close": 800.0, "Support": 758.79, "Resistance": 781.62})
+    )
+    assert 'style="left: calc(100% + 14px)"' in above
+    assert '<div class="pos-status pos">' in above and "above resistance by 2.35%" in above
 
 
 def test_home_without_runs(client, tmp_path, monkeypatch):
     monkeypatch.setattr(
         app_module, "LOG_DIRS", {"weekly": str(tmp_path / "x"), "daily": str(tmp_path / "y")}
     )
+    response = client.get("/")
+    assert response.status_code == 200
+    assert 'class="levels"' in response.get_data(as_text=True)
+
+
+def _bars_file(profile, symbol, n=260, last="2026-10-30"):
+    """Rising bars with High = Close + 1 and Low = Close - 1."""
+    os.makedirs(profile["raw_dir"], exist_ok=True)
+    close = [100.0 + i for i in range(n)]
+    frame = pd.DataFrame(
+        {
+            "Date": pd.bdate_range(end=last, periods=n).strftime("%Y-%m-%d"),
+            "Open": close,
+            "High": [c + 1 for c in close],
+            "Low": [c - 1 for c in close],
+            "Close": close,
+            "Volume": 1,
+        }
+    )
+    frame.to_csv(app_module.config.get_raw_path(symbol, profile), index=False)
+
+
+def test_home_levels_table_and_no_cards(client, tmp_path, monkeypatch, market_context_silo):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    for sym in ("SPY", "QQQ", "IWM", "RSP"):
+        _bars_file(market_context_silo, sym)
     body = client.get("/").get_data(as_text=True)
-    assert body.count("No support / resistance in the latest daily scan.") == 4
+    assert "etf-card" not in body and "pos-bar" not in body and "<article" not in body
+    levels = body.split('class="levels"')[1].split("</section>")[0]
+    spy = levels.split("t=SPY")[1].split("</tr>")[0]
+    cells = re.findall(r'<td class="num ?(\w*)">([^<]*)</td>', spy)
+    # Newest close 359: its bar is 360 / 358. The 20 bars before it close 339..358.
+    assert cells == [
+        ("", "359.00"),  # Last
+        ("neg", "360.00"),  # prior high: Last is below it
+        ("pos", "358.00"),  # prior low
+        ("", "359.00"),  # resistance, equal to Last
+        ("pos", "338.00"),  # support
+        ("pos", "349.50"),  # SMA 20
+        ("pos", "334.50"),  # SMA 50
+        ("pos", "259.50"),  # SMA 200
+    ]
+    assert "RSP" in levels  # covered even though the scanner does not scan it
+
+
+def test_home_table_shows_bar_quality_errors(client, tmp_path, monkeypatch, market_context_silo):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _bars_file(market_context_silo, "SPY")
+    os.makedirs(market_context_silo["logs_dir"], exist_ok=True)
+    report = os.path.join(market_context_silo["logs_dir"], "data_quality_2026-10-30.csv")
+    pd.DataFrame(
+        [
+            {
+                "Symbol": "SPY",
+                "Check": "ohlc_incoherent",
+                "Severity": "error",
+                "Date": "2026-10-30",
+                "Detail": "x",
+            }
+        ]
+    ).to_csv(report, index=False)
+    table = client.get("/").get_data(as_text=True).split('class="table overview-table"')[1]
+    assert "⚠ ohlc incoherent" in table.split('ticker-cell">SPY')[1].split("</tr>")[0]
+
+
+def test_home_since_last_close_line(client, tmp_path, monkeypatch, market_context_silo):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    for sym in ("SPY", "QQQ"):
+        _bars_file(market_context_silo, sym)
+    _snapshot(("SPY",), last=300.0)  # below its 50-day 334.50, above its 200-day 259.50
+    _now(monkeypatch, "2026-11-02T10:30:00-05:00")
+    line = client.get("/").get_data(as_text=True).split('class="since-line"')[1].split("</p>")[0]
+    assert "Since last close" in line and "SPY crossed below the 50-day average" in line
+    assert "QQQ" not in line and "200-day" not in line
+
+
+def test_home_has_no_since_line_without_a_crossing(
+    client, tmp_path, monkeypatch, market_context_silo
+):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _bars_file(market_context_silo, "SPY")
+    assert "since-line" not in client.get("/").get_data(as_text=True)
+
+
+def _breadth_file(date_text="2026-10-30"):
+    counts = {
+        "above_50": 124,
+        "counted_50": 277,
+        "above_200": 134,
+        "counted_200": 270,
+        "new_highs": 19,
+        "new_lows": 13,
+    }
+    payload = {
+        "date": date_text,
+        "previous_date": "2026-10-29",
+        "tickers": 277,
+        "current": counts,
+        "previous": counts | {"above_50": 106, "new_highs": 1, "new_lows": 8},
+    }
+    path = app_module.config.UNIVERSE_BREADTH_PATH
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as handle:
+        json.dump(payload, handle)
+
+
+def test_home_scanned_tickers_tile(client, tmp_path, monkeypatch, market_context_silo):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _breadth_file()
+    _now(monkeypatch, "2026-10-30T20:00:00-04:00")
+    tile = client.get("/").get_data(as_text=True).split('tile-scanned"')[1].split("</section>")[0]
+    assert "at the 2026-10-30 close" in tile and "not S&amp;P breadth" in tile
+    assert "124 of 277" in tile and "106 of 277 at previous close" in tile
+    assert "134 of 270" in tile and "19 / 13" in tile and "1 / 8 at previous close" in tile
+    assert "stale" not in tile
+
+
+@pytest.mark.parametrize(
+    ("now", "stale"),
+    [
+        ("2026-11-02T10:00:00-05:00", False),  # Monday session: Friday is the last close
+        ("2026-11-02T18:45:00-05:00", False),  # Monday's scan may still be running
+        ("2026-11-02T19:30:00-05:00", True),  # it should have finished
+    ],
+)
+def test_home_scanned_tickers_stale_after_the_scan_grace(
+    client, tmp_path, monkeypatch, market_context_silo, now, stale
+):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    _breadth_file()
+    _now(monkeypatch, now)
+    tile = client.get("/").get_data(as_text=True).split('tile-scanned"')[1].split("</section>")[0]
+    assert ("⚠ scanned tickers stale" in tile) is stale
+
+
+def test_home_scanned_tickers_without_a_file(client, tmp_path, monkeypatch, market_context_silo):
+    _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
+    tile = client.get("/").get_data(as_text=True).split('tile-scanned"')[1].split("</section>")[0]
+    assert "No data" in tile
 
 
 def test_old_market_link_redirects_home(client):
