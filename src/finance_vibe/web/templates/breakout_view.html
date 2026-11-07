@@ -6,7 +6,7 @@
         <h1>🎯 Breakout Scan <span class="tip" title="Descriptive states and scores; none is validated as an entry signal (RESEARCH.md).">?</span></h1>
         <span class="asof-badge">{{ mode }} run {{ date }}</span>
     </div>
-    <div class="meta"><span class="label">Source file</span> <code>{{ file_name }}</code></div>
+    <div class="meta"><span class="label">Source file</span> <code>{{ file_name }}</code> · <a href="{{ url_for('download_scan', mode=mode, scan='breakout', date=date) }}" download title="Every row and column the scanner wrote for this run. Run closes only, no live prices.">Download CSV</a></div>
 
     <div class="kpi-row">
         <div class="kpi-card">

@@ -12,7 +12,17 @@ from typing import Any
 
 import pandas as pd
 import yfinance as yf
-from flask import Flask, Response, abort, jsonify, redirect, render_template, request, url_for
+from flask import (
+    Flask,
+    Response,
+    abort,
+    jsonify,
+    redirect,
+    render_template,
+    request,
+    send_file,
+    url_for,
+)
 from werkzeug.wrappers import Response as RedirectResponse
 
 from finance_vibe import config
@@ -622,6 +632,19 @@ def ticker_runs(symbol: str) -> str | RedirectResponse:
     return render_template(
         "ticker_runs.html", symbol=symbol, history=history, as_of=_page_as_of(newest)
     )
+
+
+# Scanner name in a download URL -> CSV prefix in the mode's log silo.
+DOWNLOAD_SCANS = {"cobra": COBRA_PREFIX, "breakout": BREAKOUT_PREFIX}
+
+
+@app.route("/download/<mode>/<scan>/<date>.csv")
+def download_scan(mode: str, scan: str, date: str) -> Response:
+    """The scanner's CSV for one run, byte for byte as written (closed bars only)."""
+    if scan not in DOWNLOAD_SCANS:
+        abort(404)
+    path = _resolve_csv(mode, DOWNLOAD_SCANS[scan], date)
+    return send_file(path, mimetype="text/csv", as_attachment=True)
 
 
 @app.route("/cobra/<mode>/<date>")

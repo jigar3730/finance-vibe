@@ -6,7 +6,7 @@
         <h1>🐍 Coiled Cobra Setups <span class="tip" title="Never backtested: Score and Grade are untested. Highest Score first.">?</span></h1>
         <span class="asof-badge">{{ mode }} run {{ date }}</span>
     </div>
-    <div class="meta"><span class="label">Source file</span> <code>{{ file_name }}</code> · <span class="label">Showing</span> <strong>{{ row_count }}</strong> setup(s)</div>
+    <div class="meta"><span class="label">Source file</span> <code>{{ file_name }}</code> · <a href="{{ url_for('download_scan', mode=mode, scan='cobra', date=date) }}" download title="Every row and column the scanner wrote for this run. Run closes only, no live prices.">Download CSV</a> · <span class="label">Showing</span> <strong>{{ row_count }}</strong> setup(s)</div>
 
     <div class="table-container">
         {{ table_html|safe }}

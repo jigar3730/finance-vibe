@@ -1246,3 +1246,31 @@ def test_changes_page_without_runs(client, tmp_path, monkeypatch):
     assert "Need two daily runs to compare." in body and "asof-badge" not in body
     setups = client.get("/setups").get_data(as_text=True)
     assert "Need two weekly runs to compare." in setups
+
+
+def test_download_scan_serves_the_file_as_written(client, breakout_logs, tmp_path):
+    src = tmp_path / "daily" / "breakout_setups_2026-09-04.csv"
+    resp = client.get("/download/daily/breakout/2026-09-04.csv")
+    assert resp.status_code == 200
+    assert resp.mimetype == "text/csv"
+    assert "attachment" in resp.headers["Content-Disposition"]
+    assert "breakout_setups_2026-09-04.csv" in resp.headers["Content-Disposition"]
+    assert resp.get_data() == src.read_bytes()  # every row and column, no live prices
+    resp.close()
+
+
+def test_download_scan_rejects_unknown_scan_mode_or_date(client, breakout_logs):
+    assert client.get("/download/daily/bogus/2026-09-04.csv").status_code == 404
+    assert client.get("/download/bogus/breakout/2026-09-04.csv").status_code == 404
+    assert client.get("/download/daily/breakout/1999-01-01.csv").status_code == 404
+    assert client.get("/download/daily/breakout/..%2F..%2Fx.csv").status_code in (403, 404)
+
+
+def test_run_pages_link_their_download(client, breakout_logs, tmp_path):
+    pd.DataFrame([{"Symbol": "AAA", "Score": 90, "Close": 1.0}]).to_csv(
+        tmp_path / "daily" / "coiled_cobra_setups_2026-09-04.csv", index=False
+    )
+    body = client.get("/breakout/daily/2026-09-04").get_data(as_text=True)
+    assert 'href="/download/daily/breakout/2026-09-04.csv" download' in body
+    body = client.get("/cobra/daily/2026-09-04").get_data(as_text=True)
+    assert 'href="/download/daily/cobra/2026-09-04.csv" download' in body

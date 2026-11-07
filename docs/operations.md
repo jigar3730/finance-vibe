@@ -235,6 +235,7 @@ dashboard and the next scheduled run pick it up.
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
 | `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, Live Price and vs Run Close (% from the run's close; green above / red below; no row highlight) |
 | `/breakout/<mode>/<date>` | Breakout scan: KPIs, status chips, highlights (or `?show=all` / `?status=`), failed breakouts collapsed |
+| `/download/<mode>/<cobra\|breakout>/<date>.csv` | That run's scanner CSV as written (every row and column, closes only); linked as "Download CSV" on both run pages |
 
 Live prices (scanner run pages only) come from `yfinance` `fast_info`, fetched 16 at a
 time and cached for 60 seconds. Both run grids show Live Price (2 decimals, "⚠ no quote"
