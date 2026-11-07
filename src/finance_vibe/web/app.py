@@ -233,14 +233,35 @@ def _symbols(*frames: pd.DataFrame) -> list[str]:
     return list(dict.fromkeys(seen))
 
 
+def _newest_bar(df: pd.DataFrame) -> str | None:
+    """Newest ``AsOf Date`` in a whole scan file (ISO strings), or ``None``."""
+    if "AsOf Date" not in df.columns:
+        return None
+    dates = df["AsOf Date"].dropna().astype(str)
+    return str(dates.max()) if len(dates) else None
+
+
 def _table_html(
     df: pd.DataFrame,
     live_price_map: dict[str, float | str],
     *,
     surge_pct: float | None = None,
+    newest_bar: str | None = None,
 ) -> str:
-    """Render rows with a Live Price column right after Close and Finviz symbol links."""
+    """Render rows with a Live Price column right after Close and Finviz symbol links.
+
+    ``AsOf Date`` is not shown as a column (the page badge gives the run date). A row
+    whose bar is older than ``newest_bar`` (the newest bar in the whole run) gets a
+    "⚠ last bar <date>" note next to its symbol instead.
+    """
     df = df.copy()
+    lagging: list[str | None] = [None] * len(df)
+    if "AsOf Date" in df.columns:
+        if newest_bar is not None:
+            lagging = [
+                str(d) if pd.notna(d) and str(d) < newest_bar else None for d in df["AsOf Date"]
+            ]
+        df = df.drop(columns="AsOf Date")
     if "Symbol" in df.columns and "Close" in df.columns:
         closes = pd.to_numeric(df["Close"], errors="coerce")
         df["Live Price"] = [
@@ -253,14 +274,21 @@ def _table_html(
         cols.insert(cols.index("Close") + 1, cols.pop(cols.index("Live Price")))
         df = df[cols]
     if "Symbol" in df.columns:
-        df["Symbol"] = df["Symbol"].apply(
-            lambda x: (
+        df["Symbol"] = [
+            (
                 f'<a href="https://finviz.com/quote.ashx?t={str(x).strip().upper()}" '
                 f'target="_blank" rel="noopener noreferrer" class="ticker-link">{x}</a>'
+                + (
+                    f' <span class="warn plain" title="Newest bar in this run: {newest_bar}">'
+                    f"⚠ last bar {lag}</span>"
+                    if lag
+                    else ""
+                )
                 if pd.notna(x)
                 else ""
             )
-        )
+            for x, lag in zip(df["Symbol"], lagging, strict=True)
+        ]
     return df.to_html(classes="table", index=False, border=0, escape=False)
 
 
@@ -594,7 +622,7 @@ def cobra_view(mode: str, date: str) -> str | tuple[str, int]:
             date=date,
             file_name=os.path.basename(path),
             row_count=int(len(table_df)),
-            table_html=_table_html(table_df, live),
+            table_html=_table_html(table_df, live, newest_bar=_newest_bar(df)),
         )
     except Exception as e:  # route boundary: show the error page, keep the traceback in the log
         logger.exception("Failed to render %s", request.path)
@@ -646,6 +674,7 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
 
         table_df, failed_df = _prepare(rows), _prepare(failed_rows)
         live = _fetch_live_prices(_symbols(table_df, failed_df)) if "Symbol" in view_cols else {}
+        newest_bar = _newest_bar(df)
 
         return render_template(
             "breakout_view.html",
@@ -657,9 +686,11 @@ def breakout_view(mode: str, date: str) -> str | tuple[str, int]:
             active_status=active_status,
             show_all=show_all,
             row_count=int(len(table_df)),
-            table_html=_table_html(table_df, live),
+            table_html=_table_html(table_df, live, newest_bar=newest_bar),
             failed_count=int(len(failed_df)),
-            failed_table_html=_table_html(failed_df, live) if len(failed_df) else "",
+            failed_table_html=(
+                _table_html(failed_df, live, newest_bar=newest_bar) if len(failed_df) else ""
+            ),
             score_floor=BREAKOUT_SCORE_FLOOR,
         )
     except Exception as e:  # route boundary: show the error page, keep the traceback in the log

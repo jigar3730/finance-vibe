@@ -238,7 +238,9 @@ dashboard and the next scheduled run pick it up.
 
 Live prices (scanner run pages only) come from `yfinance` `fast_info`, fetched 16 at a
 time and cached for 60 seconds. Both run pages have one badge (mode and run date), and
-their caveats are `?` tooltips on the title.
+their caveats are `?` tooltips on the title. The grids have no per-row date column: a row
+whose bar is older than the newest bar in that run gets "⚠ last bar <date>" next to its
+symbol (weekly bars are dated by week start, so the run date itself is not compared).
 
 ### Setups (unproven) (`/setups`, `web/playbook.py`)
 

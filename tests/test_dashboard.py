@@ -231,6 +231,34 @@ def test_cobra_view_orders_by_score_with_live_price_and_no_row_highlight(
     assert "weekly run 2026-09-04" in head and "Never backtested" in head
 
 
+def test_run_grids_drop_asof_column_and_flag_only_lagging_rows(client, tmp_path, monkeypatch):
+    modes = {"weekly": str(tmp_path / "weekly"), "daily": str(tmp_path / "daily")}
+    monkeypatch.setattr(app_module, "LOG_DIRS", modes)
+    (tmp_path / "weekly").mkdir()
+    # Weekly bars are dated by week start (Monday); the run file by its Friday.
+    rows = [
+        {"Symbol": "AAA", "AsOf Date": "2026-11-02", "Score": 90, "Close": 100.0},
+        {"Symbol": "BBB", "AsOf Date": "2026-10-26", "Score": 80, "Close": 50.0},
+    ]
+    pd.DataFrame(rows).to_csv(
+        tmp_path / "weekly" / "coiled_cobra_setups_2026-11-06.csv", index=False
+    )
+    statuses = [
+        {"Status": "PRE_BREAKOUT", "Breakout Readiness": 80},
+        {"Status": "FAILED_BREAKOUT", "Breakout Readiness": 40},
+    ]
+    pd.DataFrame([r | st for r, st in zip(rows, statuses, strict=True)]).to_csv(
+        tmp_path / "weekly" / "breakout_setups_2026-11-06.csv", index=False
+    )
+    for url in ("/cobra/weekly/2026-11-06", "/breakout/weekly/2026-11-06"):
+        body = client.get(url).get_data(as_text=True)
+        assert "AsOf Date" not in body
+        assert body.count("⚠ last bar") == 1  # BBB only; the run-date mismatch is not flagged
+        assert "⚠ last bar 2026-10-26" in body
+        bbb = body.split(">BBB</a>")[1].split("</td>")[0]
+        assert "⚠ last bar 2026-10-26" in bbb and "Newest bar in this run: 2026-11-02" in bbb
+
+
 def test_live_price_cell_surge_threshold_is_strictly_over_five_percent():
     assert "live-surge" not in app_module._live_price_cell(105.0, 100.0, 5.0)
     assert "live-surge" in app_module._live_price_cell(105.01, 100.0, 5.0)
