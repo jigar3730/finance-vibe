@@ -187,11 +187,14 @@ def test_breakout_view_live_price_next_to_close(client, breakout_logs):
     header = body.split("<thead>")[1].split("</thead>")[0]
     ths = [h.split("<")[0].strip() for h in header.split("<th>")[1:]]
     assert ths.index("Live Price") == ths.index("Close") + 1
-    # close > live -> red; close < live -> green; equal / N/A -> neutral.
-    assert 'live-price-cell live-below-close">$95.00' in body
-    assert 'live-price-cell live-above-close">$55.50' in body
-    assert 'live-price-cell live-flat">$20.00' in body
-    assert 'live-price-cell live-flat">N/A' in body
+    assert ths.index("vs Run Close") == ths.index("Close") + 2
+    assert "this is the move since that run" in header  # ? tooltip on the header
+    # close > live -> red; close < live -> green; equal -> neutral; missing -> ⚠ no quote.
+    assert 'live-price-cell live-below-close">95.00' in body
+    assert 'live-price-cell live-above-close">55.50' in body
+    assert 'live-price-cell live-flat">20.00' in body
+    assert '<span class="warn plain">⚠ no quote</span>' in body
+    assert "$" not in body.split("<tbody>")[1]
 
 
 def test_cobra_view_orders_by_score_with_live_price_and_no_row_highlight(
@@ -223,10 +226,12 @@ def test_cobra_view_orders_by_score_with_live_price_and_no_row_highlight(
     assert [table.index(s) for s in ("AAA", "BBB", "CCC", "DDD")] == sorted(
         table.index(s) for s in ("AAA", "BBB", "CCC", "DDD")
     )  # Score descending
-    assert 'live-price-cell live-below-close">$95.00' in body
-    assert 'live-price-cell live-above-close">$55.50' in body
-    assert 'live-price-cell live-flat">$20.00' in body
+    assert ths.index("vs Run Close") == ths.index("Close") + 2
+    assert 'live-price-cell live-below-close">95.00' in body
+    assert 'live-price-cell live-above-close">55.50' in body
+    assert 'live-price-cell live-flat">20.00' in body
     assert "live-surge" not in body
+    assert ">+11.00%<" in body and ">-5.00%<" in body  # BBB, AAA
     head = body.split('class="page-head"')[1].split("</div>")[0]
     assert "weekly run 2026-09-04" in head and "Never backtested" in head
 
@@ -259,10 +264,14 @@ def test_run_grids_drop_asof_column_and_flag_only_lagging_rows(client, tmp_path,
         assert "⚠ last bar 2026-10-26" in bbb and "Newest bar in this run: 2026-11-02" in bbb
 
 
-def test_live_price_cell_surge_threshold_is_strictly_over_five_percent():
-    assert "live-surge" not in app_module._live_price_cell(105.0, 100.0, 5.0)
-    assert "live-surge" in app_module._live_price_cell(105.01, 100.0, 5.0)
-    assert "live-surge" not in app_module._live_price_cell(120.0, 100.0)
+def test_vs_close_cell_is_signed_percent_from_run_close():
+    cell = app_module._vs_close_cell
+    assert cell(12.0, 10.0) == '<span class="live-price-cell live-above-close">+20.00%</span>'
+    assert cell(95.0, 100.0) == '<span class="live-price-cell live-below-close">-5.00%</span>'
+    assert cell(20.0, 20.0) == '<span class="live-price-cell live-flat">+0.00%</span>'
+    for live, close in [("N/A", 10.0), (None, 10.0), (float("nan"), 10.0), (12.0, float("nan"))]:
+        assert cell(live, close) == ""
+    assert cell(12.0, 0.0) == ""
 
 
 def _write_rows(folder, date_str, rows):

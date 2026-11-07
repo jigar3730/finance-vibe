@@ -90,8 +90,6 @@ BREAKOUT_STATUS_ORDER = [
 # Live quotes: parallel fast_info lookups, cached briefly per symbol.
 LIVE_PRICE_WORKERS = 16
 LIVE_PRICE_TTL_SECONDS = 60
-# Live price this far above the close (percent) highlights a Coiled Cobra row.
-LIVE_SURGE_PCT = 5.0
 _live_price_cache: dict[str, tuple[float, float]] = {}
 
 app = Flask(
@@ -208,23 +206,41 @@ def _fetch_live_prices(symbols: list[str]) -> dict[str, float | str]:
     return prices
 
 
-def _live_price_cell(live: float | str | None, close: float, surge_pct: float | None = None) -> str:
-    """HTML cell for a live price: red if the close is above it, green if below, else neutral.
+VS_RUN_CLOSE_HEADER = (
+    'vs Run Close <span class="tip" title="Live price vs this run\'s closing price. '
+    "On older runs this is the move since that run, not today's move.\">?</span>"
+)
 
-    With ``surge_pct`` set, a live price more than that percent above the close also gets a
-    ``live-surge`` class, which the stylesheet uses to highlight the whole table row.
-    """
+
+def _live_value(live: float | str | None) -> float | None:
+    """A usable live quote, or ``None`` for N/A, NaN or missing."""
     if not isinstance(live, (int, float)) or pd.isna(live):
-        return '<span class="live-price-cell live-flat">N/A</span>'
-    css = "live-flat"
-    if pd.notna(close):
-        if close > live:
-            css = "live-below-close"
-        elif close < live:
-            css = "live-above-close"
-            if surge_pct is not None and live > close * (1 + surge_pct / 100):
-                css += " live-surge"
-    return f'<span class="live-price-cell {css}">${live:.2f}</span>'
+        return None
+    return float(live)
+
+
+def _direction_css(live: float, close: float) -> str:
+    """Green when live is above the close, red below, neutral when equal or no close."""
+    if pd.isna(close) or close == live:
+        return "live-flat"
+    return "live-above-close" if live > close else "live-below-close"
+
+
+def _live_price_cell(live: float | str | None, close: float) -> str:
+    """HTML cell for a live price (2 decimals), colored against the run close."""
+    value = _live_value(live)
+    if value is None:
+        return '<span class="warn plain">⚠ no quote</span>'
+    return f'<span class="live-price-cell {_direction_css(value, close)}">{value:.2f}</span>'
+
+
+def _vs_close_cell(live: float | str | None, close: float) -> str:
+    """HTML cell for the live price's % change from the run close (+20.00%); blank if unknown."""
+    value = _live_value(live)
+    if value is None or pd.isna(close) or close <= 0:
+        return ""
+    pct = _signed_filter((value / close - 1) * 100, 2)
+    return f'<span class="live-price-cell {_direction_css(value, close)}">{pct}%</span>'
 
 
 def _symbols(*frames: pd.DataFrame) -> list[str]:
@@ -245,10 +261,9 @@ def _table_html(
     df: pd.DataFrame,
     live_price_map: dict[str, float | str],
     *,
-    surge_pct: float | None = None,
     newest_bar: str | None = None,
 ) -> str:
-    """Render rows with a Live Price column right after Close and Finviz symbol links.
+    """Render rows with Live Price and vs Run Close right after Close, and Finviz symbol links.
 
     ``AsOf Date`` is not shown as a column (the page badge gives the run date). A row
     whose bar is older than ``newest_bar`` (the newest bar in the whole run) gets a
@@ -264,15 +279,19 @@ def _table_html(
         df = df.drop(columns="AsOf Date")
     if "Symbol" in df.columns and "Close" in df.columns:
         closes = pd.to_numeric(df["Close"], errors="coerce")
-        df["Live Price"] = [
-            _live_price_cell(live_price_map.get(str(sym).strip().upper()), close, surge_pct)
-            if pd.notna(sym)
-            else ""
-            for sym, close in zip(df["Symbol"], closes, strict=True)
+        quotes = [
+            live_price_map.get(str(sym).strip().upper()) if pd.notna(sym) else None
+            for sym in df["Symbol"]
         ]
-        cols = list(df.columns)
-        cols.insert(cols.index("Close") + 1, cols.pop(cols.index("Live Price")))
-        df = df[cols]
+        pairs = list(zip(quotes, closes, strict=True))
+        df["Live Price"] = [
+            _live_price_cell(q, c) if pd.notna(sym) else ""
+            for sym, (q, c) in zip(df["Symbol"], pairs, strict=True)
+        ]
+        df[VS_RUN_CLOSE_HEADER] = [_vs_close_cell(q, c) for q, c in pairs]
+        cols = [c for c in df.columns if c not in ("Live Price", VS_RUN_CLOSE_HEADER)]
+        at = cols.index("Close") + 1
+        df = df[[*cols[:at], "Live Price", VS_RUN_CLOSE_HEADER, *cols[at:]]]
     if "Symbol" in df.columns:
         df["Symbol"] = [
             (

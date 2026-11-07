@@ -233,11 +233,14 @@ dashboard and the next scheduled run pick it up.
 | `/changes` | Market facts that changed since the previous daily run (SMA50 / SMA200 crossings, new heavy-volume support breaks, growth-vs-dividend label) |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
-| `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, live price vs Close (green above / red below; no row highlight) |
+| `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, Live Price and vs Run Close (% from the run's close; green above / red below; no row highlight) |
 | `/breakout/<mode>/<date>` | Breakout scan: KPIs, status chips, highlights (or `?show=all` / `?status=`), failed breakouts collapsed |
 
 Live prices (scanner run pages only) come from `yfinance` `fast_info`, fetched 16 at a
-time and cached for 60 seconds. Both run pages have one badge (mode and run date), and
+time and cached for 60 seconds. Both run grids show Live Price (2 decimals, "⚠ no quote"
+when missing) and vs Run Close right after Close: the live price's % change from that
+run's close, e.g. close 10.00 and live 12.00 is +20.00%. On an older run that is the move
+since the run, not today's move (the header's `?` says so). Both run pages have one badge (mode and run date), and
 their caveats are `?` tooltips on the title. The grids have no per-row date column: a row
 whose bar is older than the newest bar in that run gets "⚠ last bar <date>" next to its
 symbol (weekly bars are dated by week start, so the run date itself is not compared).
