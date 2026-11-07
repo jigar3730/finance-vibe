@@ -647,6 +647,25 @@ def download_scan(mode: str, scan: str, date: str) -> Response:
     return send_file(path, mimetype="text/csv", as_attachment=True)
 
 
+@app.route("/runs/ticker/<symbol>/history.csv")
+def ticker_runs_csv(symbol: str) -> Response:
+    """The ticker history as CSV: one row per mode and run date, run closes only."""
+    symbol = symbol.upper()
+    if not _SYMBOL.match(symbol):
+        abort(404)
+    frames = [
+        playbook.ticker_history(folder, symbol).assign(Mode=mode)
+        for mode, folder in LOG_DIRS.items()
+    ]
+    cols = ["Mode", *(c for c in playbook.TICKER_HISTORY_COLUMNS if not c.startswith("in_"))]
+    out = pd.concat(frames, ignore_index=True).reindex(columns=cols)
+    return Response(
+        out.to_csv(index=False),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={symbol}_runs.csv"},
+    )
+
+
 @app.route("/cobra/<mode>/<date>")
 def cobra_view(mode: str, date: str) -> str | tuple[str, int]:
     """Render one Coiled Cobra setups CSV, Score-ordered, with live quotes."""

@@ -6,6 +6,7 @@
         <h1>{{ symbol }} <span class="tip" title="This ticker in every saved run: breakout status and readiness from the breakout scan, Cobra Score only on days it qualified. Run closes, not live prices.">?</span></h1>
         {% if as_of %}<span class="asof-badge">as of {{ as_of }}</span>{% endif %}
         <a class="ticker-link" href="https://finviz.com/quote.ashx?t={{ symbol }}" target="_blank" rel="noopener noreferrer">Finviz ↗</a>
+        {% if history.values()|map(attribute='rows')|select|list %}<a class="ticker-link" href="{{ url_for('ticker_runs_csv', symbol=symbol) }}" download title="Every run of {{ symbol }} in both modes, one row per run. Run closes only.">Download CSV</a>{% endif %}
     </div>
 
     {% set labels = {'weekly': 'Weekly', 'daily': 'Daily'} %}

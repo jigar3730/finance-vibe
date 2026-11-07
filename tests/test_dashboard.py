@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import os
 import re
@@ -1274,3 +1275,36 @@ def test_run_pages_link_their_download(client, breakout_logs, tmp_path):
     assert 'href="/download/daily/breakout/2026-09-04.csv" download' in body
     body = client.get("/cobra/daily/2026-09-04").get_data(as_text=True)
     assert 'href="/download/daily/cobra/2026-09-04.csv" download' in body
+
+
+def test_ticker_runs_csv_has_one_row_per_mode_and_run(client, breakout_logs, tmp_path):
+    _write_scan(tmp_path / "daily", "2026-09-05")
+    _write_scan(tmp_path / "weekly", "2026-09-04")
+    pd.DataFrame([{"Symbol": "AAA", "Score": 88, "Grade": "A - Watch", "Close": 100.0}]).to_csv(
+        tmp_path / "daily" / "coiled_cobra_setups_2026-09-05.csv", index=False
+    )
+    resp = client.get("/runs/ticker/aaa/history.csv")
+    assert resp.status_code == 200 and resp.mimetype == "text/csv"
+    assert "filename=AAA_runs.csv" in resp.headers["Content-Disposition"]
+    out = pd.read_csv(io.StringIO(resp.get_data(as_text=True)))
+    assert list(out.columns) == [
+        "Mode", "Date", "Close", "Status", "Breakout Readiness", "Trend",
+        "Breakout Distance", "Cobra Score", "Cobra Grade",
+    ]  # fmt: skip
+    assert list(zip(out["Mode"], out["Date"], strict=True)) == [
+        ("weekly", "2026-09-04"),
+        ("daily", "2026-09-05"),
+        ("daily", "2026-09-04"),
+    ]
+    assert out["Cobra Score"].tolist()[1] == 88 and out["Close"].ne(95.0).all()  # no live price
+    page = client.get("/runs/ticker/AAA").get_data(as_text=True)
+    assert 'href="/runs/ticker/AAA/history.csv" download' in page
+
+
+def test_ticker_runs_csv_unknown_and_unsafe(client, breakout_logs):
+    empty = pd.read_csv(
+        io.StringIO(client.get("/runs/ticker/ZZZ/history.csv").get_data(as_text=True))
+    )
+    assert empty.empty and "Mode" in empty.columns
+    assert "history.csv" not in client.get("/runs/ticker/ZZZ").get_data(as_text=True)
+    assert client.get("/runs/ticker/A%20B/history.csv").status_code == 404
