@@ -61,6 +61,26 @@ which moves some scores by a few points (long-window volume shelf, EMA seeds). W
 before 2026-11-14 ran on Friday 18:00 and read a newest-week volume about 20% below Yahoo's final figure
 on 2026-11-06, which moves RVOL.
 
+## Database
+
+`data/db/finance_vibe.sqlite` is a copy of the scan outputs for questions across many runs. The CSVs
+stay the source of truth, no scanner reads it, and it can be deleted and rebuilt at any time:
+
+```bash
+python -m finance_vibe.data.database rebuild
+```
+
+| Table | Contents |
+| ----- | -------- |
+| `live_cobra`, `live_breakout` | Rows from every real scan file, with `run_date` from the file name |
+| `backfill_cobra`, `backfill_breakout` | Backfilled bars, labelled with `snapshot` and `rubric_version` |
+| `backfill_universe` | Each snapshot's `universe.csv` |
+| `sources`, `built` | Every file loaded (rows, hash) and the build time |
+
+Column names are the CSV headers in snake_case (`Fib 61.8%` is `fib_61_8_pct`), and true/false values
+are 1/0. A rebuild replaces the file only after row counts match the sources; bad input stops it and
+the old database stays.
+
 ## Pipeline
 
 ```bash

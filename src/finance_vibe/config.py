@@ -118,6 +118,7 @@ RESEARCH_WEEKLY_DV_WINDOW = 4
 # tickers from it without looking at how they performed. Thresholds apply to
 # the whole history. A ticker must pass on both daily and weekly bars.
 BACKFILL_SNAPSHOT_DIR = os.path.join(RESEARCH_DIR, "backfill", "snapshots")
+DATABASE_PATH = os.path.join(BASE_DIR, "db", "finance_vibe.sqlite")  # derived; see data.database
 BACKFILL_HISTORY_DIR = os.path.join(RESEARCH_DIR, "backfill", "history")
 BACKFILL_WORKERS = 3  # leaves one of the host's four cores for everything else
 # S&P 500 members from Wikipedia's constituents table, taken 2026-11-09.
