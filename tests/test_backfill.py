@@ -105,6 +105,45 @@ def test_bad_ticker_is_recorded_and_the_run_continues(snap, tmp_path, monkeypatc
     assert record["tickers"] == 1
 
 
+def test_breakout_history_uses_its_own_rubric_and_columns(snap, tmp_path):
+    path = bf.run_mode(snap, "weekly", out_root=tmp_path / "h", workers=1, scanner=bf.BREAKOUT)
+    assert path.name == "breakout_weekly_history.csv.gz"
+    assert path.parent.name == f"rubric-{config.BREAKOUT_RUBRIC_VERSION}"
+    out = pd.read_csv(path)
+    assert list(out.columns) == bf.SCANNER_COLUMNS[bf.BREAKOUT]
+    assert set(out["Symbol"]) == {"AAA", "BBB"}
+    assert len(out) == 2 * (170 - 80 + 1)
+    record = _record(path)
+    assert record["rows"] == len(out)
+    assert record["scanner"] == "breakout"
+    assert record["passed_rows"] is None
+
+
+def test_breakout_rows_match_its_scan_history(snap, tmp_path):
+    from finance_vibe.data import raw
+    from finance_vibe.scanners import breakout as bs
+
+    path = bf.run_mode(snap, "weekly", out_root=tmp_path / "h", workers=1, scanner=bf.BREAKOUT)
+    out = pd.read_csv(path)
+    bars = raw.load_raw(str(snap / "weekly" / "AAA_10y_1wk.csv"))
+    direct = bs.scan_history(bars, "AAA", "weekly", "weekly")
+    ours = out[out["Symbol"] == "AAA"].reset_index(drop=True)
+    assert len(ours) == len(direct)
+    assert list(ours["Status"]) == list(direct["Status"])
+    assert list(ours["Breakout Readiness"]) == pytest.approx(list(direct["Breakout Readiness"]))
+
+
+def test_breakout_needs_no_benchmark(tmp_path):
+    snap = _snapshot(tmp_path, {"AAA": _weekly(1)}, ["AAA"])
+    path = bf.run_mode(snap, "weekly", out_root=tmp_path / "h", workers=1, scanner=bf.BREAKOUT)
+    assert path.exists()
+
+
+def test_unknown_scanner_is_rejected(snap, tmp_path):
+    with pytest.raises(ValueError, match="unknown scanner"):
+        bf.run_mode(snap, "weekly", out_root=tmp_path / "h", workers=1, scanner="nope")
+
+
 def test_changed_snapshot_is_rejected(snap, tmp_path):
     path = snap / "weekly" / "AAA_10y_1wk.csv"
     path.write_text(path.read_text() + "\n")

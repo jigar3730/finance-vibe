@@ -43,15 +43,16 @@ dollar volume at least $20M, no funds, and bar quality over the whole history on
 A big move counts as bad data only on ordinary volume. `report.md` lists every exclusion and why.
 The universe is long-lived companies by design, so survivorship bias is accepted here.
 
-### Coiled Cobra backfill
+### Scanner backfill
 
 ```bash
-python -m finance_vibe.research.backfill <snapshot-dir> --commit <hash>   # daily and weekly
+python -m finance_vibe.research.backfill <snapshot-dir> --commit <hash>                     # Coiled Cobra, daily and weekly
+python -m finance_vibe.research.backfill <snapshot-dir> --scanner breakout --commit <hash>  # Breakout, daily and weekly
 python -m finance_vibe.research.backfill <snapshot-dir> --modes weekly --only AAPL MSFT --out-root /tmp/trial
 ```
 
-Runs `coiled_cobra.scan_history` for every universe ticker of a snapshot, after checking its hashes,
-and writes `data/research/backfill/history/<snapshot>/rubric-<version>/coiled_cobra_<mode>_history.csv.gz`
+Runs the scanner's `scan_history` for every universe ticker of a snapshot, after checking its hashes,
+and writes `data/research/backfill/history/<snapshot>/rubric-<version>/<scanner>_<mode>_history.csv.gz`
 plus a `.json` record (rows, date range, failed tickers). It stays out of `data/logs/`, so backfilled
 rows never appear as real past runs, and it refuses to overwrite a finished file. The rows show what
 today's rules say about past bars, not what the scanner reported at the time.
