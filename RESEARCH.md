@@ -164,6 +164,7 @@ Every run: date, commit, what changed, which hypotheses, result. Includes failed
 | 2026-10-27 | — | **Exploratory, not a finding:** PRE_BREAKOUT anticipates the scanner's own state change (61% vs 40% reach TRIGGERED/CONFIRMED in 10 sessions), but that does not show up in returns. Any test built on this needs its own pre-registration and a fresh holdout; the 2026-04 → holdout cannot be used to pick it. | — | — |
 | 2026-10-27 | — | **Exploratory, not a finding:** CONFIRMED has the largest per-event excess (+0.69% vs random) but heavy-tailed noise (t 0.86). A new hypothesis (e.g. a longer horizon or another universe) would be a new pre-registered test, not a re-run of this one. | — | — |
 | 2026-10-27 | weekly addendum commit | Weekly addendum pre-registered (§11) before any weekly forward return was computed. Daily sections unchanged. | W-E1–W-E3 | — |
+| 2026-11-09 | draft commit | Pre-breakout addendum (§12) drafted: Coiled Cobra first pass (C1) and Cobra pass on a PRE_BREAKOUT bar (C2), daily, on the 2026-11-09 backfill snapshot. DRAFT, not frozen. No forward return computed; event counts only (statuses, no prices). | C1–C2 | — |
 
 ## 11. Weekly addendum (pre-registered 2026-10-27, before any weekly return)
 
@@ -235,3 +236,103 @@ which a 10-year Yahoo download then will not cover, so the raw history must be k
 | 2026-10-27 | 77e1826 | Weekly in-sample analysis run once (§11 as pre-registered) on `labels_weekly_2026-10-27`. No threshold, horizon or definition changed. | W-E1–W-E3 | PRE_BREAKOUT FAIL (p Holm 1.000), TRIGGERED FAIL (1.000), **CONFIRMED PASS (0.049)**. Holdout not opened. |
 | 2026-10-27 | — | **Exploratory, not a finding:** weekly CONFIRMED's in-sample pass does not survive excluding the 28 split-flagged events (p Holm 0.400). An overlap-robust test (non-overlapping 4-week windows, or HAC errors) would be a new pre-registered test. It cannot replace the §11 rule, and it cannot be chosen after seeing the holdout. | — | — |
 | 2026-10-30 | — | Weekly holdout date set to **2035-09-07** (§11), chosen for about an 80% pass chance if the in-sample edge is real. Power was simulated by resampling in-sample CONFIRMED signal weeks only. No holdout bar was read, and the test, threshold, horizon and universe are unchanged. | W-E3 | Holdout not opened. |
+
+## 12. Pre-breakout addendum: Coiled Cobra (DRAFT, not frozen)
+
+Status: **DRAFT.** Nothing here is pre-registered until it is reviewed, marked FROZEN and
+committed. No forward return has been computed for C1 or C2. Everything not stated here
+is as in §3–§7.
+
+**Question.** Does a Coiled Cobra pass catch a move before the breakout? Do C1 and C2 beat
+the market over the next 10 sessions?
+
+**Why this is a new test.** §9 dropped daily PRE_BREAKOUT: it reached TRIGGERED/CONFIRMED
+more often than random (61% vs 40%) but did not beat SPY or random in returns. Two
+questions were never tested: Coiled Cobra by itself, and Cobra together with PRE_BREAKOUT.
+In the backfill, 33.5% of daily PRE_BREAKOUT bars are Cobra passes, against 6.1% of all bars
+(descriptive, `/scan-stats`).
+
+**Data.** The frozen snapshot `data/research/backfill/snapshots/2026-11-09/` (SHA-256 in its
+`manifest.json`, daily bars 2016-11 → 2026-11-06, Yahoo auto-adjusted). Signals come from the
+backfill history of that snapshot: Coiled Cobra rubric v4.0 (`coiled_cobra_daily_history`,
+code `29cba30`) and breakout rubric v1.0 (`breakout_daily_history`, code `883bc21`), joined on
+(Symbol, Date). Forward prices come from the same snapshot's daily files, read through
+`raw.load_raw`. SPY is in the snapshot. Daily only; weekly would need its own addendum.
+
+**Events (first bar of a run only).**
+
+| ID | Event | Definition |
+|----|-------|------------|
+| C1 | Cobra first pass | Cobra `Passed` on bar t and not on bar t−1 |
+| C2 | Cobra on PRE_BREAKOUT | On bar t, Cobra `Passed` **and** Status == PRE_BREAKOUT; on bar t−1, not both |
+
+A ticker's first scored row never counts as an event. C2 events are also C1 events when Cobra
+was not passing on t−1. Both are allowed, and Holm across the two signals covers it.
+
+**Universe.** The snapshot's rule-based universe (`universe.csv`, `In Universe` = True, 520
+tickers). Those 520 were chosen with data up to 2026-11: 10 years of history, today's price and
+today's liquidity. That favours stocks that did well, so it is look-ahead in the choice of
+tickers, not just survivorship (§8.4). To limit it, an event counts only if its ticker also
+passes a point-in-time check at t, using only bars up to and including t: Close ≥ $5 and
+63-bar median Close × Volume ≥ $20M (the snapshot's own thresholds). The bias is reduced,
+not removed.
+
+**Entry, exit, label.** As §4. Entry is the open of session t+1, exit the close of session
+t+10, and `R10 = Close[t+10] / Open[t+1] − 1`. No costs, no stops.
+
+**Benchmarks.** As §5. SPY over the event's own entry and exit dates. Twenty date-matched
+random stocks per event, drawn without replacement from the tickers passing the
+point-in-time check at t (never the event's own ticker), fixed seed, same rules.
+Because the random draws come from the same hand-picked list, they share its look-ahead
+bias; SPY does not. A pass against SPY alone would therefore mean little. The rule still
+requires both.
+
+**Report and decision rule.** As §6–§7. Date-clustered one-sided t-test vs SPY and vs
+random. The signal's p is the larger of the two, Holm across C1 and C2, pass at p < 0.05.
+Failed signals are dropped, not tuned.
+
+**Reported, never a pass criterion.**
+- `REACH10` for C1 and C2 against their random draws, as §4.
+- Level first: using the breakout scanner's `Resistance` and `Support` on bar t, whether a
+  daily High ≥ Resistance comes before a daily Low ≤ Support within t+1 … t+10. A bar that
+  touches both counts as Support first; touching neither is reported as neither. The random
+  draws use their own levels on the same date. Not a pass criterion because PRE_BREAKOUT
+  requires price near resistance, so C2 starts closer to the line than a random draw.
+- PRE_BREAKOUT alone on this universe, as a reference. It was dropped in §9 and is not
+  re-tested.
+- Results by signal year, and with `split_suspect` events (one-bar moves ≥ 40%) excluded.
+
+**Periods.** In-sample is signals known 2020-01-14 → 2026-03-31. Cobra's daily backfill starts
+2020-01-13, and a first bar needs the bar before it. Forward bars after 2026-03-31 may be read
+to label late-March signals, as in §9. The holdout is signals known on or after 2026-04-01.
+It runs once, only for signals that pass in-sample, on a date set after the in-sample result
+from in-sample data only (as §11 did). It needs a new snapshot of the same 520 tickers taken
+after that date.
+
+**Known contamination (stated, the rule is not changed for it).**
+1. C2 is a subset of PRE_BREAKOUT. §9 computed PRE_BREAKOUT's returns for 2022-02 → 2026-03, in
+   aggregate only, on a different universe (top 200 point-in-time from the 2026-10-27
+   snapshot). The Cobra split was never looked at. 2020–2021 are new.
+2. Cobra rubric v4.0 was tuned with returns: Gate D's threshold came from a 10-year weekly
+   walk-forward backtest (264 tickers, `docs/coiled_cobra.md`, 2026-09-18). Daily Cobra uses
+   the same thresholds scaled ×5. The in-sample period overlaps those years, so expect the
+   in-sample result to look better than it is. The holdout carries the weight.
+3. Descriptive status counts for the whole backfill, 2026-04 → 2026-11 included, have been
+   seen on `/scan-stats`. No price after any signal was read.
+
+**Procedure.** As §9–§10. Mark this section FROZEN and commit it. Then commit the label code
+and run it blind, reporting counts and data checks only. Then commit the analysis code and
+run it once. Write the results in §9 and the run in §10.
+
+**Sample size.** Event counts from statuses only (no prices), counted on 2026-11-09 before the
+point-in-time check, so the final counts will be a little lower:
+
+| Signal | In-sample events | In-sample dates | 2026-04-01 → 2026-11-06 events | Dates |
+|--------|-----------------:|----------------:|-------------------------------:|------:|
+| C1 | 15,799 | 1,457 | 848 | 144 |
+| C2 | 1,847 | 625 | 29 | 23 |
+
+C2 is rare in the holdout so far: 29 events in 7 months, so its holdout will probably need
+several years. C1 has plenty of events. Successive 10-session windows overlap, as in §11.
+
+**Survivorship.** As §8.4, plus the look-ahead in choosing the universe stated above.
