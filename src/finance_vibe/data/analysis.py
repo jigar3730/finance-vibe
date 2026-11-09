@@ -14,11 +14,14 @@ of the length figures.
 from __future__ import annotations
 
 import argparse
+import json
+import os
 import re
 import sqlite3
 import sys
 from itertools import pairwise
 from pathlib import Path
+from typing import Any
 
 import pandas as pd
 
@@ -27,6 +30,7 @@ from finance_vibe.log import setup_logging
 from finance_vibe.scanners import breakout as bs
 from finance_vibe.scanners import coiled_cobra as cc
 
+MODES = ("daily", "weekly")
 COBRA, BREAKOUT = "backfill_cobra", "backfill_breakout"
 STATUSES = [
     bs.STATUS_WATCH,
@@ -270,6 +274,15 @@ def overlaps(conn: sqlite3.Connection, mode: str) -> pd.DataFrame:
     return frame.rename(columns={"all_bars": "All bars", "cobra_passes": "Cobra passes"})
 
 
+def _newest_run(conn: sqlite3.Connection, mode: str) -> str | None:
+    """Newest real run in either scanner, so a run with no Cobra passes still counts."""
+    return conn.execute(
+        "SELECT MAX(run_date) FROM (SELECT run_date FROM live_cobra WHERE mode = ? "
+        "UNION ALL SELECT run_date FROM live_breakout WHERE mode = ?)",
+        (mode, mode),
+    ).fetchone()[0]
+
+
 def current_overlaps(conn: sqlite3.Connection, mode: str) -> pd.DataFrame:
     """Tickers in the newest real Cobra scan, with their Breakout status in that run."""
     return _sql(
@@ -277,9 +290,8 @@ def current_overlaps(conn: sqlite3.Connection, mode: str) -> pd.DataFrame:
         "SELECT c.run_date, c.symbol, c.score, c.grade, b.status, b.breakout_readiness "
         "FROM live_cobra c LEFT JOIN live_breakout b "
         "ON b.run_date = c.run_date AND b.mode = c.mode AND b.symbol = c.symbol "
-        "WHERE c.mode = ? AND c.run_date = (SELECT MAX(run_date) FROM live_cobra WHERE mode = ?) "
-        "ORDER BY c.score DESC, c.symbol",
-        (mode, mode),
+        "WHERE c.mode = ? AND c.run_date = ? ORDER BY c.score DESC, c.symbol",
+        (mode, _newest_run(conn, mode)),
     )
 
 
@@ -361,6 +373,75 @@ def ticker_counts(conn: sqlite3.Connection, mode: str) -> pd.DataFrame:
     return out.sort_values(["Cobra bars passed", "Symbol"], ascending=[False, True]).reset_index(
         drop=True
     )
+
+
+def newest_changes(conn: sqlite3.Connection, mode: str) -> dict[str, Any]:
+    """Cobra tickers that entered or left at the newest real run."""
+    cobra = _members(conn, "live_cobra", mode)
+    dates = sorted(set(cobra) | set(_members(conn, "live_breakout", mode)))
+    if len(dates) < 2:
+        return {"previous_run": None, "entered": [], "left": []}
+    old, new = cobra.get(dates[-2], set()), cobra.get(dates[-1], set())
+    return {"previous_run": dates[-2], "entered": sorted(new - old), "left": sorted(old - new)}
+
+
+def _records(frame: pd.DataFrame) -> list[dict[str, Any]]:
+    """Rows as plain dicts with blanks as None, ready for JSON."""
+    clean = frame.astype(object).where(frame.notna(), None)
+    return clean.to_dict("records")  # type: ignore[return-value]
+
+
+def _pass_rates(conn: sqlite3.Connection, mode: str) -> list[dict[str, Any]]:
+    frame = overlaps(conn, mode)
+    total = pd.DataFrame(
+        [
+            {
+                "Status": "All bars",
+                "All bars": frame["All bars"].sum(),
+                "Cobra passes": frame["Cobra passes"].sum(),
+            }
+        ]
+    )
+    frame = pd.concat([frame, total], ignore_index=True)
+    frame["Pass rate"] = (100 * frame["Cobra passes"] / frame["All bars"]).round(1)
+    return _records(frame)
+
+
+def _mode_summary(conn: sqlite3.Connection, mode: str) -> dict[str, Any]:
+    daily = per_day(conn, mode)
+    year = per_year(daily).iloc[-1]
+    cobra_length = qualifying_runs(conn, mode).assign(Status="Cobra passes")
+    current = current_overlaps(conn, mode)
+    return {
+        "newest_run": _newest_run(conn, mode),
+        "current": _records(current),
+        **newest_changes(conn, mode),
+        "year": str(year["Year"]),
+        "year_median": float(year["Cobra median per bar"]),
+        "universe": int(daily["cobra_scored"].iloc[-1]),
+        "blockers": _records(blockers(conn, mode)),
+        "gate_c": _records(gate_c_detail(conn, mode)),
+        "durations": _records(pd.concat([cobra_length, state_durations(conn, mode)])),
+        "pass_rates": _pass_rates(conn, mode),
+    }
+
+
+def summary(conn: sqlite3.Connection) -> dict[str, Any]:
+    """What the Scan stats page shows, for both modes."""
+    built_at = conn.execute("SELECT built_at FROM built").fetchone()[0]
+    return {"built_at": built_at, "modes": {m: _mode_summary(conn, m) for m in MODES}}
+
+
+def write_summary(db_path: Path, summary_path: Path) -> None:
+    """Save :func:`summary` next to the database; replaces the old file only when complete."""
+    conn = connect(db_path)
+    try:
+        text = json.dumps(summary(conn), indent=1)
+    finally:
+        conn.close()
+    temporary = summary_path.with_name(f"{summary_path.name}.building")
+    temporary.write_text(text)
+    os.replace(temporary, summary_path)
 
 
 def report(conn: sqlite3.Connection, mode: str) -> str:

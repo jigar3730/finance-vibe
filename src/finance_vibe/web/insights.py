@@ -7,6 +7,7 @@ Nothing here feeds back into a scanner or a score.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from collections.abc import Callable
@@ -657,3 +658,15 @@ def market_table(
         "benchmark": rel["benchmark"],
         "rotation": rel["rotation"],
     }
+
+
+def scan_stats_summary(path: str) -> dict[str, Any] | None:
+    """The saved analysis summary, or None when it is missing or unreadable."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError):
+        logger.exception("could not read %s", path)
+        return None

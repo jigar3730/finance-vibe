@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}Scan stats - Finance Vibe{% endblock %}
+{% macro count(v) %}{{ "{:,.0f}".format(v) if v is not none else "—" }}{% endmacro %}
+{% macro bars(v) %}{{ "%g"|format(v) if v is not none else "—" }}{% endmacro %}
+{% macro ticker(sym) %}<a class="ticker-link" href="https://finviz.com/quote.ashx?t={{ sym }}" target="_blank" rel="noopener noreferrer">{{ sym }}</a>{% endmacro %}
+{% block content %}
+    <div class="page-head">
+        <h1>📊 Scan stats <span class="tip" title="Counts of what the two scanners said. Tiles and the tickers table are real scans. The tables below them are the backfill: today's rules run over every past bar.">?</span></h1>
+        {% if built_at %}<span class="asof-badge">as of database rebuild {{ built_at }}</span>{% endif %}
+        {% if behind %}<span class="warn plain">⚠ scan {{ behind }} not in the database</span>{% endif %}
+    </div>
+
+    <p class="mode-switch">
+        {% for m, label in [('daily', 'Daily'), ('weekly', 'Weekly')] %}
+        {% if m == mode %}<strong>{{ label }}</strong>{% else %}<a href="{{ url_for('scan_stats', mode=m) }}">{{ label }}</a>{% endif %}{% if not loop.last %} · {% endif %}
+        {% endfor %}
+    </p>
+
+    {% if not stats %}
+    <p class="label">No summary yet. It is saved after the next database rebuild.</p>
+    {% else %}
+    <div class="tile-row">
+        <div class="metric-tile">
+            <div class="tile-label">Cobra passes, newest real run</div>
+            <div class="tile-value">{{ stats.current|length }}</div>
+            <div class="tile-sub">Run {{ stats.newest_run or "—" }}</div>
+        </div>
+        <div class="metric-tile">
+            <div class="tile-label">Entered since previous run</div>
+            <div class="tile-value">{{ stats.entered|length }}</div>
+            <div class="tile-sub">Run {{ stats.previous_run or "—" }}</div>
+        </div>
+        <div class="metric-tile">
+            <div class="tile-label">Left since previous run</div>
+            <div class="tile-value">{{ stats.left|length }}</div>
+            <div class="tile-sub">Run {{ stats.previous_run or "—" }}</div>
+        </div>
+        <div class="metric-tile">
+            <div class="tile-label">Backfill median passes per bar <span class="tip" title="Median Cobra passes per bar in the backfill. Its ticker list differs from the real scans, so this is not directly comparable with the newest real run.">?</span></div>
+            <div class="tile-value">{{ bars(stats.year_median) }}</div>
+            <div class="tile-sub">{{ stats.year }}, {{ count(stats.universe) }} tickers</div>
+        </div>
+    </div>
+
+    <section class="top-section">
+        <h3>Newest real Cobra passes</h3>
+        {% if stats.current %}
+        <table class="table">
+            <tr><th>Ticker</th><th>Score</th><th>Grade</th><th>Breakout status</th><th>Readiness</th></tr>
+            {% for r in stats.current %}
+            <tr><td class="ticker-cell">{{ ticker(r.symbol) }}</td><td>{{ count(r.score) }}</td><td>{{ r.grade }}</td><td>{{ r.status or "—" }}</td><td>{{ count(r.breakout_readiness) }}</td></tr>
+            {% endfor %}
+        </table>
+        {% else %}<p class="label">None.</p>{% endif %}
+        <table class="table changes-table">
+            <tr><th>Entered ({{ stats.entered|length }})</th><td>{% for s in stats.entered %}{{ ticker(s) }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</td></tr>
+            <tr><th>Left ({{ stats.left|length }})</th><td>{% for s in stats.left %}{{ ticker(s) }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</td></tr>
+        </table>
+    </section>
+
+    <section class="top-section">
+        <h3>What rejects Cobra bars <span class="tip" title="Backfill. A bar can fail several gates, so percentages add to more than 100. Only blocker: nothing else stopped that bar.">?</span></h3>
+        <table class="table">
+            <tr><th>Blocker</th><th>Rejected bars</th><th>% of rejected</th><th>Only blocker</th></tr>
+            {% for r in stats.blockers %}
+            <tr><td>{{ r["Blocker"] }}</td><td>{{ count(r["Rejected bars"]) }}</td><td>{{ "%.1f"|format(r["Pct of rejected"]) }}%</td><td>{{ count(r["Only blocker"]) }}</td></tr>
+            {% endfor %}
+        </table>
+        <p class="since-line">Gate C misses: {% for r in stats.gate_c %}{{ r["Gate C miss"] }} {{ count(r["Bars"]) }}{% if not loop.last %} · {% endif %}{% endfor %}</p>
+    </section>
+
+    <section class="top-section">
+        <h3>How long states last <span class="tip" title="Backfill, in bars. Stretches touching a ticker's first or last bar are open: their length is unknown, so they are left out of the length figures.">?</span></h3>
+        <table class="table">
+            <tr><th>State</th><th>Stretches</th><th>Open</th><th>Median</th><th>90th pct</th><th>Longest</th><th>One bar only</th></tr>
+            {% for r in stats.durations %}
+            <tr><td>{{ r["Status"] }}</td><td>{{ count(r["Runs"]) }}</td><td>{{ count(r["Open runs"]) }}</td><td>{{ bars(r["Median bars"]) }}</td><td>{{ bars(r["90th pct bars"]) }}</td><td>{{ count(r["Longest bars"]) }}</td><td>{{ count(r["One-bar runs"]) }} of {{ count(r["Runs"]) }}</td></tr>
+            {% endfor %}
+        </table>
+    </section>
+
+    <section class="top-section">
+        <h3>Cobra passes by Breakout status <span class="tip" title="Backfill, same ticker and bar in both scanners. Both scanners measure compression, so part of the overlap comes from how they are built.">?</span></h3>
+        <table class="table">
+            <tr><th>Breakout status</th><th>Bars</th><th>Cobra passes</th><th>Pass rate</th></tr>
+            {% for r in stats.pass_rates %}
+            <tr><td>{{ r["Status"] }}</td><td>{{ count(r["All bars"]) }}</td><td>{{ count(r["Cobra passes"]) }}</td><td>{{ "%.1f"|format(r["Pass rate"]) }}%</td></tr>
+            {% endfor %}
+        </table>
+    </section>
+    {% endif %}
+{% endblock %}

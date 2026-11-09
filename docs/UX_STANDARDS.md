@@ -11,7 +11,7 @@ Rules for every dashboard template and stylesheet (`src/finance_vibe/web/templat
   Fading, Accelerating, Aligned (any case, any page text or tooltip).
 - **Exception: the Setups area** (`setups.html` and its `_since_last_run.html`
   partial, `breakout_view.html`, `cobra_view.html`, the Runs ticker history
-  `ticker_runs.html`) may show raw scanner status and
+  `ticker_runs.html`, `scan_stats.html`) may show raw scanner status and
   state names as data (BREAKOUT_CONFIRMED, FAILED_BREAKOUT, Trend BULLISH, MTF
   ALIGNED). Everything about individual stocks lives there, including "Since last
   run" changes; `/changes` is market facts only.

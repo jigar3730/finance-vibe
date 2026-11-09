@@ -1058,7 +1058,7 @@ def test_nav_order_market_changes_setups_runs(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
     nav = client.get("/runs").get_data(as_text=True).split('class="top-nav"')[1].split("</nav>")[0]
     labels = [part.split("</a>")[0].split(">")[-1] for part in nav.split('class="nav-link')[1:]]
-    assert labels == ["Market", "Changes", "Setups (unproven)", "Runs"]
+    assert labels == ["Market", "Changes", "Setups (unproven)", "Scan stats", "Runs"]
     assert 'href="/setups"' in nav
 
 
@@ -1308,3 +1308,104 @@ def test_ticker_runs_csv_unknown_and_unsafe(client, breakout_logs):
     assert empty.empty and "Mode" in empty.columns
     assert "history.csv" not in client.get("/runs/ticker/ZZZ").get_data(as_text=True)
     assert client.get("/runs/ticker/A%20B/history.csv").status_code == 404
+
+
+def _scan_stats_mode(newest="2026-11-06"):
+    return {
+        "newest_run": newest,
+        "current": [
+            {
+                "symbol": "ROKU",
+                "score": 83.0,
+                "grade": "B - Watch",
+                "status": "WATCH",
+                "breakout_readiness": 75.0,
+            }
+        ],
+        "previous_run": "2026-11-05",
+        "entered": ["ROKU"],
+        "left": [],
+        "year": "2026",
+        "year_median": 16.0,
+        "universe": 520,
+        "blockers": [
+            {
+                "Blocker": "Gate C: coil integrity",
+                "Rejected bars": 693303,
+                "Only blocker": 88166,
+                "Pct of rejected": 82.8,
+            }
+        ],
+        "gate_c": [{"Gate C miss": "Both", "Bars": 187757}],
+        "durations": [
+            {
+                "Status": "Cobra passes",
+                "Runs": 16634,
+                "Open runs": 91,
+                "Median bars": 2.0,
+                "90th pct bars": 7.0,
+                "Longest bars": 44,
+                "One-bar runs": 7222,
+            },
+            {
+                "Status": "NO_RUNS",
+                "Runs": 0,
+                "Open runs": 2,
+                "Median bars": None,
+                "90th pct bars": None,
+                "Longest bars": None,
+                "One-bar runs": 0,
+            },
+        ],
+        "pass_rates": [
+            {"Status": "All bars", "All bars": 891800, "Cobra passes": 53990, "Pass rate": 6.1}
+        ],
+    }
+
+
+@pytest.fixture
+def scan_stats(tmp_path, monkeypatch, breakout_logs):
+    path = tmp_path / "summary.json"
+    path.write_text(
+        json.dumps(
+            {
+                "built_at": "2026-11-09T14:48:27",
+                "modes": {
+                    "daily": _scan_stats_mode("2026-09-04"),
+                    "weekly": _scan_stats_mode(),
+                },
+            }
+        )
+    )
+    monkeypatch.setattr(app_module.config, "ANALYSIS_SUMMARY_PATH", str(path))
+    return path
+
+
+def test_scan_stats_page(client, scan_stats):
+    html = client.get("/scan-stats").get_data(as_text=True)
+    assert "as of database rebuild 2026-11-09 14:48" in html
+    assert "693,303" in html
+    assert "82.8%" in html
+    assert "7,222 of 16,634" in html
+    assert "not in the database" not in html
+    assert "ROKU" in html
+
+
+def test_scan_stats_warns_when_a_scan_is_not_in_the_summary(client, scan_stats, tmp_path):
+    _write_scan(tmp_path / "daily", "2026-09-05")
+    html = client.get("/scan-stats").get_data(as_text=True)
+    assert "⚠ scan 2026-09-05 not in the database" in html
+
+
+def test_scan_stats_unknown_mode_falls_back_to_daily(client, scan_stats):
+    assert client.get("/scan-stats?mode=monthly").status_code == 200
+
+
+@pytest.mark.parametrize("content", [None, "{not json"])
+def test_scan_stats_without_a_readable_summary(client, scan_stats, content):
+    if content is None:
+        scan_stats.unlink()
+    else:
+        scan_stats.write_text(content)
+    html = client.get("/scan-stats").get_data(as_text=True)
+    assert "No summary yet" in html

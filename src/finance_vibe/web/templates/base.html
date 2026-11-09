@@ -16,6 +16,7 @@
         <a class="nav-link {% if request.endpoint == 'market' %}active{% endif %}" href="{{ url_for('market') }}">Market</a>
         <a class="nav-link {% if request.endpoint == 'changes' %}active{% endif %}" href="{{ url_for('changes') }}">Changes</a>
         <a class="nav-link {% if request.endpoint == 'setups' %}active{% endif %}" href="{{ url_for('setups') }}">Setups (unproven)</a>
+        <a class="nav-link {% if request.endpoint == 'scan_stats' %}active{% endif %}" href="{{ url_for('scan_stats') }}">Scan stats</a>
         <a class="nav-link {% if request.endpoint in ['runs', 'ticker_runs', 'cobra_view', 'breakout_view'] %}active{% endif %}" href="{{ url_for('runs') }}">Runs</a>
     </nav>
     {% if market_strip %}

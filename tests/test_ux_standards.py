@@ -18,6 +18,7 @@ SETUPS_AREA = {
     "breakout_view.html",
     "cobra_view.html",
     "ticker_runs.html",
+    "scan_stats.html",
 }
 VERDICT = re.compile(
     r"\b(bullish|bearish|strong|weak|elevated|fading|accelerat\w*|aligned|risk[\s-]?(?:on|off))\b",

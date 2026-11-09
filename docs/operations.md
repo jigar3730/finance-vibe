@@ -98,7 +98,7 @@ long Cobra qualifying runs last, which gate or pillar blocks most, counts per ba
 Breakout overlaps, changes between real runs, and how often each ticker qualified. No forward returns.
 Backfill questions use the newest snapshot and rubric. Length figures leave out runs touching a ticker's
 first or last bar, whose true length is unknown; they are counted as open runs. Both modes take about 30
-seconds.
+seconds. Each rebuild also saves `data/db/analysis_summary.json`, which the `/scan-stats` page reads.
 
 ## Pipeline
 
@@ -322,6 +322,14 @@ since the run, not today's move (the header's `?` says so). Both run pages have 
 their caveats are `?` tooltips on the title. The grids have no per-row date column: a row
 whose bar is older than the newest bar in that run gets "⚠ last bar <date>" next to its
 symbol (weekly bars are dated by week start, so the run date itself is not compared).
+
+### Scan stats (`/scan-stats`)
+
+Daily or weekly (`?mode=weekly`). It reads the summary saved by the last database rebuild, never the
+database itself, and its badge gives that rebuild's time. A `⚠` note appears when the newest scan CSV is
+newer than the summary. Tiles and the tickers table are real scans; the blockers, durations and
+Breakout status tables are the backfill. The two use different universes, so the tile label says which
+is which.
 
 ### Setups (unproven) (`/setups`, `web/playbook.py`)
 

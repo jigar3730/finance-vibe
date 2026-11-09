@@ -591,6 +591,29 @@ def changes() -> str | RedirectResponse:
     return render_template("changes.html", market=insights.market_changes(LOG_DIRS["daily"]))
 
 
+@app.route("/scan-stats")
+def scan_stats() -> str:
+    """What the database says about both scanners (a summary saved after each rebuild)."""
+    mode = request.args.get("mode", "daily")
+    if mode not in LOG_DIRS:
+        mode = "daily"
+    summary = insights.scan_stats_summary(config.ANALYSIS_SUMMARY_PATH)
+    stats = summary["modes"].get(mode) if summary else None
+    newest_scan = max(playbook.run_dates(LOG_DIRS[mode]), default=None)
+    behind = (
+        newest_scan
+        if newest_scan and (stats is None or newest_scan > (stats["newest_run"] or ""))
+        else None
+    )
+    return render_template(
+        "scan_stats.html",
+        mode=mode,
+        stats=stats,
+        built_at=summary["built_at"].replace("T", " ")[:16] if summary else None,
+        behind=behind,
+    )
+
+
 @app.route("/runs")
 def runs() -> str:
     """List run dates per mode with links to each scanner's page."""

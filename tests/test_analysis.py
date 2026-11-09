@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 
 import pandas as pd
@@ -198,3 +199,41 @@ def test_missing_database_is_not_created(tmp_path):
     with pytest.raises(sqlite3.OperationalError):
         an.connect(path)
     assert not path.exists()
+
+
+def test_newest_changes(conn):
+    assert an.newest_changes(conn, "daily") == {
+        "previous_run": "2026-01-05",
+        "entered": ["BBB"],
+        "left": ["AAA"],
+    }
+
+
+def test_newest_run_with_no_cobra_passes_shows_none(conn):
+    pd.DataFrame([_live_breakout("2026-01-07", "AAA", "WATCH")]).to_sql(
+        "live_breakout", conn, index=False, if_exists="append"
+    )
+    assert an.current_overlaps(conn, "daily").empty
+    assert an.newest_changes(conn, "daily")["left"] == ["BBB"]
+
+
+def test_write_summary_saves_plain_json(conn, tmp_path, monkeypatch):
+    conn.execute("CREATE TABLE built (built_at)")
+    conn.execute("INSERT INTO built VALUES ('2026-11-09T14:48:27')")
+    conn.commit()
+    monkeypatch.setattr(an, "MODES", ("daily",))
+    database = tmp_path / "x.sqlite"
+    copy = sqlite3.connect(database)
+    conn.backup(copy)
+    copy.close()
+    path = tmp_path / "s.json"
+    an.write_summary(database, path)
+    saved = json.loads(path.read_text())
+    daily = saved["modes"]["daily"]
+    assert saved["built_at"] == "2026-11-09T14:48:27"
+    assert daily["newest_run"] == "2026-01-06"
+    assert daily["year"] == "2026"
+    assert daily["durations"][0]["Status"] == "Cobra passes"
+    assert daily["pass_rates"][-1]["Status"] == "All bars"
+    assert daily["pass_rates"][-1]["Pass rate"] == 50.0
+    assert not path.with_name("s.json.building").exists()

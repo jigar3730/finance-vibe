@@ -28,6 +28,7 @@ from pathlib import Path
 import pandas as pd
 
 from finance_vibe import config
+from finance_vibe.data import analysis
 from finance_vibe.log import setup_logging
 from finance_vibe.scanners import breakout as bs
 
@@ -228,8 +229,10 @@ def main(argv: list[str] | None = None) -> int:
     build = sub.add_parser("rebuild")
     build.add_argument("--path", default=config.DATABASE_PATH)
     args = parser.parse_args(sys.argv[1:] if argv is None else argv)
-    for table, rows in rebuild(Path(args.path)).items():
+    path = Path(args.path)
+    for table, rows in rebuild(path).items():
         logger.info("%s: %d rows", table, rows)
+    analysis.write_summary(path, path.with_name(Path(config.ANALYSIS_SUMMARY_PATH).name))
     return 0
 
 

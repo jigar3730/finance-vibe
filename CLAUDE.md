@@ -24,7 +24,7 @@ dashboard. It produces *signals* for review, not trades.
   `snapshot` (frozen 10-year backfill data and its rule-based universe, `config.BACKFILL_*`),
   `backfill` (both scanners' history for every snapshot ticker → `data/research/backfill/history/`).
   Not used by the pipeline.
-- `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home facts and levels, `/runs/ticker/<SYM>` history), `health.py` (market home: VIX, rates, dollar, credit, sector and scanned-ticker breadth, since last close), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market table and levels, market strip), `templates/`, `static/`
+- `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home facts and levels, `/runs/ticker/<SYM>` history; `/scan-stats` reads `data/db/analysis_summary.json`), `health.py` (market home: VIX, rates, dollar, credit, sector and scanned-ticker breadth, since last close), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market table and levels, market strip), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
 - `data/` — gitignored. `data/raw/{weekly|daily|market}/`, `data/logs/{weekly|daily|market}/`, `data/live/`, `data/active_tickers.csv`, `data/research/`, `data/db/`
