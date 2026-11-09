@@ -412,3 +412,11 @@ question.
 - Daily-bar trigger confirmation (mentioned in Stage 3) is a **process
   recommendation**, not implemented in this rubric — it's a second, smaller
   scanner pass, not a rewrite of this one.
+
+## History (`scan_history`)
+
+`coiled_cobra.scan_history(bars, benchmark, symbol, mode)` returns one row per scored bar
+(`config.COBRA_HISTORY_COLUMNS`), rejects included, using the same rules as the scan. The
+setup columns of a passing bar equal that ticker's `--as-of` scan row for that date. Rejected
+bars have `Passed` False and no `Setup Type`. Each row also has the six pillar points and the
+rubric version. The first row needs the same history as any scan: 160 weekly or 800 daily bars.

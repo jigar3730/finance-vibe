@@ -16,8 +16,8 @@ dashboard. It produces *signals* for review, not trades.
   RS, Cobra market gate), `pipeline` (orchestrator)
 - `src/finance_vibe/data/` — `tickers`, `ingest` (Yahoo download, both modes),
   `daily_ingest`, `market_ingest` (broad funds / VIX / HYG / IEF / sector funds → `data/raw/market/`, a folder no scanner reads), `universe_breadth` (counts across the scanned tickers → `data/logs/market/`), `market_snapshot` (live quotes for the market home → `data/live/`, not a pipeline stage), `raw` (the raw CSV loader), `quality` (bar-quality flags → `data_quality_<date>.csv`, never changes scores)
-- `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout` (`scan_history()` gives
-  every bar's breakout states/status/score, same rules as the scan)
+- `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout` (each has `scan_history()`:
+  every bar's scan result, same rules as the scan)
 - `src/finance_vibe/research/` — research only (RESEARCH.md): `universe` (point-in-time
   membership, `config.RESEARCH_*`), `events` (§3 E1/E2/E3, `history_panel`), `labels` (§4–§5
   forward labels + random/SPY benchmarks, holdout sealed), `stats` + `insample` (§7 scorecard),

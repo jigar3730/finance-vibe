@@ -716,6 +716,120 @@ def evaluate_coiled_cobra(
 # =========================
 
 
+def _setup_row(df: pd.DataFrame, symbol: str, setup: dict[str, Any]) -> dict[str, Any]:
+    """One ``SETUP_ROW_COLUMNS`` row for the newest bar of ``df``."""
+    latest = df.iloc[-1]
+
+    asof = None
+    if "Date" in df.columns:
+        raw_date = latest["Date"]
+        asof = str(raw_date)[:10] if pd.notna(raw_date) else None
+
+    close_v = float(latest["Close"])
+    ema20_v = float(latest["EMA20"])
+    ema50_v = float(latest["EMA50"])
+    atr_v = float(latest["ATR"])
+    fib618_v = float(latest["Fib_618"]) if pd.notna(latest.get("Fib_618")) else None
+    fib786_v = float(latest["Fib_786"]) if pd.notna(latest.get("Fib_786")) else None
+
+    row = config.blank_setup_row()
+    row.update(
+        {
+            "Symbol": symbol,
+            "Setup Type": "SETUP_LONG",
+            "Source": "coiled_cobra",
+            "Mode": mode,
+            "AsOf Date": asof,
+            "Close": round(close_v, 2),
+            "EMA20": round(ema20_v, 2),
+            "EMA50": round(ema50_v, 2),
+            "ATR": round(atr_v, 2),
+            "RSI": round(float(latest["RSI"]), 2) if pd.notna(latest["RSI"]) else None,
+            # Local 10-session floor for dual-constraint stops (not year Fib).
+            "Swing Low": round(local_swing_low(df), 2),
+            "Notes": setup["Grade"],
+            "Score": setup["Score"],
+            "Grade": setup["Grade"],
+            "Tier": setup.get("Tier"),
+            "Checks Met": setup["Checks Met"],
+            "Fib 61.8%": round(fib618_v, 2) if fib618_v is not None else None,
+            "Fib 78.6%": round(fib786_v, 2) if fib786_v is not None else None,
+            "Fib Score": setup["Fib Score"],
+            "MACD": round(float(latest["MACD"]), 2),
+            "MACD Signal": round(float(latest["MACD_Signal"]), 2),
+            "RS 63d": setup.get("RS 63d"),
+            "RVOL": setup.get("RVOL"),
+            "Market Gate": setup.get("Market Gate"),
+            "Regime OK": setup.get("Market Gate"),
+        }
+    )
+    return row
+
+
+_PILLAR_COLUMNS = {
+    "vol_contraction": "Vol Contraction Points",
+    "relative_strength": "Relative Strength Points",
+    "structure": "Structure Points",
+    "volume_shelf": "Volume Shelf Points",
+    "overhead_clearance": "Overhead Clearance Points",
+    "rvol_trigger": "RVOL Trigger Points",
+}
+
+
+def _history_rows(df: pd.DataFrame, benchmark: pd.DataFrame, symbol: str) -> list[dict[str, Any]]:
+    """A row for each bar of ``df`` the scorecard can score, under the active timeframe."""
+    rows = []
+    # Indicators only look backwards, so a growing slice of one frame equals a
+    # recomputation at each bar. Looping keeps one copy of the rules; this is a
+    # one-off history job, not the per-ticker scan path.
+    for end in range(MIN_BARS_FULL_SCORE, len(df) + 1):
+        window = df.iloc[:end]
+        setup = evaluate_coiled_cobra(window, benchmark, include_rejects=True)
+        if setup is None:
+            continue
+        row = _setup_row(window, symbol, setup)
+        passed = not str(setup["Grade"]).startswith("Rejected")
+        row["Setup Type"] = row["Setup Type"] if passed else None
+        row["Date"] = window["Date"].iloc[-1]
+        row["Passed"] = passed
+        row["BBWidth Pctile"] = setup.get("BBWidth Pctile")
+        row.update({_PILLAR_COLUMNS[k]: v for k, v in setup["Parts"].items()})
+        rows.append(row)
+    return rows
+
+
+def scan_history(
+    bars: pd.DataFrame, benchmark: pd.DataFrame | None, symbol: str, scan_mode: str
+) -> pd.DataFrame:
+    """Every scored bar's scorecard, as ``run_scanner --as-of`` would compute it.
+
+    One row per bar with at least ``MIN_BARS_FULL_SCORE`` bars of history,
+    rejects included: the ``SETUP_ROW_COLUMNS`` of a passing bar dated t equal
+    this ticker's ``run_scanner`` row as of t. Rejected bars have ``Passed``
+    False and no ``Setup Type``. Columns are ``config.COBRA_HISTORY_COLUMNS``.
+
+    Pass bars from :func:`raw.load_raw` and the benchmark's bars for the same
+    mode (later benchmark bars are ignored at each date). Raises ``ValueError``
+    for an unknown mode, no benchmark or too little history. The module's
+    active timeframe is restored afterwards.
+    """
+    if scan_mode not in config.TIMEFRAME_PROFILES:
+        raise ValueError(f"unknown mode: {scan_mode!r}")
+    if benchmark is None or benchmark.empty:
+        raise ValueError("scan_history needs benchmark bars")
+    previous = mode
+    apply_timeframe(scan_mode)
+    try:
+        if len(bars) < MIN_BARS_FULL_SCORE:
+            raise ValueError(f"insufficient bars: {len(bars)} < {MIN_BARS_FULL_SCORE}")
+        rows = _history_rows(add_macro_indicators(bars), benchmark, symbol.upper())
+    finally:
+        apply_timeframe(previous)
+    out = pd.DataFrame(rows).reindex(columns=config.COBRA_HISTORY_COLUMNS)
+    out["Rubric Version"] = config.RUBRIC_VERSION
+    return out
+
+
 def run_scanner(as_of: str | None = None) -> None:
     """Scan the active universe; ``as_of`` (YYYY-MM-DD) replays a past date.
 
@@ -790,52 +904,7 @@ def run_scanner(as_of: str | None = None) -> None:
                 rejection_counts["IGNORE"] = rejection_counts.get("IGNORE", 0) + 1
                 continue
 
-            latest = df.iloc[-1]
-
-            asof = None
-            if "Date" in df.columns:
-                raw_date = latest["Date"]
-                asof = str(raw_date)[:10] if pd.notna(raw_date) else None
-
-            close_v = float(latest["Close"])
-            ema20_v = float(latest["EMA20"])
-            ema50_v = float(latest["EMA50"])
-            atr_v = float(latest["ATR"])
-            fib618_v = float(latest["Fib_618"]) if pd.notna(latest.get("Fib_618")) else None
-            fib786_v = float(latest["Fib_786"]) if pd.notna(latest.get("Fib_786")) else None
-
-            row = config.blank_setup_row()
-            row.update(
-                {
-                    "Symbol": symbol,
-                    "Setup Type": "SETUP_LONG",
-                    "Source": "coiled_cobra",
-                    "Mode": mode,
-                    "AsOf Date": asof,
-                    "Close": round(close_v, 2),
-                    "EMA20": round(ema20_v, 2),
-                    "EMA50": round(ema50_v, 2),
-                    "ATR": round(atr_v, 2),
-                    "RSI": round(float(latest["RSI"]), 2) if pd.notna(latest["RSI"]) else None,
-                    # Local 10-session floor for dual-constraint stops (not year Fib).
-                    "Swing Low": round(local_swing_low(df), 2),
-                    "Notes": setup["Grade"],
-                    "Score": setup["Score"],
-                    "Grade": setup["Grade"],
-                    "Tier": setup.get("Tier"),
-                    "Checks Met": setup["Checks Met"],
-                    "Fib 61.8%": round(fib618_v, 2) if fib618_v is not None else None,
-                    "Fib 78.6%": round(fib786_v, 2) if fib786_v is not None else None,
-                    "Fib Score": setup["Fib Score"],
-                    "MACD": round(float(latest["MACD"]), 2),
-                    "MACD Signal": round(float(latest["MACD_Signal"]), 2),
-                    "RS 63d": setup.get("RS 63d"),
-                    "RVOL": setup.get("RVOL"),
-                    "Market Gate": setup.get("Market Gate"),
-                    "Regime OK": setup.get("Market Gate"),
-                }
-            )
-            results.append(row)
+            results.append(_setup_row(df, symbol, setup))
 
         except Exception:  # per-ticker: one bad file must not stop the scan
             logger.exception(f"Error scoring {symbol}")

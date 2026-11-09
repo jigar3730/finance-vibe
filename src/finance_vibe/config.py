@@ -392,6 +392,21 @@ SETUP_ROW_COLUMNS = [
     "Market Gate",
 ]
 
+# Coiled Cobra scan_history(): one row per scored bar, passes and rejects alike.
+COBRA_HISTORY_COLUMNS = [
+    "Date",
+    *SETUP_ROW_COLUMNS,
+    "Passed",
+    "BBWidth Pctile",
+    "Vol Contraction Points",
+    "Relative Strength Points",
+    "Structure Points",
+    "Volume Shelf Points",
+    "Overhead Clearance Points",
+    "RVOL Trigger Points",
+    "Rubric Version",
+]
+
 
 def blank_setup_row() -> dict[str, Any]:
     """Return a setup-row dict with every schema key present and set to None."""
