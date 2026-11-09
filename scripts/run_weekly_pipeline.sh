@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Run the weekly Finance Vibe pipeline inside the finance_vibe container.
 #
-# Scheduled from the host crontab for Fridays 18:00 America/New_York. This
-# script exits unless it is the 18:00 hour in New York, so the cron line only
-# has to cover that hour in the host's clock:
+# Scheduled from the host crontab for Saturdays 09:00 America/New_York: on
+# Friday evening Yahoo's weekly bar was still missing about a day of volume.
+# This script exits unless it is the 09:00 hour in New York, so the cron line
+# only has to cover that hour in the host's clock:
 #
-#   0 18 * * 5 .../run_weekly_pipeline.sh           # host clock America/New_York
-#   0 22,23 * * 5 .../run_weekly_pipeline.sh        # host clock UTC (EDT and EST)
+#   0 9 * * 6 .../run_weekly_pipeline.sh            # host clock America/New_York
+#   0 13,14 * * 6 .../run_weekly_pipeline.sh        # host clock UTC (EDT and EST)
 #
 # Usage:
 #   scripts/run_weekly_pipeline.sh            # scheduled run (checks the ET hour)
@@ -22,7 +23,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTAINER="${FINANCE_VIBE_CONTAINER:-finance_vibe}"
-RUN_HOUR_ET="18"
+RUN_HOUR_ET="09"
 LOG_DIR="${FINANCE_VIBE_CRON_LOG_DIR:-$HOME/.local/state/finance-vibe}"
 LOCK_FILE="$LOG_DIR/weekly.lock"
 export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"

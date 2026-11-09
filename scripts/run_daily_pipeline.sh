@@ -4,8 +4,7 @@
 #
 # Scheduled from the host crontab for every trading day (Mon-Fri, America/New_York):
 #
-#   18:30 ET  first attempt. Yahoo has usually published the day's close by then;
-#             it also starts after the Friday 18:00 weekly run.
+#   18:30 ET  first attempt. Yahoo has usually published the day's close by then.
 #   22:30 ET  retry, only if the 18:30 run did not pass its health check (Yahoo
 #             sometimes publishes the daily close hours late; on 2026-10-07 it was
 #             still blank at 21:00 ET). When only market-context data failed, the
@@ -82,7 +81,7 @@ if ! flock -n 9; then
 fi
 
 # Both pipelines refresh data/active_tickers.csv, so never overlap a weekly run
-# (e.g. a slow Friday 18:00 run): wait for its lock and hold it while we run.
+# (e.g. one started by hand): wait for its lock and hold it while we run.
 exec 8>"$WEEKLY_LOCK_FILE"
 if ! flock -w "$WEEKLY_WAIT_SECONDS" 8; then
     echo "$(date -Is) weekly run still holds $WEEKLY_LOCK_FILE after ${WEEKLY_WAIT_SECONDS}s; skipping" >> "$log"

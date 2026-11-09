@@ -57,8 +57,9 @@ rows never appear as real past runs, and it refuses to overwrite a finished file
 today's rules say about past bars, not what the scanner reported at the time.
 
 Differences from the real scans are expected. Daily scans see 5 years of bars and the backfill 10,
-which moves some scores by a few points (long-window volume shelf, EMA seeds). The Friday 18:00 weekly
-run also read a newest-week volume about 20% below Yahoo's final figure on 2026-11-06, which moves RVOL.
+which moves some scores by a few points (long-window volume shelf, EMA seeds). Weekly scans run
+before 2026-11-14 ran on Friday 18:00 and read a newest-week volume about 20% below Yahoo's final figure
+on 2026-11-06, which moves RVOL.
 
 ## Pipeline
 
@@ -171,20 +172,20 @@ New York, so the cron line only has to cover that hour in the host's clock:
 # host clock America/New_York (mediabox)
 5 17 * * 1-5     /opt/stacks/finance-vibe/scripts/run_market_close.sh
 30 18,22 * * 1-5 /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
-0 18 * * 5       /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
+0 9 * * 6        /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
 # host clock UTC: fire at every UTC hour those slots can map to (EDT and EST)
 5 21,22 * * 1-5    /opt/stacks/finance-vibe/scripts/run_market_close.sh
 30 22,23,2,3 * * * /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
-0 22,23 * * 5      /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
+0 13,14 * * 6      /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
 ```
 
-- **Weekly: Fridays 18:00 ET.** The ingestor keeps the week's bar once that Friday's
-  close has passed, so a Friday-evening run scans the week that just closed.
+- **Weekly: Saturdays 09:00 ET.** It scans the week that closed on Friday. On Friday evening
+  Yahoo's weekly bar was still short of volume (about 20% on 2026-11-06), which understated RVOL.
 - **Market close: Monday–Friday 17:05 ET.** `run_market_close.sh` runs `data.market_ingest`
   by itself, so the home page has the day's closes without waiting for the scan. A failure
   is only logged (`market_close_<date>.log`), since the 18:30 run downloads the same files.
 - **Daily: Monday–Friday 18:30 ET, retry at 22:30 ET.** Daily bars are final from
-  17:00 ET, and 18:30 starts after the Friday weekly run. Yahoo sometimes publishes the
+  17:00 ET. Yahoo sometimes publishes the
   close late (on 2026-10-07 it was still blank at 21:00 ET), so the 22:30 slot re-runs
   the pipeline unless the 18:30 run passed its health check (it leaves
   `daily_ok_<date>`). If only market-context data failed (it leaves

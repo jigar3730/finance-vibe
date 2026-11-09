@@ -28,7 +28,7 @@ Without uv: `pip install -r requirements.txt` (exported from `uv.lock`) and
 `export PYTHONPATH=src`.
 
 In production the pipeline runs in the `finance_vibe` container on a cron
-schedule (weekly Fridays 18:00 ET, daily 18:30 ET with a 22:30 retry), and
+schedule (weekly Saturdays 09:00 ET, daily 18:30 ET with a 22:30 retry), and
 `docker compose up -d` serves the dashboard on port 5000. See
 [`docs/operations.md`](docs/operations.md).
 
