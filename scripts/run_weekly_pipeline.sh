@@ -24,6 +24,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONTAINER="${FINANCE_VIBE_CONTAINER:-finance_vibe}"
 RUN_HOUR_ET="09"
+DATABASE_TIMEOUT="10m"
 LOG_DIR="${FINANCE_VIBE_CRON_LOG_DIR:-$HOME/.local/state/finance-vibe}"
 LOCK_FILE="$LOG_DIR/weekly.lock"
 export PATH="/usr/local/bin:/usr/bin:/bin:$PATH"
@@ -60,6 +61,14 @@ if [[ "$status" -ne 0 ]]; then
     alert "weekly pipeline FAILED (exit $status)" \
           "pipeline --mode weekly exited with status $status."
     exit "$status"
+fi
+
+# Copy the results into the SQLite database. The CSVs are the record, so a failure
+# here is only logged: the scan still counts and the previous database stays.
+database=0
+docker exec "$CONTAINER" timeout "$DATABASE_TIMEOUT" python -m finance_vibe.data.database rebuild >> "$log" 2>&1 || database=$?
+if [[ "$database" -ne 0 ]]; then
+    echo "$(date -Is) database rebuild FAILED (exit $database); scan results are not affected" >> "$log"
 fi
 
 check=0

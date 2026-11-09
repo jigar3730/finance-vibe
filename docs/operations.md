@@ -82,6 +82,11 @@ Column names are the CSV headers in snake_case (`Fib 61.8%` is `fib_61_8_pct`), 
 are 1/0. A rebuild replaces the file only after row counts match the sources; bad input stops it and
 the old database stays.
 
+The daily and weekly cron runners rebuild it after each successful pipeline run, before the health
+check (about a minute). A failed rebuild adds a `database rebuild FAILED` line to that run's log, sends
+no email and does not fail the run. Replays (`--as-of`) and manual `python -m finance_vibe.pipeline`
+runs do not touch it.
+
 ## Pipeline
 
 ```bash

@@ -39,6 +39,7 @@ CONTAINER="${FINANCE_VIBE_CONTAINER:-finance_vibe}"
 FIRST_HOUR_ET="18"
 RETRY_HOUR_ET="22"
 RUN_TIMEOUT="25m"
+DATABASE_TIMEOUT="10m"
 WEEKLY_WAIT_SECONDS=1800
 LOG_DIR="${FINANCE_VIBE_CRON_LOG_DIR:-$HOME/.local/state/finance-vibe}"
 LOCK_FILE="$LOG_DIR/daily.lock"
@@ -115,6 +116,14 @@ if [[ "$status" -ne 0 ]]; then
     alert "daily pipeline FAILED (exit $status)" \
           "$run_label exited with status $status ($attempt attempt)."
     exit "$status"
+fi
+
+# Copy the results into the SQLite database. The CSVs are the record, so a failure
+# here is only logged: the scan still counts and the previous database stays.
+database=0
+docker exec "$CONTAINER" timeout "$DATABASE_TIMEOUT" python -m finance_vibe.data.database rebuild >> "$log" 2>&1 || database=$?
+if [[ "$database" -ne 0 ]]; then
+    echo "$(date -Is) database rebuild FAILED (exit $database); scan results are not affected" >> "$log"
 fi
 
 check=0
