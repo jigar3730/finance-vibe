@@ -87,6 +87,19 @@ check (about a minute). A failed rebuild adds a `database rebuild FAILED` line t
 no email and does not fail the run. Replays (`--as-of`) and manual `python -m finance_vibe.pipeline`
 runs do not touch it.
 
+### Standard analysis queries
+
+```bash
+python -m finance_vibe.data.analysis [--mode daily|weekly]
+```
+
+`data.analysis` prints what the scanners said and how often: how long each Breakout status lasts, how
+long Cobra qualifying runs last, which gate or pillar blocks most, counts per bar and year, Cobra and
+Breakout overlaps, changes between real runs, and how often each ticker qualified. No forward returns.
+Backfill questions use the newest snapshot and rubric. Length figures leave out runs touching a ticker's
+first or last bar, whose true length is unknown; they are counted as open runs. Both modes take about 30
+seconds.
+
 ## Pipeline
 
 ```bash
