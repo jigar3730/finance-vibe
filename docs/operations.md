@@ -56,6 +56,10 @@ plus a `.json` record (rows, date range, failed tickers). It stays out of `data/
 rows never appear as real past runs, and it refuses to overwrite a finished file. The rows show what
 today's rules say about past bars, not what the scanner reported at the time.
 
+Differences from the real scans are expected. Daily scans see 5 years of bars and the backfill 10,
+which moves some scores by a few points (long-window volume shelf, EMA seeds). The Friday 18:00 weekly
+run also read a newest-week volume about 20% below Yahoo's final figure on 2026-11-06, which moves RVOL.
+
 ## Pipeline
 
 ```bash
