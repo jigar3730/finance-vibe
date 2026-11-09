@@ -111,6 +111,34 @@ RESEARCH_WEEKLY_HORIZON = 4
 RESEARCH_WEEKLY_MIN_HISTORY_BARS = 52
 RESEARCH_WEEKLY_DV_WINDOW = 4
 
+# =====================================================================
+# BACKFILL SNAPSHOT (finance_vibe.research.snapshot; scanners and dashboard ignore it)
+# =====================================================================
+# One frozen 10-year download per dated folder; the universe rule below picks
+# tickers from it without looking at how they performed. Thresholds apply to
+# the whole history. A ticker must pass on both daily and weekly bars.
+BACKFILL_SNAPSHOT_DIR = os.path.join(RESEARCH_DIR, "backfill", "snapshots")
+# S&P 500 members from Wikipedia's constituents table, taken 2026-11-09.
+BACKFILL_SP500_PATH = os.path.join(_CONFIG_DIR, "data", "sp500_tickers.csv")
+BACKFILL_PERIOD = "10y"
+BACKFILL_INTERVALS = {"daily": "1d", "weekly": "1wk"}
+BACKFILL_BENCHMARKS = ("QQQ", "SPY")  # stored for RS, never universe members
+BACKFILL_MIN_YEARS = 10
+BACKFILL_HISTORY_GRACE_DAYS = 14  # Yahoo's "10y" starts within days of the 10-year mark
+BACKFILL_MIN_CLOSE = 5.0
+BACKFILL_DV_WINDOW = 63  # daily bars for the median dollar volume
+BACKFILL_MIN_DOLLAR_VOLUME = 20_000_000.0
+BACKFILL_MAX_MISSING_BARS = 5  # bars absent versus SPY's calendar, after the first bar
+BACKFILL_MAX_INCOHERENT_BARS = 0
+BACKFILL_MAX_ZERO_VOLUME_BARS = 5
+BACKFILL_MAX_FLAT_RUN = 10  # identical closes in a row; shorter runs are thin old trading
+# A big move only counts as bad data on ordinary volume: real news trades heavily.
+BACKFILL_QUIET_VOLUME_X = 2.0  # at most this times the prior 20-bar median volume
+BACKFILL_VOLUME_WINDOW = 20
+BACKFILL_REVERSAL_PCT = 0.10  # a big move undone to within this of the prior close
+BACKFILL_SPLIT_RATIOS = (2, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 50)
+BACKFILL_SPLIT_TOL = 0.03  # relative distance from a whole split ratio
+
 
 def _get_raw_filename(ticker: str, cfg: dict[str, Any]) -> str:
     """Build a standardized raw CSV name, e.g. ``AAPL_10y_1wk.csv``."""

@@ -24,6 +24,24 @@ the dashboard.
 | `data/logs/{weekly,daily}/` | Dated scan outputs and ingest errors |
 | `data/raw/market/`, `data/logs/market/` | Market-context raw CSVs (`*_2y_1d.csv`), their ingest errors and quality reports |
 | `data/live/market_snapshot.json` | Latest live quotes for the market home; never read by a scanner |
+| `data/research/backfill/snapshots/<date>/` | Frozen 10-year bars for the backfill: `daily/`, `weekly/`, `manifest.json` (file hashes), `universe.csv`, `report.md` |
+
+## Backfill snapshot
+
+One frozen download that the backfill always runs on; scanners and the dashboard never read it.
+Candidates are `data/active_tickers.csv` plus `src/finance_vibe/data/sp500_tickers.csv`. QQQ and
+SPY are stored as benchmarks. A dated folder is never changed: Yahoo restates adjusted prices, so
+newer data means a whole new snapshot, not added bars.
+
+```bash
+python -m finance_vibe.research.snapshot download --commit <hash>   # refuses an existing date
+python -m finance_vibe.research.snapshot evaluate <snapshot-dir>    # no download; checks hashes first
+```
+
+The universe rule (`config.BACKFILL_*`): 10 years of history, close at least $5, 63-day median
+dollar volume at least $20M, no funds, and bar quality over the whole history on both timeframes.
+A big move counts as bad data only on ordinary volume. `report.md` lists every exclusion and why.
+The universe is long-lived companies by design, so survivorship bias is accepted here.
 
 ## Pipeline
 
