@@ -166,6 +166,7 @@ Every run: date, commit, what changed, which hypotheses, result. Includes failed
 | 2026-10-27 | weekly addendum commit | Weekly addendum pre-registered (§11) before any weekly forward return was computed. Daily sections unchanged. | W-E1–W-E3 | — |
 | 2026-11-09 | draft commit | Pre-breakout addendum (§12) drafted: Coiled Cobra first pass (C1) and Cobra pass on a PRE_BREAKOUT bar (C2), daily, on the 2026-11-09 backfill snapshot. DRAFT, not frozen. No forward return computed; event counts only (statuses, no prices). | C1–C2 | — |
 | 2026-11-09 | freeze commit | Pre-breakout addendum frozen (§12) as drafted: status set to FROZEN, no change in meaning. No forward return for C1 or C2 computed. | C1–C2 | — |
+| 2026-11-09 | a957fa4 | Blind label run (§12), Coiled Cobra rubric v4.0 and breakout rubric v1.0: `data/research/prebreakout_labels_2026-11-09/` from snapshot `data/research/backfill/snapshots/2026-11-09/` (checked against its `manifest.json`; history file hashes in the run manifest). In-sample events (2020-01-14 → 2026-03-31): C1 15,799, C2 1,847; the point-in-time check removed 345 / 32; labelled C1 15,454, C2 1,815; 20 draws each (none short), 345,380 draws. DQ: 0 missing next open / short window / session gap / SPY missing / missing level; 4 events and 212 draws flagged `split_suspect` (kept). Labels only, no results computed. | C1–C2 | — |
 
 ## 11. Weekly addendum (pre-registered 2026-10-27, before any weekly return)
 
