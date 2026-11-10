@@ -636,6 +636,18 @@ def ticker_search() -> RedirectResponse:
     return redirect(url_for("ticker_runs", symbol=symbol))
 
 
+def _raw_bars(mode: str, symbol: str) -> pd.DataFrame | None:
+    """One ticker's raw bars for ``mode``, or None when the file is missing or unreadable."""
+    path = config.get_raw_path(symbol, config.TIMEFRAME_PROFILES[mode])
+    if not os.path.isfile(path):
+        return None
+    try:
+        return raw.load_raw(path, weekly=mode == "weekly")
+    except (OSError, ValueError) as exc:
+        logger.warning("Bars unavailable for %s %s: %s", mode, symbol, exc)
+        return None
+
+
 @app.route("/runs/ticker/<symbol>")
 def ticker_runs(symbol: str) -> str | RedirectResponse:
     """One ticker across every run: a row per run date and mode, run closes only."""
@@ -647,6 +659,11 @@ def ticker_runs(symbol: str) -> str | RedirectResponse:
     for mode, folder in LOG_DIRS.items():
         hist = playbook.ticker_history(folder, symbol)
         hist["Day"] = [_page_as_of(d) for d in hist["Date"]]
+        bars = _raw_bars(mode, symbol)
+        hist["Spark"] = [  # type: ignore[assignment]
+            playbook.sparkline(playbook.recent_closes(bars, d, weekly=mode == "weekly"), level)
+            for d, level in zip(hist["Date"], hist["Resistance"], strict=True)
+        ]
         history[mode] = {
             "rows": hist.to_dict("records"),
             "total": len(playbook.run_dates(folder)),
@@ -680,7 +697,8 @@ def ticker_runs_csv(symbol: str) -> Response:
         playbook.ticker_history(folder, symbol).assign(Mode=mode)
         for mode, folder in LOG_DIRS.items()
     ]
-    cols = ["Mode", *(c for c in playbook.TICKER_HISTORY_COLUMNS if not c.startswith("in_"))]
+    page_only = playbook.TICKER_HISTORY_PAGE_ONLY
+    cols = ["Mode", *(c for c in playbook.TICKER_HISTORY_COLUMNS if c not in page_only)]
     out = pd.concat(frames, ignore_index=True).reindex(columns=cols)
     return Response(
         out.to_csv(index=False),

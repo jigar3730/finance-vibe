@@ -29,7 +29,9 @@
         <table class="table">
             <thead>
                 <tr>
-                    <th>Run</th><th>Close</th><th>Status</th><th>Readiness</th><th>Trend</th>
+                    <th>Run</th><th>Close</th>
+                    <th>Last 10 <span class="tip" title="Last 10 closes up to the run, raw bars on disk. Dashed line: the run's Resistance (Breakout Triggered is a close above it). Dot: last close, green above Resistance, red at or below.">?</span></th>
+                    <th>Status</th><th>Readiness</th><th>Trend</th>
                     <th>Breakout Distance</th><th>Cobra Score</th><th>Cobra Grade</th><th>Pages</th>
                 </tr>
             </thead>
@@ -38,6 +40,13 @@
                 <tr>
                     <td>{{ r['Day'] }}</td>
                     <td>{{ r['Close']|num }}</td>
+                    <td class="spark-cell">{% set s = r['Spark'] %}{% if s %}
+                        {%- set tip = 'Last ' ~ s.count ~ ' closes to ' ~ r['Day'] ~ ', last ' ~ (s.last|num) ~ (', ' ~ (s.vs_level_pct|signed(2)) ~ '% vs Resistance ' ~ (s.level|num) if s.level is not none else ', no Resistance') %}
+                        <svg class="spark" width="{{ s.width }}" height="{{ s.height }}" viewBox="0 0 {{ s.width }} {{ s.height }}" role="img" aria-label="{{ tip }}"><title>{{ tip }}</title>
+                            {%- if s.level_y is not none %}<line class="spark-level" x1="0" y1="{{ s.level_y }}" x2="{{ s.width }}" y2="{{ s.level_y }}"/>{% endif -%}
+                            <polyline class="spark-line" points="{{ s.points }}"/>
+                            {%- if s.above is not none %}<circle class="spark-last {{ 'up' if s.above else 'down' }}" cx="{{ s.last_x }}" cy="{{ s.last_y }}" r="2.25"/>{% endif -%}
+                        </svg>{% else %}—{% endif %}</td>
                     <td>{{ r['Status']|text }}</td>
                     <td>{{ r['Breakout Readiness']|num(0) }}</td>
                     <td>{{ r['Trend']|text }}</td>

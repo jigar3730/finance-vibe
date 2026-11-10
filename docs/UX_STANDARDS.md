@@ -47,6 +47,9 @@ Rules for every dashboard template and stylesheet (`src/finance_vibe/web/templat
 - Several items with a yes/no fact: small color tiles with the name on hover, not a
   list of text.
 - No charts unless they clearly add something a number or a bar can't.
+- Sparklines: inline SVG, no axes or labels, one muted dashed reference line, numbers in
+  the hover title. Green / red only on the last point, for above / below that line
+  (ticker history "Last 10" vs Resistance).
 
 ## Text
 

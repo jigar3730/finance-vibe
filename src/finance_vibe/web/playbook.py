@@ -18,6 +18,8 @@ from typing import Any
 
 import pandas as pd
 
+from finance_vibe import config
+
 logger = logging.getLogger(__name__)
 
 COBRA_PREFIX = "coiled_cobra_setups_"
@@ -109,11 +111,21 @@ TICKER_HISTORY_COLUMNS = [
     "Breakout Distance",
     "Cobra Score",
     "Cobra Grade",
+    "Resistance",
     "in_breakout",
     "in_cobra",
 ]
+# Page-only columns, left out of the history CSV download.
+TICKER_HISTORY_PAGE_ONLY = ("Resistance", "in_breakout", "in_cobra")
 # Breakout CSV columns copied into the history; Cobra ones are renamed with a prefix.
-_HISTORY_BREAKOUT = ["Close", "Status", "Breakout Readiness", "Trend", "Breakout Distance"]
+_HISTORY_BREAKOUT = [
+    "Close",
+    "Status",
+    "Breakout Readiness",
+    "Trend",
+    "Breakout Distance",
+    "Resistance",
+]
 _HISTORY_COBRA = {"Score": "Cobra Score", "Grade": "Cobra Grade"}
 
 
@@ -159,6 +171,56 @@ def ticker_history(folder: str, symbol: str) -> pd.DataFrame:
             row["Close"] = cb.get("Close", float("nan"))
         rows.append(row)
     return pd.DataFrame(rows, columns=TICKER_HISTORY_COLUMNS)
+
+
+SPARK_CLOSES = 10
+SPARK_WIDTH, SPARK_HEIGHT, SPARK_PAD = 100, 24, 3
+
+
+def recent_closes(
+    bars: pd.DataFrame | None, date: str, *, weekly: bool, n: int = SPARK_CLOSES
+) -> list[float]:
+    """The last ``n`` closes complete on run ``date``, with the scanners' as-of cut."""
+    if bars is None or bars.empty:
+        return []
+    cut = config.cut_to_as_of(bars, date, weekly=weekly)
+    return [float(c) for c in cut["Close"].tail(n)]
+
+
+def sparkline(closes: list[float], level: Any) -> dict[str, Any] | None:
+    """SVG geometry for ``closes`` against one horizontal ``level`` (the trigger line).
+
+    The y range spans the closes and the level, so the line is always in view. None
+    with fewer than two closes. ``above`` is Close > level (Breakout Triggered).
+    """
+    if len(closes) < 2:
+        return None
+    lvl = num(level)
+    values = [*closes, *([lvl] if lvl is not None else [])]
+    lo, hi = min(values), max(values)
+    inner = SPARK_HEIGHT - 2 * SPARK_PAD
+
+    def y(v: float) -> float:
+        if hi == lo:
+            return SPARK_HEIGHT / 2
+        return round(SPARK_PAD + (hi - v) / (hi - lo) * inner, 2)
+
+    step = (SPARK_WIDTH - 2 * SPARK_PAD) / (len(closes) - 1)
+    xs = [round(SPARK_PAD + i * step, 2) for i in range(len(closes))]
+    last = closes[-1]
+    return {
+        "width": SPARK_WIDTH,
+        "height": SPARK_HEIGHT,
+        "points": " ".join(f"{x},{y(c)}" for x, c in zip(xs, closes, strict=True)),
+        "count": len(closes),
+        "last": last,
+        "last_x": xs[-1],
+        "last_y": y(last),
+        "level": lvl,
+        "level_y": None if lvl is None else y(lvl),
+        "above": None if lvl is None else last > lvl,
+        "vs_level_pct": None if not lvl else 100.0 * (last / lvl - 1.0),
+    }
 
 
 def known_symbols(folder: str) -> list[str]:

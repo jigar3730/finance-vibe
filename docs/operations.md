@@ -307,7 +307,7 @@ dashboard and the next scheduled run pick it up.
 | `/setups` | Setups (unproven), by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), since last run (new weekly CONFIRMED, stock list in / out, status-change counts), counts of signals that failed in-sample |
 | `/changes` | Market facts that changed since the previous daily run (SMA50 / SMA200 crossings, new heavy-volume support breaks, growth-vs-dividend label) |
 | `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
-| `/runs/ticker/<SYMBOL>` | One ticker in every saved run (run closes only), with a "Download CSV" link |
+| `/runs/ticker/<SYMBOL>` | One ticker in every saved run (run closes only), with a "Download CSV" link. "Last 10" is an inline SVG of the 10 closes up to each run (raw bars on disk, same as-of cut as the scanners) against that run's Resistance, the trigger line, dashed; the last-close dot is green above it, red at or below. Raw bars are re-downloaded each run and dividend-adjusted, so an old row's line can sit a little off the Close it was scanned with. "—" when the raw file is missing |
 | `/runs/ticker/<SYMBOL>/history.csv` | That history as CSV: one row per mode and run date (`Mode`, `Date`, `Close`, `Status`, `Breakout Readiness`, `Trend`, `Breakout Distance`, `Cobra Score`, `Cobra Grade`) |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
 | `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, Live Price and vs Run Close (% from the run's close; green above / red below; no row highlight) |

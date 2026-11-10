@@ -238,3 +238,47 @@ def test_position_bar_between_support_and_resistance(close, pct, outside):
 def test_position_bar_needs_all_three_levels():
     assert pb.position_bar({"Close": 1.0, "Support": 2.0}) is None
     assert pb.position_bar({"Close": 1.0, "Support": 2.0, "Resistance": 2.0}) is None
+
+
+def _closes(dates, closes):
+    return pd.DataFrame({"Date": pd.to_datetime(dates), "Close": [float(c) for c in closes]})
+
+
+def test_recent_closes_last_n_up_to_the_run_date():
+    days = pd.bdate_range("2026-10-01", periods=15)
+    bars = _closes(days, range(1, 16))
+    assert pb.recent_closes(bars, str(days[11].date()), weekly=False) == [
+        float(c) for c in range(3, 13)
+    ]  # 10 closes ending on the run date, nothing after it
+    assert pb.recent_closes(bars, str(days[2].date()), weekly=False) == [1.0, 2.0, 3.0]
+    assert pb.recent_closes(None, "2026-10-10", weekly=False) == []
+
+
+def test_recent_closes_weekly_skips_the_week_in_progress():
+    mondays = pd.date_range("2026-10-05", periods=4, freq="W-MON")
+    bars = _closes(mondays, [10, 11, 12, 13])
+    # Tuesday 2026-10-27: the week of 10-26 is not complete yet.
+    assert pb.recent_closes(bars, "2026-10-27", weekly=True) == [10.0, 11.0, 12.0]
+    assert pb.recent_closes(bars, "2026-10-30", weekly=True) == [10.0, 11.0, 12.0, 13.0]
+
+
+def test_sparkline_geometry_against_the_level():
+    s = pb.sparkline([10.0, 12.0, 11.0], 14.0)
+    assert s is not None and s["count"] == 3
+    top, bottom = pb.SPARK_PAD, pb.SPARK_HEIGHT - pb.SPARK_PAD
+    assert s["level_y"] == top  # the level is the highest value: top of the box
+    xs, ys = zip(*(map(float, p.split(",")) for p in s["points"].split()), strict=True)
+    assert xs[0] == pb.SPARK_PAD and xs[-1] == pb.SPARK_WIDTH - pb.SPARK_PAD
+    assert ys[0] == bottom  # 10 is the lowest value
+    assert s["above"] is False and s["vs_level_pct"] == pytest.approx(100 * (11 / 14 - 1))
+    assert (s["last_x"], s["last_y"]) == (xs[-1], ys[-1])
+
+
+def test_sparkline_above_flat_no_level_and_too_short():
+    assert pb.sparkline([10.0, 13.0], 12.0)["above"] is True
+    assert pb.sparkline([10.0, 12.0], 12.0)["above"] is False  # at the level is not through
+    flat = pb.sparkline([5.0, 5.0, 5.0], 5.0)
+    assert flat["level_y"] == pb.SPARK_HEIGHT / 2 and flat["last_y"] == pb.SPARK_HEIGHT / 2
+    none = pb.sparkline([1.0, 2.0], float("nan"))
+    assert none["level_y"] is None and none["above"] is None and none["vs_level_pct"] is None
+    assert pb.sparkline([1.0], 2.0) is None and pb.sparkline([], 2.0) is None

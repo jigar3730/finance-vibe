@@ -133,6 +133,36 @@ def test_ticker_runs_one_row_per_run(client, breakout_logs, tmp_path):
     assert 'nav-link active" href="/runs"' in nav
 
 
+def test_ticker_runs_sparkline_closes_against_resistance(
+    client, breakout_logs, tmp_path, monkeypatch
+):
+    profiles = {m: dict(p) for m, p in app_module.config.TIMEFRAME_PROFILES.items()}
+    for mode in profiles:
+        profiles[mode]["raw_dir"] = str(tmp_path / "raw" / mode)
+    monkeypatch.setattr(app_module.config, "TIMEFRAME_PROFILES", profiles)
+    raw_dir = tmp_path / "raw" / "daily"
+    raw_dir.mkdir(parents=True)
+    days = pd.bdate_range(end="2026-09-04", periods=12)
+    closes = [90.0 + i for i in range(12)]  # 90 .. 101, last close 101
+    pd.DataFrame(
+        {"Date": days, "Open": closes, "High": closes, "Low": closes, "Close": closes,
+         "Volume": 1e6}
+    ).to_csv(raw_dir / "AAA_5y_1d.csv", index=False)  # fmt: skip
+    scan = tmp_path / "daily" / "breakout_setups_2026-09-04.csv"
+    df = pd.read_csv(scan).assign(Resistance=[100.0, 60.0, 30.0, 12.0])
+    df.to_csv(scan, index=False)
+    _write_scan(tmp_path / "weekly", "2026-09-04")  # no weekly raw file: a dash
+    body = client.get("/runs/ticker/AAA").get_data(as_text=True)
+    daily = body.split("<h2>Daily</h2>")[1]
+    weekly = body.split("<h2>Weekly</h2>")[1].split("<h2>")[0]
+    assert daily.count('<svg class="spark"') == 1 and "spark-last up" in daily
+    assert 'class="spark-level"' in daily and "<polyline" in daily
+    assert "Last 10 closes to Fri 2026-09-04, last 101.00, +1.00% vs Resistance 100.00" in daily
+    assert "<svg" not in weekly and 'class="spark-cell">—' in weekly
+    csv = client.get("/runs/ticker/AAA/history.csv").get_data(as_text=True)
+    assert "Resistance" not in csv.splitlines()[0]  # page only, the download is unchanged
+
+
 def test_ticker_runs_unknown_lowercase_and_unsafe(client, breakout_logs):
     body = client.get("/runs/ticker/ZZZ").get_data(as_text=True)
     assert "No runs include ZZZ." in body and "asof-badge" not in body

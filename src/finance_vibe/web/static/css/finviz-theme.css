@@ -363,6 +363,13 @@ table.table tr:hover {
 .label { color: var(--finviz-text-muted); }
 td.pos, .pos { color: var(--finviz-green-light); }
 td.neg, .neg { color: var(--finviz-red); }
+/* Sparklines: closes against one level (ticker history) */
+td.spark-cell { padding-top: 4px; padding-bottom: 4px; }
+.spark { display: block; overflow: visible; }
+.spark-line { fill: none; stroke: var(--finviz-text-primary); stroke-width: 1.25; stroke-linejoin: round; stroke-linecap: round; }
+.spark-level { stroke: var(--finviz-text-muted); stroke-width: 1; stroke-dasharray: 2 2; }
+.spark-last.up { fill: var(--finviz-green-light); }
+.spark-last.down { fill: var(--finviz-red); }
 .page-head { display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--finviz-border); margin-bottom: 18px; }
 .page-head h1 { border-bottom: none; margin: 0.5em 0; }
 .asof-badge {
