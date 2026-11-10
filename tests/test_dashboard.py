@@ -517,6 +517,7 @@ def test_home_cards_are_weekly_confirmed_only(client, tmp_path, monkeypatch):
     assert (
         'class="tip"' in heading and "Tested as: buy next open, hold 4 weeks, no stop." in heading
     )
+    assert "Tested on the old scan list (2026-10-27 snapshot" in heading  # not this universe
     head = body.split('class="page-head"')[1].split("</div>")[0]
     assert body.count("asof-badge") == 1 and "Fri 2026-10-30" in head
 
