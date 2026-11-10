@@ -210,9 +210,8 @@ def test_rejects_malformed_panels():
         uv.build_membership(pd.concat([panel, panel.iloc[:1]]))
 
 
-def test_excluded_symbols_constant_covers_static_tickers_and_gdx():
-    assert set(config.STATIC_TICKERS) <= config.RESEARCH_EXCLUDED_SYMBOLS
-    assert "GDX" in config.RESEARCH_EXCLUDED_SYMBOLS
+def test_excluded_symbols_constant_covers_the_universe_funds():
+    assert set(config.UNIVERSE_FUNDS) <= config.RESEARCH_EXCLUDED_SYMBOLS
 
 
 _GOLDEN_DAILY = Path("/app/data/golden/fixture/raw/daily")

@@ -8,7 +8,7 @@ the dashboard.
 
 - Python 3.12 (the Docker image) or 3.13
 - Install from repo root with `uv sync` (or `pip install -r requirements.txt` and `export PYTHONPATH=src`)
-- Core packages: `pandas`, `numpy`, `yfinance`, `yahooquery`, `Flask`. Indicators are in-house (`finance_vibe/indicators.py`).
+- Core packages: `pandas`, `numpy`, `yfinance`, `Flask`. Indicators are in-house (`finance_vibe/indicators.py`).
 
 ## Layout
 
@@ -134,12 +134,9 @@ python -m finance_vibe.scanners.breakout weekly
 
 ### Stages
 
-- **`data.tickers`** (no longer a pipeline stage; removal pending) merges `STATIC_TICKERS` and `UNIVERSE_FUNDS` (`config.py`),
-  the stock watchlist `data/ticker_manifest.csv` (one `Symbol` column) and Yahoo screeners (`SCREENER_IDS`, `SCREENER_COUNT`
-  each) into `data/active_tickers.csv`, capped at `ACTIVE_TICKER_CAP` (1000). If the
-  screeners fail, the static baseline is saved so the pipeline is never blocked.
 - **`data.universe`** (stage 1 since 2026-11-10): the rule-based scan universe; it
-  replaced `data.tickers` and the Yahoo `most_actives` screener. Candidates are `sp500_tickers.csv`, `sp400_tickers.csv`
+  replaced the old `data.tickers` stage (manifest + Yahoo `most_actives` screener, removed
+  2026-11-10). Candidates are `sp500_tickers.csv`, `sp400_tickers.csv`
   and the watchlist; `UNIVERSE_FUNDS` are always members. At a rebuild it downloads
   `UNIVERSE_HISTORY_PERIOD` of daily bars per candidate into `data/universe/bars/`
   (never `data/raw/`; empty or very short downloads are fetched once more) and applies:

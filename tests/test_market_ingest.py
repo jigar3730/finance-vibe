@@ -48,7 +48,7 @@ def test_market_context_has_funds_vix_credit_and_eleven_sectors():
     assert len(config.MARKET_SECTOR_FUNDS) == 11 and set(config.MARKET_SECTOR_FUNDS) <= set(tickers)
     assert {"SPY", "QQQ", "IWM", "RSP", "SCHG", "SCHD"} <= set(tickers)
     # Only the broad funds may also be scanned, and scanners read a different folder.
-    assert set(tickers) & set(config.STATIC_TICKERS) <= set(config.MARKET_INDEX_FUNDS)
+    assert set(tickers) & set(config.UNIVERSE_FUNDS) <= set(config.MARKET_INDEX_FUNDS)
     raw = config.MARKET_CONTEXT_PROFILE["raw_dir"]
     assert raw not in {p["raw_dir"] for p in config.TIMEFRAME_PROFILES.values()}
 

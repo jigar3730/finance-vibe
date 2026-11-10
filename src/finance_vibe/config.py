@@ -61,18 +61,6 @@ def get_mode_config(mode: str | None = None) -> dict[str, Any]:
     return cfg
 
 
-# Always-included symbols merged with manifest and screener output
-STATIC_TICKERS = ["SPY", "QQQ", "IWM", "SCHD", "IBIT", "SCHG"]
-
-# Universe size for data.tickers → data/active_tickers.csv
-ACTIVE_TICKER_CAP = 1000
-# yahooquery Screener IDs merged after the manifest (deduped, then capped)
-SCREENER_IDS = [
-    "most_actives",
-]
-# Per-screener quote count (Yahoo typically caps near 250)
-SCREENER_COUNT = 250
-
 BASE_DIR = os.path.join(PROJECT_ROOT, "data")
 TICKER_LIST_PATH = os.path.join(BASE_DIR, "active_tickers.csv")
 
@@ -119,7 +107,7 @@ RESEARCH_DV_WINDOW = 20
 RESEARCH_MIN_HISTORY_BARS = 252
 RESEARCH_MIN_CLOSE = 5.0
 # Funds and ETPs in the raw pool, reviewed by hand on 2026-10-26 (no quote type is
-# stored offline): STATIC_TICKERS plus GDX. Reviewed and kept as companies: SPCX
+# stored offline): SPY, QQQ, IWM, SCHD, SCHG, IBIT and GDX (now UNIVERSE_FUNDS). Reviewed and kept as companies: SPCX
 # (2026 mega-cap IPO), PURR / MSTR / BMNR / ASST (crypto-treasury corporations),
 # ARCC (BDC), BULL (SPAC history before 2025), ADRs, preferreds, REITs, ET (MLP).
 # Unverified, kept on their price/volume profile: SKYD, INIO, FPS.
