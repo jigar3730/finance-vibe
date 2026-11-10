@@ -22,7 +22,8 @@ dashboard. It produces *signals* for review, not trades.
   membership, `config.RESEARCH_*`), `events` (§3 E1/E2/E3, `history_panel`), `labels` (§4–§5
   forward labels + random/SPY benchmarks, holdout sealed), `stats` + `insample` (§7 scorecard),
   `snapshot` (frozen 10-year backfill data and its rule-based universe, `config.BACKFILL_*`),
-  `backfill` (both scanners' history for every snapshot ticker → `data/research/backfill/history/`).
+  `backfill` (both scanners' history for every snapshot ticker → `data/research/backfill/history/`),
+  `prebreakout` (§12 C1/C2 events, point-in-time check and blind labels; run by `scripts/research_prebreakout_labels.py`).
   Not used by the pipeline.
 - `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home facts and levels, `/runs/ticker/<SYM>` history; `/scan-stats` reads `data/db/analysis_summary.json`), `health.py` (market home: VIX, rates, dollar, credit, sector and scanned-ticker breadth, since last close), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market table and levels, market strip), `templates/`, `static/`
 - `tests/` — pytest suite

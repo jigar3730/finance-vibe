@@ -110,6 +110,11 @@ RESEARCH_WEEKLY_IN_SAMPLE_START = "2016-01-01"
 RESEARCH_WEEKLY_HORIZON = 4
 RESEARCH_WEEKLY_MIN_HISTORY_BARS = 52
 RESEARCH_WEEKLY_DV_WINDOW = 4
+# RESEARCH.md §12 (pre-breakout addendum, daily). Same seal (RESEARCH_IN_SAMPLE_END),
+# horizon, draws, seed and benchmark as §4-§7. Cobra's daily backfill starts 2020-01-13
+# and a first bar needs the bar before it.
+RESEARCH_PREBREAKOUT_IN_SAMPLE_START = "2020-01-14"
+RESEARCH_PREBREAKOUT_SNAPSHOT = "2026-11-09"
 
 # =====================================================================
 # BACKFILL SNAPSHOT (finance_vibe.research.snapshot; scanners and dashboard ignore it)

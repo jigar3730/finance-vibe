@@ -134,6 +134,7 @@ def draw_random(
     seed: int | None = None,
     *,
     weekly: bool = False,
+    start: str | None = None,
 ) -> pd.DataFrame:
     """``n`` date-matched universe members per event: one row per draw.
 
@@ -144,7 +145,7 @@ def draw_random(
     """
     n = config.RESEARCH_RANDOM_DRAWS if n is None else n
     seed = config.RESEARCH_SEED if seed is None else seed
-    check_in_sample(events["Date"], weekly=weekly)
+    check_in_sample(events["Date"], weekly=weekly, start=start)
     pool = members.loc[members["in_universe"], ["Date", "Symbol"]]
     by_date = {d: np.sort(g["Symbol"].to_numpy()) for d, g in pool.groupby("Date", sort=False)}
     rows: list[tuple[object, ...]] = []
@@ -166,14 +167,15 @@ def labels_at(
     horizon: int | None = None,
     *,
     weekly: bool = False,
+    start: str | None = None,
 ) -> pd.DataFrame:
     """Labels, SPY return, REACH10 and DQ flags for (Symbol, Date) ``keys``.
 
-    ``keys`` must be in-sample. A key with no bars for its symbol, or no bar on
+    ``keys`` must be in-sample (``start`` overrides the in-sample start date). A key with no bars for its symbol, or no bar on
     its date, gets NaN labels and ``no_next_open``.
     """
     h = _horizon(horizon, weekly)
-    check_in_sample(keys["Date"], weekly=weekly)
+    check_in_sample(keys["Date"], weekly=weekly, start=start)
     k = keys[["Symbol", "Date"]].drop_duplicates()
     frames = [
         forward_frame(bars[s], h).assign(Symbol=s)
