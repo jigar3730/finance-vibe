@@ -14,7 +14,7 @@ dashboard. It produces *signals* for review, not trades.
 
 - `src/finance_vibe/` — `config`, `log`, `indicators`, `market` (QQQ benchmark,
   RS, Cobra market gate), `pipeline` (orchestrator)
-- `src/finance_vibe/data/` — `tickers`, `ingest` (Yahoo download, both modes),
+- `src/finance_vibe/data/` — `tickers`, `universe` (rule-based scan universe: S&P 500 + 400 + watchlist, quarterly rebuild with join/stay hysteresis → `data/universe/`; built, not yet in `pipeline.STAGES`), `ingest` (Yahoo download, both modes),
   `daily_ingest`, `market_ingest` (broad funds / VIX / HYG / IEF / sector funds → `data/raw/market/`, a folder no scanner reads), `universe_breadth` (counts across the scanned tickers → `data/logs/market/`), `market_snapshot` (live quotes for the market home → `data/live/`, not a pipeline stage), `raw` (the raw CSV loader), `quality` (bar-quality flags → `data_quality_<date>.csv`, never changes scores; also the full-history `bar_stats` / `quality_failures` checks), `database` (SQLite copy of scan outputs → `data/db/`, rebuildable, no scanner reads it), `analysis` (standard descriptive queries over that database)
 - `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout` (each has `scan_history()`:
   every bar's scan result, same rules as the scan)
@@ -29,7 +29,7 @@ dashboard. It produces *signals* for review, not trades.
 - `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home facts and levels, `/runs/ticker/<SYM>` history and its weekly-vs-daily badge (`timeframe_compare`); `/scan-stats` reads `data/db/analysis_summary.json`), `health.py` (market home: VIX, rates, dollar, credit, sector and scanned-ticker breadth, since last close), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market table and levels, market strip), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
-- `data/` — gitignored. `data/raw/{weekly|daily|market}/`, `data/logs/{weekly|daily|market}/`, `data/live/`, `data/active_tickers.csv`, `data/research/`, `data/db/`
+- `data/` — gitignored. `data/raw/{weekly|daily|market}/`, `data/logs/{weekly|daily|market}/`, `data/live/`, `data/active_tickers.csv`, `data/universe/`, `data/research/`, `data/db/`
 - `scripts/` — cron runners, output health checks, test/lint/golden helpers
 
 ## Commands

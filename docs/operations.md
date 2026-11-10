@@ -138,6 +138,24 @@ python -m finance_vibe.scanners.breakout weekly
   the stock watchlist `data/ticker_manifest.csv` (one `Symbol` column) and Yahoo screeners (`SCREENER_IDS`, `SCREENER_COUNT`
   each) into `data/active_tickers.csv`, capped at `ACTIVE_TICKER_CAP` (1000). If the
   screeners fail, the static baseline is saved so the pipeline is never blocked.
+- **`data.universe`** (built, not yet a pipeline stage): the rule-based scan universe
+  that will replace `data.tickers`. Candidates are `sp500_tickers.csv`, `sp400_tickers.csv`
+  and the watchlist; `UNIVERSE_FUNDS` are always members. At a rebuild it downloads
+  `UNIVERSE_HISTORY_PERIOD` of daily bars per candidate into `data/universe/bars/`
+  (never `data/raw/`; empty or very short downloads are fetched once more) and applies:
+  join with at least 252 bars, a current newest bar, close >= 5.00, 63-day median dollar
+  volume >= 20M and no full-history bar-quality failure; a member stays while close
+  >= 4.00 and dollar volume >= 15M, and is removed when it leaves both indexes and the
+  watchlist. A member whose download failed is kept; quality and stale findings on a
+  member are notes, not removals. A rebuild is due on the first run after the third
+  Friday of March, June, September and December (or with `--rebuild`, or when no build
+  exists). More than 10% failed downloads keeps the previous members
+  (`meta.json` `"status": "kept_previous"`). Every run writes `active_tickers.csv` from
+  the members, funds first. Files in `data/universe/`: `members.csv`, `changes.csv`
+  (append-only), `rejected.csv`, `meta.json`. Trial run without touching `data/`:
+  `python -m finance_vibe.data.universe --out /tmp/trial --rebuild`. First trial
+  (2026-11-10): 904 stocks + 7 funds, 6 rejected (AMC under 5.00; FDXF, HONA, VYLR, ROKU,
+  TCBI short history on Yahoo), about 70 s.
 - **`data.ingest`** downloads every active ticker with `yfinance` per
   `TIMEFRAME_PROFILES`, split/dividend-adjusted (`auto_adjust=True`), in batches with
   retry and backoff. It drops the current weekly candle while its week is still

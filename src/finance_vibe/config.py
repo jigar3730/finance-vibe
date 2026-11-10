@@ -100,6 +100,10 @@ UNIVERSE_STAY_CLOSE = 4.0
 UNIVERSE_DV_WINDOW = 63  # daily bars
 UNIVERSE_MIN_BARS = 252  # daily bars of listing history
 UNIVERSE_REBALANCE_MONTHS = (3, 6, 9, 12)
+UNIVERSE_HISTORY_PERIOD = "2y"  # daily bars downloaded per candidate at a rebuild
+# A rebuild with more failed downloads than this share keeps the previous members.
+UNIVERSE_MAX_FAILED_SHARE = 0.10
+UNIVERSE_DIR = os.path.join(BASE_DIR, "universe")  # members, changes, rejected, meta, bars/
 
 # =====================================================================
 # RESEARCH UNIVERSE (finance_vibe.research only; scanners and dashboard ignore it)
