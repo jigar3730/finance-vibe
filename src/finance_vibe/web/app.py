@@ -669,8 +669,17 @@ def ticker_runs(symbol: str) -> str | RedirectResponse:
             "total": len(playbook.run_dates(folder)),
         }
     newest = max((r["Date"] for h in history.values() for r in h["rows"]), default=None)
+    compare = playbook.timeframe_compare(
+        history["weekly"]["rows"],
+        history["daily"]["rows"],
+        latest_runs={m: max(playbook.run_dates(f), default=None) for m, f in LOG_DIRS.items()},
+    )
     return render_template(
-        "ticker_runs.html", symbol=symbol, history=history, as_of=_page_as_of(newest)
+        "ticker_runs.html",
+        symbol=symbol,
+        history=history,
+        compare=compare,
+        as_of=_page_as_of(newest),
     )
 
 

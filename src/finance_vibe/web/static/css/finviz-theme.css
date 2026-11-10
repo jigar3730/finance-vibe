@@ -370,7 +370,7 @@ td.spark-cell { padding-top: 4px; padding-bottom: 4px; }
 .spark-level { stroke: var(--finviz-text-muted); stroke-width: 1; stroke-dasharray: 2 2; }
 .spark-last.up { fill: var(--finviz-green-light); }
 .spark-last.down { fill: var(--finviz-red); }
-.page-head { display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--finviz-border); margin-bottom: 18px; }
+.page-head { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; border-bottom: 1px solid var(--finviz-border); margin-bottom: 18px; }
 .page-head h1 { border-bottom: none; margin: 0.5em 0; }
 .asof-badge {
     padding: 4px 12px;
@@ -380,6 +380,17 @@ td.spark-cell { padding-top: 4px; padding-bottom: 4px; }
     color: var(--finviz-text-strong);
     font-size: 0.9rem;
 }
+
+/* Ticker history: newest weekly vs newest daily row (neutral, facts only) */
+.tf-badge {
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--finviz-border);
+    color: var(--finviz-text-strong);
+    font-family: var(--finviz-font-mono);
+    font-size: 0.9rem;
+}
+.tf-sep { color: var(--finviz-text-muted); padding: 0 4px; }
 
 /* Runs: ticker search */
 .ticker-search { display: flex; gap: 8px; margin: 0 0 20px; }

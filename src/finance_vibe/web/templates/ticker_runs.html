@@ -4,6 +4,19 @@
     <a class="back" href="{{ url_for('runs') }}">← Back to runs</a>
     <div class="page-head">
         <h1>{{ symbol }} <span class="tip" title="This ticker in every saved run: breakout status and readiness from the breakout scan, Cobra Score only on days it qualified. Run closes, not live prices.">?</span></h1>
+        {% if compare %}{% set w, d = compare.weekly, compare.daily %}
+        {%- set tf_tip = 'Newest weekly row (' ~ (w.day if w else 'none') ~ ') vs newest daily row (' ~ (d.day if d else 'none') ~ '). = same Status name, ≠ different. Readiness difference is weekly minus daily.' %}
+        <span class="tf-badge" title="{{ tf_tip }}">
+            {%- if compare.status_same is true %}= {{ w.status }}
+            {%- elif compare.status_same is false %}≠ W: {{ w.status }} · D: {{ d.status }}
+            {%- else %}W: {{ (w.status if w else none)|text }} · D: {{ (d.status if d else none)|text }}{% endif %}
+            <span class="tf-sep">|</span> Readiness W {{ (w.readiness if w else none)|num(0) }} · D {{ (d.readiness if d else none)|num(0) }}{% if compare.readiness_diff is not none %} ({{ compare.readiness_diff|signed(0) }}){% endif %}
+            <span class="tf-sep">|</span> Cobra {{ compare.cobra }}{% if compare.cobra != 'neither' %} ({% if w and w.cobra is not none %}W {{ w.cobra|num(0) }}{% endif %}{% if compare.cobra == 'both' %} · {% endif %}{% if d and d.cobra is not none %}D {{ d.cobra|num(0) }}{% endif %}){% endif %}
+        </span>
+        {%- for label, side in [('weekly', w), ('daily', d)] if side and side.stale %}
+        <span class="warn plain">⚠ {{ label }} row from {{ side.day }}</span>
+        {%- endfor %}
+        {% endif %}
         {% if as_of %}<span class="asof-badge">as of {{ as_of }}</span>{% endif %}
         <a class="ticker-link" href="https://finviz.com/quote.ashx?t={{ symbol }}" target="_blank" rel="noopener noreferrer">Finviz ↗</a>
         {% if history.values()|map(attribute='rows')|select|list %}<a class="ticker-link" href="{{ url_for('ticker_runs_csv', symbol=symbol) }}" download title="Every run of {{ symbol }} in both modes, one row per run. Run closes only.">Download CSV</a>{% endif %}

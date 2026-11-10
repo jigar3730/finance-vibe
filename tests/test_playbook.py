@@ -135,6 +135,54 @@ def test_ticker_history_unknown_ticker_or_folder_is_empty(tmp_path):
     assert pb.ticker_history(str(tmp_path / "missing"), "B").empty
 
 
+def _hrow(date, status="PRE_BREAKOUT", readiness=70, cobra=float("nan")):
+    return {"Date": date, "Day": f"Day {date}", "Status": status,
+            "Breakout Readiness": readiness, "Cobra Score": cobra}  # fmt: skip
+
+
+def test_timeframe_compare_same_status_and_readiness_difference():
+    weekly = [_hrow("2026-09-04", readiness=72, cobra=82), _hrow("2026-08-28", "WATCH")]
+    daily = [_hrow("2026-09-05", readiness=65)]
+    out = pb.timeframe_compare(
+        weekly, daily, latest_runs={"weekly": "2026-09-04", "daily": "2026-09-05"}
+    )
+    assert out["status_same"] is True
+    assert out["readiness_diff"] == 7.0
+    assert out["cobra"] == "weekly only"
+    assert out["weekly"]["cobra"] == 82.0 and out["daily"]["cobra"] is None
+    assert out["weekly"]["day"] == "Day 2026-09-04"
+    assert not out["weekly"]["stale"] and not out["daily"]["stale"]
+
+
+def test_timeframe_compare_exact_names_not_groups():
+    out = pb.timeframe_compare(
+        [_hrow("2026-09-04", "BREAKOUT_CONFIRMED", cobra=80)],
+        [_hrow("2026-09-05", "BREAKOUT_TRIGGERED", cobra=75)],
+    )
+    assert out["status_same"] is False and out["cobra"] == "both"
+
+
+def test_timeframe_compare_stale_and_missing_sides():
+    out = pb.timeframe_compare(
+        [_hrow("2026-08-28")], [], latest_runs={"weekly": "2026-09-04", "daily": "2026-09-05"}
+    )
+    assert out["weekly"]["stale"] and out["daily"] is None
+    assert out["status_same"] is None and out["readiness_diff"] is None
+    assert out["cobra"] == "neither"
+    only_daily = pb.timeframe_compare([], [_hrow("2026-09-05", cobra=90)])
+    assert only_daily["weekly"] is None and only_daily["cobra"] == "daily only"
+    assert pb.timeframe_compare([], []) is None
+
+
+def test_timeframe_compare_cobra_only_row_has_no_status():
+    out = pb.timeframe_compare(
+        [_hrow("2026-09-04", status=float("nan"), readiness=float("nan"), cobra=88)],
+        [_hrow("2026-09-05")],
+    )
+    assert out["weekly"]["status"] is None and out["status_same"] is None
+    assert out["readiness_diff"] is None and out["cobra"] == "weekly only"
+
+
 def test_known_symbols_from_the_newest_breakout_run(tmp_path):
     pd.DataFrame([_bo("old", "PRE_BREAKOUT", 10)]).to_csv(
         tmp_path / "breakout_setups_2026-10-19.csv", index=False

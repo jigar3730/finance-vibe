@@ -173,6 +173,59 @@ def ticker_history(folder: str, symbol: str) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=TICKER_HISTORY_COLUMNS)
 
 
+def _compare_side(rows: list[dict[str, Any]], latest_run: str | None) -> dict[str, Any] | None:
+    """The newest history row of one mode, reduced to what the comparison shows."""
+    if not rows:
+        return None
+    row = rows[0]
+    status = row.get("Status")
+    return {
+        "date": row["Date"],
+        "day": row.get("Day") or row["Date"],
+        "status": status if isinstance(status, str) and status.strip() else None,
+        "readiness": num(row.get("Breakout Readiness")),
+        "cobra": num(row.get("Cobra Score")),
+        "stale": latest_run is not None and row["Date"] < latest_run,
+    }
+
+
+def timeframe_compare(
+    weekly_rows: list[dict[str, Any]],
+    daily_rows: list[dict[str, Any]],
+    *,
+    latest_runs: dict[str, str | None] | None = None,
+) -> dict[str, Any] | None:
+    """Newest weekly row against newest daily row (both newest first), facts only.
+
+    ``status_same`` is an exact Status-name match (None when either side has no
+    Status); ``readiness_diff`` is weekly minus daily. A side is ``stale`` when its
+    row is older than that mode's newest run (``latest_runs``). None with no rows.
+    """
+    latest = latest_runs or {}
+    weekly = _compare_side(weekly_rows, latest.get("weekly"))
+    daily = _compare_side(daily_rows, latest.get("daily"))
+    if weekly is None and daily is None:
+        return None
+    statuses = [s["status"] if s else None for s in (weekly, daily)]
+    same = None if None in statuses else statuses[0] == statuses[1]
+    readiness = [s["readiness"] if s else None for s in (weekly, daily)]
+    diff = None if None in readiness else readiness[0] - readiness[1]  # type: ignore[operator]
+    qualified = [bool(s and s["cobra"] is not None) for s in (weekly, daily)]
+    cobra = {
+        (True, True): "both",
+        (True, False): "weekly only",
+        (False, True): "daily only",
+        (False, False): "neither",
+    }[(qualified[0], qualified[1])]
+    return {
+        "weekly": weekly,
+        "daily": daily,
+        "status_same": same,
+        "readiness_diff": diff,
+        "cobra": cobra,
+    }
+
+
 SPARK_CLOSES = 10
 SPARK_WIDTH, SPARK_HEIGHT, SPARK_PAD = 100, 24, 3
 

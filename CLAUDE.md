@@ -26,7 +26,7 @@ dashboard. It produces *signals* for review, not trades.
   `prebreakout` (§12 C1/C2 events, point-in-time check and blind labels; run by `scripts/research_prebreakout_labels.py`),
   `prebreakout_insample` (§12 scorecard; `scripts/prebreakout_insample_report.py`, run once).
   Not used by the pipeline.
-- `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home facts and levels, `/runs/ticker/<SYM>` history; `/scan-stats` reads `data/db/analysis_summary.json`), `health.py` (market home: VIX, rates, dollar, credit, sector and scanned-ticker breadth, since last close), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market table and levels, market strip), `templates/`, `static/`
+- `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home facts and levels, `/runs/ticker/<SYM>` history and its weekly-vs-daily badge (`timeframe_compare`); `/scan-stats` reads `data/db/analysis_summary.json`), `health.py` (market home: VIX, rates, dollar, credit, sector and scanned-ticker breadth, since last close), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market table and levels, market strip), `templates/`, `static/`
 - `tests/` — pytest suite
 - `docs/` — `coiled_cobra.md`, `breakout.md` (scanner specs), `operations.md`
 - `data/` — gitignored. `data/raw/{weekly|daily|market}/`, `data/logs/{weekly|daily|market}/`, `data/live/`, `data/active_tickers.csv`, `data/research/`, `data/db/`

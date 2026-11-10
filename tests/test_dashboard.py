@@ -124,7 +124,8 @@ def test_ticker_runs_one_row_per_run(client, breakout_logs, tmp_path):
     assert body.count("asof-badge") == 1 and "as of Sat 2026-09-05" in body
     assert "2 of 2" in body and "1 of 1" in body
     assert "Sat 2026-09-05" in body and "Fri 2026-09-04" in body
-    assert body.index("Sat 2026-09-05") < body.index("Fri 2026-09-04")  # newest first
+    daily = body.split("<h2>Daily</h2>")[1]
+    assert daily.index("Sat 2026-09-05") < daily.index("Fri 2026-09-04")  # newest first
     assert "/cobra/daily/2026-09-05" in body and "/cobra/daily/2026-09-04" not in body
     assert "/breakout/weekly/2026-09-04?show=all" in body
     assert "PRE_BREAKOUT" in body and "88" in body and "100.00" in body
@@ -161,6 +162,39 @@ def test_ticker_runs_sparkline_closes_against_resistance(
     assert "<svg" not in weekly and 'class="spark-cell">—' in weekly
     csv = client.get("/runs/ticker/AAA/history.csv").get_data(as_text=True)
     assert "Resistance" not in csv.splitlines()[0]  # page only, the download is unchanged
+
+
+def _badge(body):
+    """The badge's visible text, without its title tooltip."""
+    return body.split('class="tf-badge"')[1].split('">', 1)[1].split("</span>\n")[0]
+
+
+def test_ticker_runs_timeframe_badge_same_status(client, breakout_logs, tmp_path):
+    _write_scan(tmp_path / "weekly", "2026-09-04")
+    body = client.get("/runs/ticker/AAA").get_data(as_text=True)
+    badge = _badge(body)
+    assert "= PRE_BREAKOUT" in badge and "≠" not in badge
+    assert "Readiness W 83 · D 83 (+0)" in badge and "Cobra neither" in badge
+    assert "⚠" not in body
+
+
+def test_ticker_runs_timeframe_badge_differs_and_stale(client, breakout_logs, tmp_path):
+    weekly = tmp_path / "weekly"
+    weekly.mkdir()
+    pd.DataFrame(
+        [{"Symbol": "AAA", "Status": "FAILED_BREAKOUT", "Close": 99.0, "Breakout Readiness": 40}]
+    ).to_csv(weekly / "breakout_setups_2026-08-28.csv", index=False)
+    pd.DataFrame([{"Symbol": "ZZZ", "Status": "WATCH", "Close": 1.0}]).to_csv(
+        weekly / "breakout_setups_2026-09-04.csv", index=False
+    )  # newest weekly run has no AAA row
+    pd.DataFrame([{"Symbol": "AAA", "Score": 88, "Grade": "A", "Close": 100.0}]).to_csv(
+        tmp_path / "daily" / "coiled_cobra_setups_2026-09-04.csv", index=False
+    )
+    body = client.get("/runs/ticker/AAA").get_data(as_text=True)
+    badge = _badge(body)
+    assert "≠ W: FAILED_BREAKOUT · D: PRE_BREAKOUT" in badge
+    assert "Readiness W 40 · D 83 (-43)" in badge and "Cobra daily only (D 88)" in badge
+    assert "⚠ weekly row from Fri 2026-08-28" in body and "⚠ daily" not in body
 
 
 def test_ticker_runs_unknown_lowercase_and_unsafe(client, breakout_logs):
