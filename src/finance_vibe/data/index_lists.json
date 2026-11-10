@@ -1,0 +1,14 @@
+{
+  "sp400": {
+    "count": 400,
+    "file": "sp400_tickers.csv",
+    "source": "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies",
+    "taken": "2026-11-10"
+  },
+  "sp500": {
+    "count": 503,
+    "file": "sp500_tickers.csv",
+    "source": "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+    "taken": "2026-11-10"
+  }
+}

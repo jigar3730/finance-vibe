@@ -60,7 +60,7 @@ src/finance_vibe/
   indicators.py       EMA/SMA/RSI/ATR/MACD/BB/KC/OBV (pandas-ta 0.4.71b0 semantics)
   market.py           QQQ benchmark frame, relative strength, Cobra market gate
   pipeline.py         orchestrator (python -m finance_vibe.pipeline)
-  data/               tickers.py, ingest.py, daily_ingest.py, market_ingest.py, market_snapshot.py, universe_breadth.py, raw.py, quality.py, ticker_manifest.csv
+  data/               tickers.py, ingest.py, daily_ingest.py, market_ingest.py, market_snapshot.py, universe_breadth.py, raw.py, quality.py, ticker_manifest.csv (stock watchlist), sp500_tickers.csv / sp400_tickers.csv + index_lists.json (scripts/refresh_index_lists.py)
   scanners/           coiled_cobra.py, breakout.py
   web/                app.py, playbook.py (Setups page sections, Market rows, Runs ticker history), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers

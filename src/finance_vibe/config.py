@@ -77,6 +77,31 @@ BASE_DIR = os.path.join(PROJECT_ROOT, "data")
 TICKER_LIST_PATH = os.path.join(BASE_DIR, "active_tickers.csv")
 
 # =====================================================================
+# SCAN UNIVERSE (finance_vibe.data.universe; replaces the screener list)
+# =====================================================================
+# Candidates: S&P 500 + S&P 400 (Wikipedia, scripts/refresh_index_lists.py, dated
+# in index_lists.json) plus the stock watchlist in ticker_manifest.csv. Every
+# candidate, watchlist included, must pass the same rules. Rebuilt once a quarter,
+# on the first run after the third Friday of a rebalance month; between rebuilds
+# the members do not change. Hysteresis: a non-member joins at the JOIN levels, a
+# member stays while it holds the STAY levels, so names near a line don't flicker.
+_DATA_PKG_DIR = os.path.join(_CONFIG_DIR, "data")
+SP500_TICKERS_PATH = os.path.join(_DATA_PKG_DIR, "sp500_tickers.csv")
+SP400_TICKERS_PATH = os.path.join(_DATA_PKG_DIR, "sp400_tickers.csv")
+INDEX_LISTS_META_PATH = os.path.join(_DATA_PKG_DIR, "index_lists.json")
+WATCHLIST_PATH = os.path.join(_DATA_PKG_DIR, "ticker_manifest.csv")
+# Funds: always members (RS uses QQQ; the market strip reads SPY / QQQ / SCHG / SCHD
+# rows from the scan), tagged "fund" and left out of stock counts and breadth.
+UNIVERSE_FUNDS = ("SPY", "QQQ", "IWM", "SCHD", "SCHG", "IBIT", "GDX")
+UNIVERSE_JOIN_DOLLAR_VOLUME = 20_000_000.0  # median Close x Volume over the window
+UNIVERSE_STAY_DOLLAR_VOLUME = 15_000_000.0
+UNIVERSE_JOIN_CLOSE = 5.0
+UNIVERSE_STAY_CLOSE = 4.0
+UNIVERSE_DV_WINDOW = 63  # daily bars
+UNIVERSE_MIN_BARS = 252  # daily bars of listing history
+UNIVERSE_REBALANCE_MONTHS = (3, 6, 9, 12)
+
+# =====================================================================
 # RESEARCH UNIVERSE (finance_vibe.research only; scanners and dashboard ignore it)
 # =====================================================================
 # Point-in-time membership at date t uses only bars on or before t: a ticker is
@@ -127,8 +152,11 @@ DATABASE_PATH = os.path.join(BASE_DIR, "db", "finance_vibe.sqlite")  # derived; 
 ANALYSIS_SUMMARY_PATH = os.path.join(BASE_DIR, "db", "analysis_summary.json")  # for /scan-stats
 BACKFILL_HISTORY_DIR = os.path.join(RESEARCH_DIR, "backfill", "history")
 BACKFILL_WORKERS = 3  # leaves one of the host's four cores for everything else
-# S&P 500 members from Wikipedia's constituents table, taken 2026-11-09.
-BACKFILL_SP500_PATH = os.path.join(_CONFIG_DIR, "data", "sp500_tickers.csv")
+# S&P 500 members from Wikipedia (first taken 2026-11-09 for the backfill; refreshed by
+# scripts/refresh_index_lists.py, dated in index_lists.json).
+# Same file as the scan universe. The snapshot's manifest.json keeps the exact list it
+# requested, so refreshing it later does not change the frozen backfill.
+BACKFILL_SP500_PATH = SP500_TICKERS_PATH
 BACKFILL_PERIOD = "10y"
 BACKFILL_INTERVALS = {"daily": "1d", "weekly": "1wk"}
 BACKFILL_BENCHMARKS = ("QQQ", "SPY")  # stored for RS, never universe members

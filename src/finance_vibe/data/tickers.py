@@ -47,7 +47,9 @@ def refresh_active_tickers() -> None:
         logger.warning(f"Manifest not found at {MANIFEST_PATH}")
 
     # 2. Add Static Tickers from config.py (priority baseline)
-    static_tickers = _normalize_symbols(set(static_tickers + config.STATIC_TICKERS))
+    static_tickers = _normalize_symbols(
+        set(static_tickers + config.STATIC_TICKERS + list(config.UNIVERSE_FUNDS))
+    )
     logger.info(f"📌 Priority baseline (manifest + STATIC_TICKERS): {len(static_tickers)}")
 
     # 3. Discover Active Tickers via Screener

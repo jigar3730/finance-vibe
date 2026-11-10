@@ -134,8 +134,8 @@ python -m finance_vibe.scanners.breakout weekly
 
 ### Stages
 
-- **`data.tickers`** merges `STATIC_TICKERS` (`config.py`),
-  `data/ticker_manifest.csv` and Yahoo screeners (`SCREENER_IDS`, `SCREENER_COUNT`
+- **`data.tickers`** merges `STATIC_TICKERS` and `UNIVERSE_FUNDS` (`config.py`),
+  the stock watchlist `data/ticker_manifest.csv` (one `Symbol` column) and Yahoo screeners (`SCREENER_IDS`, `SCREENER_COUNT`
   each) into `data/active_tickers.csv`, capped at `ACTIVE_TICKER_CAP` (1000). If the
   screeners fail, the static baseline is saved so the pipeline is never blocked.
 - **`data.ingest`** downloads every active ticker with `yfinance` per
@@ -502,8 +502,16 @@ run"). The old `/changes?show=all` link redirects to `/setups?show=all#since-las
   and BLS calendars named there. The lists run through December 2027. Check them if a release
   is rescheduled, as the BLS calendar can change. `tests/test_market_events.py` checks each
   date falls on a trading day of the expected weekday where one applies.
-- **Add tickers:** edit `STATIC_TICKERS` in `config.py` or add rows to
-  `src/finance_vibe/data/ticker_manifest.csv`.
+- **Add tickers:** add stocks to the watchlist `src/finance_vibe/data/ticker_manifest.csv`
+  (one `Symbol` column, no funds) or funds to `UNIVERSE_FUNDS` in `config.py`.
+- **Refresh the index lists (quarterly):** before each rebalance-month rebuild (third Friday
+  of March, June, September, December) run `python3 scripts/refresh_index_lists.py --dry-run`
+  on the host (standard library only), review the joins and leaves it prints, then run it
+  without `--dry-run` and commit `sp500_tickers.csv`, `sp400_tickers.csv` and
+  `index_lists.json` (date taken, count, source). It refuses a list far from its index size.
+  The backfill snapshot keeps its own record of the S&P 500 list it requested, so this does
+  not change it. The `UNIVERSE_*` values in `config.py` (join $20M / $5, stay $15M / $4,
+  63-day window, 252 bars) are for the coming universe stage and not used yet.
 - **Change lookback or cadence:** edit `TIMEFRAME_PROFILES` in `config.py`.
 - **Change scanner rules:** edit `evaluate_coiled_cobra()` in `scanners/coiled_cobra.py`
   (update [`coiled_cobra.md`](coiled_cobra.md) and bump `config.RUBRIC_VERSION` when
