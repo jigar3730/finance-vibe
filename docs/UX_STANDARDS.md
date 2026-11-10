@@ -35,6 +35,8 @@ Rules for every dashboard template and stylesheet (`src/finance_vibe/web/templat
 - Exception: while the market home shows live quotes, its one badge gives both times:
   "as of 10:25 ET · last close Wed 2026-11-04". Overdue quotes get "⚠ quotes N min old"
   beside it. A row or tile without a current quote gets "⚠ no quote" or "⚠ quote N min old".
+- Exception: the ticker page header has one Live tile (live quote and % vs the newest run
+  close; that close and its date in the hover title). The page keeps its one run-date badge.
 - Explanations only as short `?` tooltips (the `title` attribute), and only where a
   term needs explaining (HYG/IEF, RS vs SPY).
 - How far to trust a section (backtest result, untested, failed) is one `?` tooltip

@@ -129,7 +129,11 @@ def test_ticker_runs_one_row_per_run(client, breakout_logs, tmp_path):
     assert "/cobra/daily/2026-09-05" in body and "/cobra/daily/2026-09-04" not in body
     assert "/breakout/weekly/2026-09-04?show=all" in body
     assert "PRE_BREAKOUT" in body and "88" in body and "100.00" in body
-    assert "95.00" not in body  # run closes only, no live price
+    tile = body.split('class="live-tile"')[1].split("</h1>")[0] if "live-tile" in body else ""
+    assert "95.00" in tile and '<span class="neg">-5.00%</span>' in tile  # vs daily close 100
+    assert "daily run close 100.00 on Sat 2026-09-05" in tile
+    rows = body.split("<tbody>")[1]
+    assert "95.00" not in rows  # the table stays on run closes
     nav = body.split('class="top-nav"')[1].split("</nav>")[0]
     assert 'nav-link active" href="/runs"' in nav
 
@@ -197,9 +201,24 @@ def test_ticker_runs_timeframe_badge_differs_and_stale(client, breakout_logs, tm
     assert "⚠ weekly row from Fri 2026-08-28" in body and "⚠ daily" not in body
 
 
+def test_ticker_runs_live_tile_no_quote_and_weekly_fallback(
+    client, breakout_logs, tmp_path, monkeypatch
+):
+    body = client.get("/runs/ticker/DDD").get_data(as_text=True)  # DDD quote is N/A
+    assert "⚠ no quote" in body and "live-tile" not in body
+    weekly = tmp_path / "weekly"
+    weekly.mkdir()
+    pd.DataFrame([{"Symbol": "WWW", "Status": "WATCH", "Close": 50.0}]).to_csv(
+        weekly / "breakout_setups_2026-09-04.csv", index=False
+    )
+    monkeypatch.setattr(app_module, "_fetch_live_prices", lambda syms: {"WWW": 55.0})
+    body = client.get("/runs/ticker/WWW").get_data(as_text=True)
+    assert '<span class="pos">+10.00%</span>' in body and "weekly run close 50.00" in body
+
+
 def test_ticker_runs_unknown_lowercase_and_unsafe(client, breakout_logs):
     body = client.get("/runs/ticker/ZZZ").get_data(as_text=True)
-    assert "No runs include ZZZ." in body and "asof-badge" not in body
+    assert "No runs include ZZZ." in body and "asof-badge" not in body and "live-tile" not in body
     lower = client.get("/runs/ticker/aaa")
     assert lower.status_code == 302 and lower.headers["Location"].endswith("/runs/ticker/AAA")
     assert client.get("/runs/ticker/A%20B").status_code == 404

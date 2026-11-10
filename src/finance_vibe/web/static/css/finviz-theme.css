@@ -390,6 +390,15 @@ td.spark-cell { padding-top: 4px; padding-bottom: 4px; }
     font-family: var(--finviz-font-mono);
     font-size: 0.9rem;
 }
+.live-tile {
+    padding: 4px 12px;
+    border-radius: 12px;
+    border: 1px solid var(--finviz-border);
+    color: var(--finviz-text-strong);
+    font-family: var(--finviz-font-mono);
+    font-size: 1rem;
+    font-weight: 700;
+}
 .tf-sep { color: var(--finviz-text-muted); padding: 0 4px; }
 
 /* Runs: ticker search */

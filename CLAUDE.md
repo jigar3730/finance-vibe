@@ -91,7 +91,9 @@ If a doc disagrees with `pipeline.py` or `config.py`, the code wins.
   float64 prices and the as-of cut in one place), never a bare `read_csv`.
 - **Signals, not advice.** Keep scanner output informational. The home page
   (`/`) is market facts only: no buy/sell or risk-on/off rule without a backtest. It may
-  overlay live quotes; every other page and every scanner uses closed bars only.
+  overlay live quotes. The Cobra / Breakout run views (a live column) and the ticker
+  page (one Live tile in the header) also show live quotes; every other number, every
+  page's tables and every scanner use closed bars only.
   The Setups page (`/setups`, `web/playbook.py`) sorts signals by research evidence and shows
   support / resistance as context only (no trigger, stop or targets); don't add
   options metadata or position sizing without being asked.

@@ -3,7 +3,12 @@
 {% block content %}
     <a class="back" href="{{ url_for('runs') }}">← Back to runs</a>
     <div class="page-head">
-        <h1>{{ symbol }} <span class="tip" title="This ticker in every saved run: breakout status and readiness from the breakout scan, Cobra Score only on days it qualified. Run closes, not live prices.">?</span></h1>
+        <h1>{{ symbol }} <span class="tip" title="This ticker in every saved run: breakout status and readiness from the breakout scan, Cobra Score only on days it qualified. Only the Live tile is a live quote; everything else is run closes.">?</span></h1>
+        {% if live %}
+        {%- if live.price is none %}<span class="warn plain">⚠ no quote</span>
+        {%- else %}<span class="live-tile" title="Live quote (cached up to 60 s) vs the {{ live.mode }} run close {{ live.close|num }} on {{ live.day }}"><span class="label">Live</span> {{ live.price|num }}{% if live.pct is not none %} <span class="{{ 'pos' if live.pct > 0 else 'neg' if live.pct < 0 else 'label' }}">{{ live.pct|signed(2) }}%</span>{% endif %}</span>
+        {%- endif %}
+        {% endif %}
         {% if compare %}{% set w, d = compare.weekly, compare.daily %}
         {%- set tf_tip = 'Newest weekly row (' ~ (w.day if w else 'none') ~ ') vs newest daily row (' ~ (d.day if d else 'none') ~ '). = same Status name, ≠ different. Readiness difference is weekly minus daily.' %}
         <span class="tf-badge" title="{{ tf_tip }}">

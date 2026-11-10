@@ -679,8 +679,26 @@ def ticker_runs(symbol: str) -> str | RedirectResponse:
         symbol=symbol,
         history=history,
         compare=compare,
+        live=_ticker_live(symbol, history),
         as_of=_page_as_of(newest),
     )
+
+
+def _ticker_live(symbol: str, history: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
+    """The header's live quote vs the newest run close (daily first, else weekly).
+
+    None when no run lists ``symbol``; ``price`` is None when no quote came back.
+    """
+    for mode in ("daily", "weekly"):
+        rows = history[mode]["rows"]
+        close = playbook.num(rows[0]["Close"]) if rows else None
+        if close is not None:
+            break
+    else:
+        return None
+    price = _live_value(_fetch_live_prices([symbol]).get(symbol))
+    pct = None if price is None or not close else 100.0 * (price / close - 1.0)
+    return {"price": price, "pct": pct, "close": close, "mode": mode, "day": rows[0]["Day"]}
 
 
 # Scanner name in a download URL -> CSV prefix in the mode's log silo.
