@@ -32,6 +32,8 @@ def _cobra(symbol, day, passed, grade="B - Watch", snapshot="2026-11-09", **poin
         "volume_shelf_points": 10,
         "overhead_clearance_points": 10,
         "rvol_trigger_points": 5,
+        "score": points.get("score", 75.0),
+        "checks_met": points.get("checks", "4/6"),
     }
 
 
@@ -236,4 +238,71 @@ def test_write_summary_saves_plain_json(conn, tmp_path, monkeypatch):
     assert daily["durations"][0]["Status"] == "Cobra passes"
     assert daily["pass_rates"][-1]["Status"] == "All bars"
     assert daily["pass_rates"][-1]["Pass rate"] == 50.0
+    assert daily["near_miss_count"] == 1
+    assert daily["near_miss_bars"] == [5, 10]
     assert not path.with_name("s.json.building").exists()
+
+
+def _label_row(passed=0, grade="", score=75.0, checks="4/6", vol=20, struct=20):
+    return {
+        "passed": passed,
+        "grade": grade,
+        "score": score,
+        "checks_met": checks,
+        "vol_contraction_points": vol,
+        "structure_points": struct,
+    }
+
+
+@pytest.mark.parametrize(
+    ("row", "label"),
+    [
+        (_label_row(passed=1, grade="B - Watch"), ""),
+        (_label_row(grade="Rejected - Below Threshold", score=68), "Score 65-69 (needs 70)"),
+        (_label_row(grade="Rejected - Below Threshold", score=61), "Score 60-64"),
+        (_label_row(grade="Rejected - Below Threshold", score=40), "Score under 60"),
+        (_label_row(grade="Rejected - Gate Fail (D)", checks="3/6"), "Gate D only: 3 of 6 checks"),
+        (
+            _label_row(grade="Rejected - Gate Fail (D)", checks="2/6"),
+            "Gate D only: 2 of 6 or fewer",
+        ),
+        (
+            _label_row(grade="Rejected - Gate Fail (C)", vol=5),
+            "Gate C only: volatility contraction",
+        ),
+        (_label_row(grade="Rejected - Gate Fail (C)", struct=2), "Gate C only: structure"),
+        (_label_row(grade="Rejected - Gate Fail (C)", vol=5, struct=2), "Gate C only: both"),
+        (_label_row(grade="Rejected - Gate Fail (B)"), "Gate B only: market gate"),
+        (_label_row(grade="Rejected - Gate Fail (A)"), "Gate A only: long-term trend"),
+        (_label_row(grade="Rejected - Gate Fail (A/C)"), "Two gates"),
+        (_label_row(grade="Rejected - Gate Fail (A/B/C/D)"), "Three or four gates"),
+    ],
+)
+def test_near_miss_labels(row, label):
+    assert list(an.near_miss_labels(pd.DataFrame([row]))) == [label]
+
+
+def test_near_misses_count_passes_that_follow(conn):
+    out = an.near_misses(conn, "daily").set_index("Missing")
+    assert list(out.index) == [
+        "Score 65-69 (needs 70)",
+        "Gate C only: volatility contraction",
+        "Two gates",
+    ]
+    assert out["Bars"].sum() == 3
+    assert out.loc["Gate C only: volatility contraction", "Pass soon %"] == 100.0
+    assert out.loc["Two gates", "Pass soon %"] == 100.0  # passes on the next bar
+    assert out.loc["Score 65-69 (needs 70)", "Pass later %"] == 0.0  # last bar: nothing after
+
+
+def test_passes_within_stays_inside_a_ticker():
+    frame = pd.DataFrame({"symbol": ["A", "A", "B"], "passed": [0, 0, 1]})
+    assert list(an._passes_within(frame, 5)) == [False, False, False]
+
+
+def test_near_miss_tickers_use_the_newest_bar_of_the_newest_snapshot(conn):
+    newest, tickers = an.near_miss_tickers(conn, "daily")
+    assert newest == DATES[-1]
+    assert tickers.to_dict("records") == [
+        {"Symbol": "AAA", "Score": 75.0, "Checks met": "4/6", "Missing": "Score 65-69 (needs 70)"}
+    ]

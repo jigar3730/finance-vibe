@@ -23,6 +23,7 @@ from itertools import pairwise
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from finance_vibe import config
@@ -56,6 +57,25 @@ PILLAR_MAX = {
     "rvol_trigger_points": 10,
 }
 _GATES = re.compile(r"Gate Fail \(([A-D/]+)\)")
+# Near misses: bars ahead to look for a pass (shorter, longer), and the list length.
+NEAR_MISS_BARS = {"daily": (5, 10), "weekly": (2, 4)}
+NEAR_MISS_LIST = 25
+# One step away (a single gate failed, or only the score short), then the rest.
+NEAR_MISS_ORDER = [
+    "Score 65-69 (needs 70)",
+    "Score 60-64",
+    "Score under 60",
+    "Gate D only: 3 of 6 checks",
+    "Gate D only: 2 of 6 or fewer",
+    "Gate C only: volatility contraction",
+    "Gate C only: structure",
+    "Gate C only: both",
+    "Gate B only: market gate",
+    "Gate A only: long-term trend",
+    "Two gates",
+    "Three or four gates",
+]
+ONE_STEP = NEAR_MISS_ORDER[:10]
 
 
 def connect(path: Path | str = config.DATABASE_PATH) -> sqlite3.Connection:
@@ -407,6 +427,98 @@ def _pass_rates(conn: sqlite3.Connection, mode: str) -> list[dict[str, Any]]:
     return _records(frame)
 
 
+def near_miss_labels(frame: pd.DataFrame) -> pd.Series:
+    """What a rejected Cobra bar is missing (a NEAR_MISS_ORDER label); "" for a pass.
+
+    ``frame`` needs passed, grade, score, checks_met and the Gate C pillar points.
+    """
+    gates = frame["grade"].astype(str).str.extract(_GATES)[0]
+    n_gates = gates.str.count("/").add(1).fillna(0).astype(int).to_numpy()
+    only = gates.fillna("").to_numpy()
+    checks = frame["checks_met"].astype(str).str.split("/").str[0].astype(int).to_numpy()
+    score = frame["score"].to_numpy(dtype="float64")
+    low_vol = (
+        frame["vol_contraction_points"].to_numpy(dtype="float64") < cc.GATE_C_VOL_CONTRACTION_MIN
+    )
+    low_struct = frame["structure_points"].to_numpy(dtype="float64") < cc.GATE_C_STRUCTURE_MIN
+    single = n_gates == 1
+    no_gate = n_gates == 0
+    labels = np.select(
+        [
+            frame["passed"].to_numpy() == 1,
+            no_gate & (score >= 65),
+            no_gate & (score >= 60),
+            no_gate,
+            single & (only == "D") & (checks == cc.MIN_CHECKS_MET - 1),
+            single & (only == "D"),
+            single & (only == "C") & low_vol & ~low_struct,
+            single & (only == "C") & low_struct & ~low_vol,
+            single & (only == "C"),
+            single & (only == "B"),
+            single & (only == "A"),
+            n_gates == 2,
+        ],
+        ["", *NEAR_MISS_ORDER[:11]],
+        NEAR_MISS_ORDER[11],
+    )
+    return pd.Series(labels, index=frame.index, dtype=object)
+
+
+def _cobra_rejects(conn: sqlite3.Connection, mode: str) -> pd.DataFrame:
+    where, params = _where(conn, COBRA, mode)
+    return _sql(
+        conn,
+        "SELECT symbol, date, passed, grade, score, checks_met, vol_contraction_points, "
+        f"structure_points FROM {COBRA} WHERE {where} ORDER BY symbol, date",
+        params,
+    )
+
+
+def _passes_within(frame: pd.DataFrame, bars: int) -> np.ndarray:
+    """True where the same ticker passes on any of the next ``bars`` rows (rows sorted)."""
+    passed = frame["passed"].eq(1)
+    grouped = passed.groupby(frame["symbol"], sort=False)
+    ahead = np.zeros(len(frame), dtype=bool)
+    for k in range(1, bars + 1):
+        ahead |= grouped.shift(-k).fillna(False).astype(bool).to_numpy()
+    return ahead
+
+
+def near_misses(conn: sqlite3.Connection, mode: str) -> pd.DataFrame:
+    """Rejected Cobra bars by what they miss, and how often the ticker passes soon after."""
+    frame = _cobra_rejects(conn, mode)
+    short, long = NEAR_MISS_BARS[mode]
+    frame["label"] = near_miss_labels(frame)
+    frame["soon"] = _passes_within(frame, short)
+    frame["later"] = _passes_within(frame, long)
+    rejected = frame[frame["label"] != ""]
+    grouped = rejected.groupby("label")
+    out = pd.DataFrame(
+        {
+            "Bars": grouped.size(),
+            "Pass soon %": (100 * grouped["soon"].mean()).round(1),
+            "Pass later %": (100 * grouped["later"].mean()).round(1),
+        }
+    ).reindex(NEAR_MISS_ORDER)
+    out = out.dropna(subset=["Bars"]).astype({"Bars": int})
+    return out.rename_axis("Missing").reset_index()
+
+
+def near_miss_tickers(conn: sqlite3.Connection, mode: str) -> tuple[str | None, pd.DataFrame]:
+    """(newest backfill bar, tickers one step away on it by score), every one of them."""
+    where, params = _where(conn, COBRA, mode)
+    newest = conn.execute(f"SELECT MAX(date) FROM {COBRA} WHERE {where}", params).fetchone()[0]
+    frame = _cobra_rejects(conn, mode)
+    frame = frame[frame["date"] == newest].copy()
+    frame["Missing"] = near_miss_labels(frame)
+    frame = frame[frame["Missing"].isin(ONE_STEP)]
+    frame = frame.sort_values(["score", "symbol"], ascending=[False, True])
+    out = frame[["symbol", "score", "checks_met", "Missing"]].rename(
+        columns={"symbol": "Symbol", "score": "Score", "checks_met": "Checks met"}
+    )
+    return newest, out.reset_index(drop=True)
+
+
 def _mode_summary(conn: sqlite3.Connection, mode: str) -> dict[str, Any]:
     daily = per_day(conn, mode)
     year = per_year(daily).iloc[-1]
@@ -423,6 +535,18 @@ def _mode_summary(conn: sqlite3.Connection, mode: str) -> dict[str, Any]:
         "gate_c": _records(gate_c_detail(conn, mode)),
         "durations": _records(pd.concat([cobra_length, state_durations(conn, mode)])),
         "pass_rates": _pass_rates(conn, mode),
+        **_near_miss_summary(conn, mode),
+    }
+
+
+def _near_miss_summary(conn: sqlite3.Connection, mode: str) -> dict[str, Any]:
+    newest, tickers = near_miss_tickers(conn, mode)
+    return {
+        "near_misses": _records(near_misses(conn, mode)),
+        "near_miss_bars": list(NEAR_MISS_BARS[mode]),
+        "near_miss_date": newest,
+        "near_miss_count": len(tickers),
+        "near_miss_tickers": _records(tickers.head(NEAR_MISS_LIST)),
     }
 
 
@@ -454,6 +578,7 @@ def report(conn: sqlite3.Connection, mode: str) -> str:
         ("Cobra blockers", blockers(conn, mode)),
         ("Gate C misses", gate_c_detail(conn, mode)),
         ("Cobra pillar points", pillar_points(conn, mode)),
+        ("Cobra near misses", near_misses(conn, mode)),
         ("Counts by year", per_year(per_day(conn, mode))),
         ("Breakout status on Cobra bars", overlaps(conn, mode)),
         ("Newest real Cobra scan with Breakout status", current_overlaps(conn, mode)),

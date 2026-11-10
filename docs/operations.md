@@ -94,7 +94,7 @@ python -m finance_vibe.data.analysis [--mode daily|weekly]
 ```
 
 `data.analysis` prints what the scanners said and how often: how long each Breakout status lasts, how
-long Cobra qualifying runs last, which gate or pillar blocks most, counts per bar and year, Cobra and
+long Cobra qualifying runs last, which gate or pillar blocks most, near misses (what a reject lacks and how often it passes soon after), counts per bar and year, Cobra and
 Breakout overlaps, changes between real runs, and how often each ticker qualified. No forward returns.
 Backfill questions use the newest snapshot and rubric. Length figures leave out runs touching a ticker's
 first or last bar, whose true length is unknown; they are counted as open runs. Both modes take about 30
@@ -330,6 +330,11 @@ database itself, and its badge gives that rebuild's time. A `⚠` note appears w
 newer than the summary. Tiles and the tickers table are real scans; the blockers, durations and
 Breakout status tables are the backfill. The two use different universes, so the tile label says which
 is which.
+
+Cobra near misses (backfill) groups rejected bars by what they miss: a single gate, only the score, or
+two or more gates. For each group it shows how often the ticker passes within the next 5 / 10 daily bars
+(2 / 4 weekly). Below that is the list of tickers one step away on the newest backfill bar (top 25 by
+score, with a `⚠ backfill bar <date>` note), which changes only when the backfill snapshot is refreshed.
 
 ### Setups (unproven) (`/setups`, `web/playbook.py`)
 

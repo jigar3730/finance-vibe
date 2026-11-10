@@ -1363,6 +1363,30 @@ def _scan_stats_mode(newest="2026-11-06"):
     }
 
 
+def _near_miss_fields():
+    return {
+        "near_misses": [
+            {
+                "Missing": "Score 65-69 (needs 70)",
+                "Bars": 16476,
+                "Pass soon %": 52.5,
+                "Pass later %": 58.9,
+            }
+        ],
+        "near_miss_bars": [5, 10],
+        "near_miss_date": "2026-11-06",
+        "near_miss_count": 95,
+        "near_miss_tickers": [
+            {
+                "Symbol": "SYF",
+                "Score": 80.0,
+                "Checks met": "5/6",
+                "Missing": "Gate A only: long-term trend",
+            }
+        ],
+    }
+
+
 @pytest.fixture
 def scan_stats(tmp_path, monkeypatch, breakout_logs):
     path = tmp_path / "summary.json"
@@ -1371,8 +1395,8 @@ def scan_stats(tmp_path, monkeypatch, breakout_logs):
             {
                 "built_at": "2026-11-09T14:48:27",
                 "modes": {
-                    "daily": _scan_stats_mode("2026-09-04"),
-                    "weekly": _scan_stats_mode(),
+                    "daily": {**_scan_stats_mode("2026-09-04"), **_near_miss_fields()},
+                    "weekly": _scan_stats_mode(),  # a summary saved before near misses existed
                 },
             }
         )
@@ -1409,3 +1433,16 @@ def test_scan_stats_without_a_readable_summary(client, scan_stats, content):
         scan_stats.write_text(content)
     html = client.get("/scan-stats").get_data(as_text=True)
     assert "No summary yet" in html
+
+
+def test_scan_stats_near_misses(client, scan_stats):
+    html = client.get("/scan-stats").get_data(as_text=True)
+    assert "Cobra near misses" in html
+    assert "16,476" in html and "52.5%" in html and "Pass within 5 bars" in html
+    assert "(1 of 95)" in html and "⚠ backfill bar 2026-11-06" in html
+    assert "SYF" in html and "Gate A only: long-term trend" in html
+
+
+def test_scan_stats_without_near_misses_in_an_older_summary(client, scan_stats):
+    html = client.get("/scan-stats?mode=weekly").get_data(as_text=True)
+    assert "Cobra near misses" not in html

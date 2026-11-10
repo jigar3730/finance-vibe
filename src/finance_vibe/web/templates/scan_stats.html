@@ -88,5 +88,26 @@
             {% endfor %}
         </table>
     </section>
+
+    {% if stats.near_misses %}{% set nb = stats.near_miss_bars %}
+    <section class="top-section">
+        <h3>Cobra near misses <span class="tip" title="Backfill. Rejected bars by what they miss. Pass soon / later: the same ticker passes Cobra within the next {{ nb[0] }} / {{ nb[1] }} bars. Passing is not the same as a gain (RESEARCH.md §12).">?</span></h3>
+        <table class="table">
+            <tr><th>Missing</th><th>Bars</th><th>Pass within {{ nb[0] }} bars</th><th>Pass within {{ nb[1] }} bars</th></tr>
+            {% for r in stats.near_misses %}
+            <tr><td>{{ r["Missing"] }}</td><td>{{ count(r["Bars"]) }}</td><td>{{ "%.1f"|format(r["Pass soon %"]) }}%</td><td>{{ "%.1f"|format(r["Pass later %"]) }}%</td></tr>
+            {% endfor %}
+        </table>
+        <h4>One step away on the newest backfill bar ({{ stats.near_miss_tickers|length }} of {{ stats.near_miss_count }}) <span class="warn plain">⚠ backfill bar {{ stats.near_miss_date }}</span> <span class="tip" title="A single gate failed, or only the score is short. The backfill updates only when its snapshot is refreshed.">?</span></h4>
+        {% if stats.near_miss_tickers %}
+        <table class="table">
+            <tr><th>Ticker</th><th>Score</th><th>Checks met</th><th>Missing</th></tr>
+            {% for r in stats.near_miss_tickers %}
+            <tr><td class="ticker-cell">{{ ticker(r["Symbol"]) }}</td><td>{{ count(r["Score"]) }}</td><td>{{ r["Checks met"] }}</td><td>{{ r["Missing"] }}</td></tr>
+            {% endfor %}
+        </table>
+        {% else %}<p class="label">None.</p>{% endif %}
+    </section>
+    {% endif %}
     {% endif %}
 {% endblock %}
