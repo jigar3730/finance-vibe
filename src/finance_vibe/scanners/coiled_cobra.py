@@ -12,7 +12,7 @@ import pandas as pd
 # --- PACKAGE IMPORT ---
 from finance_vibe import config, indicators
 from finance_vibe.config import AsOf
-from finance_vibe.data import raw
+from finance_vibe.data import raw, universe
 from finance_vibe.log import setup_logging
 from finance_vibe.market import (
     check_coiled_cobra_market_gate,
@@ -846,7 +846,7 @@ def run_scanner(as_of: str | None = None) -> None:
         logger.error(f"Missing active tickers inventory file at {ACTIVE_TICKERS_PATH}")
         sys.exit(1)
 
-    active_tickers = set(pd.read_csv(ACTIVE_TICKERS_PATH)["Ticker"].str.upper())
+    active_tickers = universe.scan_tickers(ACTIVE_TICKERS_PATH, as_of)
     logger.info(f"Loaded {len(active_tickers)} active tickers into Matrix Framework.")
 
     if not os.path.exists(RAW_DATA_DIR):

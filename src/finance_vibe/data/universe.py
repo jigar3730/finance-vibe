@@ -536,6 +536,43 @@ def main(argv: Iterable[str] | None = None) -> int:
     return 0 if meta.get("built") or tickers.exists() else 1
 
 
+def members_on(as_of: str, out: Path | None = None) -> set[str] | None:
+    """Members on ``as_of`` from ``changes.csv`` (changes dated on or before it).
+
+    None when there is no change history or ``as_of`` is before the first build:
+    no membership was recorded then, so the caller falls back to the current list.
+    """
+    path = (out or Path(config.UNIVERSE_DIR)) / CHANGES
+    if not path.exists():
+        return None
+    changes = pd.read_csv(path, dtype=str)
+    changes = changes[changes["Date"] <= as_of]
+    if changes.empty:
+        return None
+    members: set[str] = set()
+    for symbol, change in zip(changes["Symbol"], changes["Change"], strict=True):
+        if change == "added":
+            members.add(symbol)
+        else:
+            members.discard(symbol)
+    return members
+
+
+def scan_tickers(ticker_list_path: str, as_of: str | None = None) -> set[str]:
+    """Symbols a scanner should scan: the members on ``as_of`` for a replay, else the list.
+
+    The list (``config.TICKER_LIST_PATH``) is the current members. A replay dated
+    before the first universe build has no recorded membership and uses the list.
+    """
+    if as_of:
+        members = members_on(as_of)
+        if members is not None:
+            logger.info("AS-OF %s: %d universe members on that date", as_of, len(members))
+            return members
+        logger.info("AS-OF %s: before the first universe build; using the current list", as_of)
+    return set(pd.read_csv(ticker_list_path)["Ticker"].astype(str).str.strip().str.upper())
+
+
 def health_problems(today: date, out: Path | None = None) -> list[str]:
     """Problems for the cron health checks: no build yet, or today's rebuild failed."""
     out = out or Path(config.UNIVERSE_DIR)

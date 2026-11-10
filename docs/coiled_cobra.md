@@ -59,7 +59,7 @@ A row is also not scored (returns `None`) when any of `Close`, `EMA50`,
 `MACD`, `ATR` or the four trend-template EMAs is NaN on the last bar.
 
 Rejection-summary keys logged by the live scan: `inactive_ticker` (not in
-`active_tickers.csv`), `read_error` (file unreadable), `missing_columns`
+`active_tickers.csv`, or on `--as-of` not a universe member that day), `read_error` (file unreadable), `missing_columns`
 (fails the `REQUIRED_OHLCV` contract), `insufficient_history`,
 `IGNORE` (not scored, gate fail or below threshold), and `execution_error`
 (unexpected exception, logged with traceback).

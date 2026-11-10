@@ -313,3 +313,50 @@ def test_unreadable_benchmark_is_unavailable_not_fatal(tmp_path, monkeypatch, ca
     monkeypatch.setattr(market, "_select_benchmark_path", lambda benchmark, data_mode: str(bad))
     assert market.load_benchmark_frame("QQQ", "weekly") is None
     assert "Benchmark QQQ unreadable" in caplog.text
+
+
+def test_cobra_as_of_scans_the_universe_members_on_that_date(cobra_env, tmp_path, monkeypatch):
+    """A replay scans who was a member then, not today's list (no membership lookahead)."""
+    from finance_vibe.data import universe
+
+    dates = _write_weekly_csv(cobra_env["raw"] / "TEST_10y_1wk.csv")
+    _write_weekly_csv(cobra_env["raw"] / "LATER_10y_1wk.csv")
+    (tmp_path / "active.csv").write_text("Ticker\nTEST\nLATER\n")  # today's members
+    out = tmp_path / "universe"
+    out.mkdir()
+    early = (dates[100] + pd.Timedelta(days=4)).date()
+    joined = early + timedelta(days=7)
+    pd.DataFrame(
+        [
+            {"Date": str(early - timedelta(days=7)), "Symbol": "TEST", "Change": "added",
+             "Reason": "initial build"},
+            {"Date": str(joined), "Symbol": "LATER", "Change": "added",
+             "Reason": "passed the join rules"},
+        ]
+    ).to_csv(out / universe.CHANGES, index=False)  # fmt: skip
+    monkeypatch.setattr(config, "UNIVERSE_DIR", str(out))
+
+    cc.run_scanner(as_of=early.isoformat())
+    assert len(cobra_env["seen"]) == 1  # LATER joined after the as-of date
+    cobra_env["seen"].clear()
+    cc.run_scanner(as_of=joined.isoformat())
+    assert len(cobra_env["seen"]) == 2
+    cobra_env["seen"].clear()
+    first = (dates[80] + pd.Timedelta(days=4)).date().isoformat()  # before the first build
+    cc.run_scanner(as_of=first)
+    assert len(cobra_env["seen"]) == 2  # no record yet: the current list
+
+
+def test_members_on_replays_adds_and_removes(tmp_path):
+    from finance_vibe.data import universe
+
+    pd.DataFrame(
+        {"Date": ["2026-11-10", "2026-11-10", "2026-12-19", "2026-12-19"],
+         "Symbol": ["AAA", "BBB", "BBB", "CCC"],
+         "Change": ["added", "added", "removed", "added"], "Reason": "x"}
+    ).to_csv(tmp_path / universe.CHANGES, index=False)  # fmt: skip
+    assert universe.members_on("2026-11-09", tmp_path) is None
+    assert universe.members_on("2026-11-10", tmp_path) == {"AAA", "BBB"}
+    assert universe.members_on("2026-12-18", tmp_path) == {"AAA", "BBB"}
+    assert universe.members_on("2027-01-04", tmp_path) == {"AAA", "CCC"}
+    assert universe.members_on("2026-12-19", tmp_path / "missing") is None

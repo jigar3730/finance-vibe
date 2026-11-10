@@ -74,7 +74,8 @@ If a doc disagrees with `pipeline.py` or `config.py`, the code wins.
   `data/raw/{mode}/` and re-downloads hundreds of tickers from Yahoo. For
   experiments use `--reuse-raw` or call a single stage.
 - **No lookahead.** Anything touching `--as-of` must only use bars completed
-  on/before the as-of date. Weekly
+  on/before the as-of date, and scan only the universe members on that date
+  (`data.universe.scan_tickers`). Weekly
   as-of on a non-Friday excludes the week in progress. `tests/test_as_of.py`
   guards this; keep it green.
 - **Config lives in `config.py`.** Profiles (`TIMEFRAME_PROFILES`), schemas (`REQUIRED_OHLCV`, `SETUP_ROW_COLUMNS`) and paths

@@ -212,8 +212,12 @@ every output with it, so the dashboard shows the replayed run like any other.
   on or before the as-of date: `--as-of 2025-11-07` scans the bar dated `2025-11-03`,
   while a mid-week date such as `2025-11-05` scans the previous week. Daily bars count
   on their own date. The QQQ benchmark is cut the same way.
-- **Limits.** It uses *today's* `active_tickers.csv` (not the historical universe) and
-  *today's* split/dividend-adjusted prices. Names under the history floor as of that
+- **Membership.** Both scanners scan the universe members on the as-of date, replayed
+  from `data/universe/changes.csv` (`data.universe.members_on`). A date before the first
+  universe build (2026-11-10) has no recorded membership and uses today's
+  `active_tickers.csv`.
+- **Limits.** Only tickers with raw files on disk can be replayed (a removed member's
+  file is gone after the next wipe), and prices are *today's* split/dividend-adjusted ones. Names under the history floor as of that
   date are not scored.
 - The scanners accept the same flag, e.g.
   `python -m finance_vibe.scanners.coiled_cobra weekly --as-of 2025-11-07`.

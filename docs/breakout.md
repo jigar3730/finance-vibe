@@ -44,7 +44,7 @@ the other's output. Breakout output is descriptive, for inspection.
 ## Flow
 
 ```text
-data/raw/{data_mode}/*.csv  (filtered to active_tickers.csv)
+data/raw/{data_mode}/*.csv  (filtered to active_tickers.csv; on --as-of, the universe members that day)
         │
         ▼
 raw.load_raw()             contract check, clean dates, optional as-of cut

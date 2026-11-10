@@ -34,7 +34,7 @@ import numpy as np
 import pandas as pd
 
 from finance_vibe import config, indicators
-from finance_vibe.data import raw
+from finance_vibe.data import raw, universe
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -1327,7 +1327,7 @@ def run_scanner(as_of: str | None = None) -> pd.DataFrame:
         logger.error("Missing active tickers inventory file at %s", ACTIVE_TICKERS_PATH)
         sys.exit(1)
 
-    active_tickers = set(pd.read_csv(ACTIVE_TICKERS_PATH)["Ticker"].str.upper())
+    active_tickers = universe.scan_tickers(ACTIVE_TICKERS_PATH, as_of)
     logger.info("Loaded %s active tickers", len(active_tickers))
 
     if not os.path.exists(RAW_DATA_DIR):
