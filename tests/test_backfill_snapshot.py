@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 
 from finance_vibe import config
-from finance_vibe.data import ingest
+from finance_vibe.data import ingest, quality
 from finance_vibe.research import snapshot as sn
 
 NOW = datetime(2026, 11, 9, 9, 0, tzinfo=ingest.MARKET_TZ)  # Monday before the close
@@ -118,17 +118,21 @@ def test_real_big_move_is_kept_but_spike_and_split_are_not():
 
     kept = base.copy()  # +60% that holds, not near a whole ratio
     kept.loc[10:, OHLCV[:4]] *= 1.6
-    stats = sn.bar_stats(kept, pd.DatetimeIndex(dates))
+    stats = quality.bar_stats(kept, pd.DatetimeIndex(dates))
     assert stats["big_moves"] == 1
-    assert sn.quality_failures(stats) == []
+    assert quality.quality_failures(stats) == []
 
     spike = base.copy()  # one bad print, undone next bar
     spike.loc[10, OHLCV[:4]] *= 1.6
-    assert "spike_reversal" in sn.quality_failures(sn.bar_stats(spike, pd.DatetimeIndex(dates)))
+    assert "spike_reversal" in quality.quality_failures(
+        quality.bar_stats(spike, pd.DatetimeIndex(dates))
+    )
 
     split = base.copy()  # unadjusted 4:1 split
     split.loc[10:, OHLCV[:4]] /= 4
-    assert "split_like_move" in sn.quality_failures(sn.bar_stats(split, pd.DatetimeIndex(dates)))
+    assert "split_like_move" in quality.quality_failures(
+        quality.bar_stats(split, pd.DatetimeIndex(dates))
+    )
 
 
 def test_big_move_on_heavy_volume_is_real_news():
@@ -136,9 +140,9 @@ def test_big_move_on_heavy_volume_is_real_news():
     frame = _bars(dates).reset_index()
     frame.loc[10, OHLCV[:4]] *= 2  # doubles for one bar, then undone
     frame.loc[[10, 11], "Volume"] *= 20
-    stats = sn.bar_stats(frame, pd.DatetimeIndex(dates))
+    stats = quality.bar_stats(frame, pd.DatetimeIndex(dates))
     assert stats["big_moves"] == 2
-    assert sn.quality_failures(stats) == []
+    assert quality.quality_failures(stats) == []
 
 
 def test_read_tickers_merges_lists(tmp_path):

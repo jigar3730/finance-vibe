@@ -32,6 +32,7 @@ import yfinance as yf
 
 from finance_vibe import config
 from finance_vibe.data import daily_ingest, ingest, raw
+from finance_vibe.data.quality import bar_stats, quality_failures
 from finance_vibe.log import setup_logging
 
 logger = logging.getLogger(__name__)
@@ -39,7 +40,6 @@ logger = logging.getLogger(__name__)
 MANIFEST = "manifest.json"
 UNIVERSE = "universe.csv"
 REPORT = "report.md"
-PRICES = ["Open", "High", "Low", "Close"]
 
 
 def _sha256(path: Path) -> str:
@@ -155,55 +155,6 @@ def verify(snapshot: Path) -> dict[str, Any]:
     if changed:
         raise ValueError(f"snapshot files changed since download: {changed[:5]}")
     return manifest
-
-
-def bar_stats(df: pd.DataFrame, calendar: pd.DatetimeIndex) -> dict[str, int]:
-    """Counts of suspect bars over a ticker's full history (a ``load_raw`` frame)."""
-    o, h, lo, c = (df[col] for col in PRICES)
-    tol = config.DQ_PRICE_TOL * c.abs()
-    incoherent = (
-        (h < pd.concat([o, c], axis=1).max(axis=1) - tol)
-        | (lo > pd.concat([o, c], axis=1).min(axis=1) + tol)
-        | (h < lo)
-        | (df[PRICES] <= 0).any(axis=1)
-    )
-    same = c.diff().eq(0)
-    flat_run = same.groupby((~same).cumsum()).cumsum() + 1
-
-    ratio = c / c.shift()
-    typical_volume = df["Volume"].shift().rolling(config.BACKFILL_VOLUME_WINDOW, min_periods=1)
-    quiet = df["Volume"] <= config.BACKFILL_QUIET_VOLUME_X * typical_volume.median()
-    big = (ratio - 1).abs() >= config.DQ_JUMP_PCT
-    undone = (c.shift(-1) / c.shift() - 1).abs() <= config.BACKFILL_REVERSAL_PCT
-    size = pd.concat([ratio, 1 / ratio], axis=1).max(axis=1)
-    near_split = pd.concat(
-        [(size / r - 1).abs() <= config.BACKFILL_SPLIT_TOL for r in config.BACKFILL_SPLIT_RATIOS],
-        axis=1,
-    ).any(axis=1)
-
-    span = calendar[(calendar >= df["Date"].iloc[0]) & (calendar <= df["Date"].iloc[-1])]
-    return {
-        "missing": len(span.difference(pd.DatetimeIndex(df["Date"]))),
-        "incoherent": int(incoherent.sum()),
-        "zero_volume": int((df["Volume"].fillna(0) <= 0).sum()),
-        "max_flat": int(flat_run.max()),
-        "big_moves": int(big.sum()),
-        "reversals": int((big & quiet & undone).sum()),
-        "split_like": int((big & quiet & near_split).sum()),
-    }
-
-
-def quality_failures(stats: dict[str, int]) -> list[str]:
-    """Names of the bar-quality rules that ``stats`` break (``big_moves`` alone never does)."""
-    limits = (
-        ("missing_bars", stats["missing"] > config.BACKFILL_MAX_MISSING_BARS),
-        ("ohlc_incoherent", stats["incoherent"] > config.BACKFILL_MAX_INCOHERENT_BARS),
-        ("zero_volume", stats["zero_volume"] > config.BACKFILL_MAX_ZERO_VOLUME_BARS),
-        ("flat_closes", stats["max_flat"] >= config.BACKFILL_MAX_FLAT_RUN),
-        ("spike_reversal", stats["reversals"] > 0),
-        ("split_like_move", stats["split_like"] > 0),
-    )
-    return [name for name, failed in limits if failed]
 
 
 def _load_mode(snapshot: Path, mode: str) -> dict[str, pd.DataFrame]:
