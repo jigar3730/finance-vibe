@@ -150,6 +150,39 @@ Signal weeks 2018-05-07 → week of 2026-03-23 (389 weeks), in-universe events o
   7 of 9 years. 2020 is the largest cell (95 events, +5.36%, unadjusted p 0.046). Negative
   years are 2018 (−0.02%) and 2021 (−0.45%).
 
+### In-sample, pre-breakout addendum (§12; run once on 2026-11-09)
+
+Analysis code `d8bab00` (committed before the run); labels `a957fa4`, Coiled Cobra rubric v4.0,
+breakout rubric v1.0, snapshot `data/research/backfill/snapshots/2026-11-09/`. Full report:
+`data/research/prebreakout_insample_2026-11-09/report.md`. Signal dates 2020-01-14 → 2026-03-31,
+events that pass the point-in-time check only. **The universe was chosen with data up to
+2026-11, and survivorship is not removed** (§12, §8.4).
+
+| Signal | Count | Dates | % up | Mean R10 | Mean − SPY | Mean − random | p vs SPY | p vs random | p (Holm) | Result |
+|--------|------:|------:|-----:|---------:|-----------:|--------------:|---------:|------------:|---------:|--------|
+| C1 Cobra first pass | 15,454 | 1,451 | 52.8% | +0.37% | −0.11% | −0.09% | 0.391 | 0.718 | 1.000 | **FAIL** |
+| C2 Cobra on PRE_BREAKOUT | 1,815 | 613 | 52.1% | +0.08% | −0.35% | −0.24% | 0.945 | 0.822 | 1.000 | **FAIL** |
+
+- **Decision (§12, §7): neither signal passes in-sample. The holdout is not run and stays
+  unopened. C1 and C2 are dropped, not tuned.**
+- Reported, not a pass criterion (event vs its random draws):
+
+  | Signal | Reach TRIGGERED/CONFIRMED in 10 | Resistance first | Support first | Neither |
+  |--------|------:|------:|------:|------:|
+  | C1 | 44.9% vs 37.6% | 52.9% vs 44.0% | 28.3% vs 32.0% | 18.8% vs 24.0% |
+  | C2 | 60.3% vs 39.5% | 75.4% vs 46.7% | 16.4% vs 29.9% | 8.2% vs 23.4% |
+
+  C2 reaches resistance first far more often than random, but it starts nearer resistance by
+  definition, so this comparison is not fair (§12). It does not show up in 10-session returns.
+- PRE_BREAKOUT alone on this universe (reference only): 4,720 events, mean − SPY −0.32%, mean −
+  random −0.21%, p (larger) 0.995. Close to §9's daily result (−0.30% vs SPY) on a different
+  universe and period.
+- By signal year (descriptive, not a pass criterion): no year carries a result. 2023 is negative
+  for both against SPY and random. The two cells under 0.05 (C1 2022 vs SPY, 0.019; C1 2024 vs
+  random, 0.017) are 2 of 28 one-sided p-values, uncorrected, and neither beats the other benchmark.
+- Robustness only (4 events and 212 draws flagged `split_suspect` excluded): same picture,
+  p (Holm) 1.000 / 1.000.
+
 ## 10. Variant log
 
 Every run: date, commit, what changed, which hypotheses, result. Includes failed and abandoned runs.
@@ -168,6 +201,8 @@ Every run: date, commit, what changed, which hypotheses, result. Includes failed
 | 2026-11-09 | freeze commit | Pre-breakout addendum frozen (§12) as drafted: status set to FROZEN, no change in meaning. No forward return for C1 or C2 computed. | C1–C2 | — |
 | 2026-11-09 | a957fa4 | Blind label run (§12), Coiled Cobra rubric v4.0 and breakout rubric v1.0: `data/research/prebreakout_labels_2026-11-09/` from snapshot `data/research/backfill/snapshots/2026-11-09/` (checked against its `manifest.json`; history file hashes in the run manifest). In-sample events (2020-01-14 → 2026-03-31): C1 15,799, C2 1,847; the point-in-time check removed 345 / 32; labelled C1 15,454, C2 1,815; 20 draws each (none short), 345,380 draws. DQ: 0 missing next open / short window / session gap / SPY missing / missing level; 4 events and 212 draws flagged `split_suspect` (kept). Labels only, no results computed. | C1–C2 | — |
 | 2026-11-09 | analysis commit | §12 analysis code committed before the run (`research.prebreakout_insample`, `scripts/prebreakout_insample_report.py`): §7 test on C1 and C2 as frozen, with each event's draws matched on (Symbol, Date, Event) because a bar can be both C1 and C2. The PRE_BREAKOUT reference (§12, reported only) was not in the blind label run, so the report labels it with the same §12 label code and snapshot. No forward return computed yet. | C1–C2 | — |
+| 2026-11-09 | d8bab00 | In-sample analysis run once (§12 as frozen) on `prebreakout_labels_2026-11-09`. No threshold, horizon or definition changed. | C1–C2 | Both FAIL in-sample (p Holm 1.000 / 1.000). Holdout not opened. Signals dropped. |
+| 2026-11-09 | — | **Exploratory, not a finding:** C2 reaches a breakout status in 10 sessions far more often than random (60% vs 40%) and touches resistance before support in 75% of events (47% random), yet trails SPY and random over 10 sessions. The same pattern as §9's PRE_BREAKOUT: the scanners anticipate the price reaching the level, not a gain after it. A test of what happens after the level is reached would be a new pre-registered test with its own holdout. | — | — |
 
 ## 11. Weekly addendum (pre-registered 2026-10-27, before any weekly return)
 
