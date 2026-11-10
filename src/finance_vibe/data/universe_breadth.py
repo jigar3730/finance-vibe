@@ -2,8 +2,9 @@
 
 Counts how many of the daily raw files closed above their 50- and 200-day averages and
 at a 252-session high or low, for the newest session and the one before. Both use today's
-files, so the two can be compared. The list is screener-picked and changes over time, so
-this is not index breadth, and the page only compares it with the previous session.
+files, so the two can be compared. Stocks only: the universe funds (SPY, QQQ, ...) are
+left out. The members are the S&P 500 / S&P 400 / watchlist stocks that pass the
+universe rules and change once a quarter, so this is not index breadth.
 
 Runs last in the daily pipeline. It reads raw files and writes only
 ``config.UNIVERSE_BREADTH_PATH``, so no scan output changes.
@@ -73,10 +74,13 @@ def summarize(frames: list[pd.DataFrame]) -> dict[str, Any] | None:
 
 
 def build() -> dict[str, Any] | None:
-    """Summarize every daily raw file; an unreadable file is logged and skipped."""
+    """Summarize every daily raw stock file (``UNIVERSE_FUNDS`` are left out); an
+    unreadable file is logged and skipped."""
     pattern = os.path.join(config.TIMEFRAME_PROFILES["daily"]["raw_dir"], "*.csv")
     frames = []
     for path in sorted(glob.glob(pattern)):
+        if raw.ticker_from_filename(os.path.basename(path)) in config.UNIVERSE_FUNDS:
+            continue
         try:
             frames.append(raw.load_raw(path)[["Date", "Close"]])
         except (OSError, ValueError, KeyError) as exc:

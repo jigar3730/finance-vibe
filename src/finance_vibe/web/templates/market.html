@@ -128,7 +128,7 @@
                 {{ flags(health.breadth_flags) }}
             </div>
             <div class="metric-tile tile-scanned">
-                <div class="tile-label">Scanned tickers{% if scanned %} at the {{ scanned.date }} close{% endif %} <span class="tip" title="The tickers the scanners cover, from closes only. New highs and lows are closes at a 252-session extreme. The list is screener-picked and changes over time, so this is not S&amp;P breadth; compare it with the previous close only.">?</span></div>
+                <div class="tile-label">Universe stocks{% if scanned %} at the {{ scanned.date }} close{% endif %} <span class="tip" title="The {{ scanned.tickers if scanned else '' }} stocks the scanners cover (S&amp;P 500, S&amp;P 400 and watchlist names that pass the universe rules; funds left out), from closes only. New highs and lows are closes at a 252-session extreme. Members change once a quarter, so this is not S&amp;P breadth.">?</span></div>
                 {% if scanned %}{% set now_c, was = scanned.current, scanned.previous %}
                 <div class="scanned-facts">
                     <div><div class="tile-value">{{ now_c.above_50 }} of {{ now_c.counted_50 }}</div><div class="tile-sub">above 50-day average</div><div class="tile-sub">{{ was.above_50 }} of {{ was.counted_50 }} at previous close</div></div>

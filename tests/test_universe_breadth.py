@@ -71,6 +71,7 @@ def test_main_writes_the_file_and_keeps_it_without_raw_files(tmp_path, monkeypat
     frame["Date"] = frame["Date"].dt.strftime("%Y-%m-%d")
     frame.to_csv(tmp_path / "raw" / "AAA_5y_1d.csv", index=False)
     (tmp_path / "raw" / "BAD_5y_1d.csv").write_text("not,a,valid,file\n1,2,3,4\n")
+    frame.to_csv(tmp_path / "raw" / "SPY_5y_1d.csv", index=False)  # a fund: not counted
     assert universe_breadth.main([]) == 0
     with open(config.UNIVERSE_BREADTH_PATH) as handle:
         got = json.load(handle)

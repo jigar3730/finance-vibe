@@ -41,7 +41,7 @@ schedule (weekly Saturdays 09:00 ET, daily 18:30 ET with a 22:30 retry), and
 5. `scanners.breakout` → `data/logs/{mode}/breakout_setups_<date>.csv`
 6. `data.market_ingest` (daily only, also by itself at 17:05 ET) → broad funds, VIX, HYG, IEF and the 11 sector funds for the market home page, in their
    own folder `data/raw/market/` (no scanner reads it), plus `data/logs/market/data_quality_<date>.csv`
-7. `data.universe_breadth` (daily only) → counts across the scanned tickers for the market home page, in `data/logs/market/universe_breadth.json`
+7. `data.universe_breadth` (daily only) → counts across the universe stocks (funds left out) for the market home page, in `data/logs/market/universe_breadth.json`
 
 Separately from the pipeline, `data.market_snapshot` (cron, every few minutes in the session) saves live quotes
 to `data/live/market_snapshot.json` for the market home page. They never reach `data/raw/` or a scanner.
@@ -62,7 +62,7 @@ src/finance_vibe/
   pipeline.py         orchestrator (python -m finance_vibe.pipeline)
   data/               tickers.py, universe.py (rule-based scan universe, quarterly), ingest.py, daily_ingest.py, market_ingest.py, market_snapshot.py, universe_breadth.py, raw.py, quality.py, ticker_manifest.csv (stock watchlist), sp500_tickers.csv / sp400_tickers.csv + index_lists.json (scripts/refresh_index_lists.py)
   scanners/           coiled_cobra.py, breakout.py
-  web/                app.py, playbook.py (Setups page sections, Market rows, Runs ticker history), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), templates/, static/
+  web/                app.py (incl. /universe), playbook.py (Setups page sections, Market rows, Runs ticker history), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers
 tests/                pytest suite
 docs/                 scanner specs and operations

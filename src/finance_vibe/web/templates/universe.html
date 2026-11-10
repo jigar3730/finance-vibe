@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}Universe - Finance Vibe{% endblock %}
+{% block content %}
+    <div class="page-head">
+        <h1>Universe <span class="tip" title="The stocks both scanners cover: S&amp;P 500, S&amp;P 400 and watchlist names that pass the rules, plus the funds. A stock joins at a close of 5.00 and a 63-day median dollar volume of 20M (with 252 bars and clean bar quality) and stays while it holds 4.00 and 15M. Rebuilt on the first run after the third Friday of March, June, September and December.">?</span></h1>
+        {% if as_of %}<span class="asof-badge">built {{ as_of }}</span>{% endif %}
+        {% if view and view.last_failed %}<span class="warn">⚠ last rebuild failed {{ view.meta.attempted[:10] }}; members from {{ view.meta.built }}</span>{% endif %}
+        {% if view and view.meta.index_lists_stale %}<span class="warn">⚠ index lists older than the last rebalance: {{ view.meta.index_lists_stale|join(', ') }}</span>{% endif %}
+    </div>
+
+    {% if not view %}
+        <p class="muted">No universe build yet.</p>
+    {% else %}
+    <div class="kpi-row">
+        <div class="kpi-card"><div class="kpi-value">{{ view.stocks|length }}</div><div class="kpi-label">stocks</div></div>
+        {% for source in ['S&P 500', 'S&P 400', 'watchlist'] %}
+        <div class="kpi-card"><div class="kpi-value">{{ view.by_source.get(source, 0) }}</div><div class="kpi-label">{{ source }}</div></div>
+        {% endfor %}
+        <div class="kpi-card"><div class="kpi-value">{{ view.funds|length }}</div><div class="kpi-label">funds</div></div>
+        <div class="kpi-card"><div class="kpi-value">{{ view.rejected|length }}</div><div class="kpi-label">candidates rejected</div></div>
+        <div class="kpi-card"><div class="kpi-value">{{ view.next_rebalance }}</div><div class="kpi-label">next rebalance</div></div>
+    </div>
+
+    <h2>Changes <span class="tip" title="Additions and removals at rebuilds after the first one ({{ view.initial }} members added at the first build).">?</span></h2>
+    {% if view.changes %}
+    <div class="table-container">
+        <table class="table">
+            <thead><tr><th>Date</th><th>Symbol</th><th>Change</th><th>Reason</th></tr></thead>
+            <tbody>
+                {% for c in view.changes %}
+                <tr><td>{{ c['Date'] }}</td><td><a class="ticker-link" href="{{ url_for('ticker_runs', symbol=c['Symbol']) }}">{{ c['Symbol'] }}</a></td><td>{{ c['Change'] }}</td><td>{{ c['Reason']|text }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="muted">No changes since the first build.</p>
+    {% endif %}
+
+    <h2>Rejected candidates</h2>
+    {% if view.rejected %}
+    <div class="table-container">
+        <table class="table">
+            <thead><tr><th>Symbol</th><th>Sources</th><th>Reasons</th><th>Close</th><th>Dollar Volume</th><th>Bars</th></tr></thead>
+            <tbody>
+                {% for r in view.rejected %}
+                <tr><td>{{ r['Symbol'] }}</td><td>{{ r['Sources']|text }}</td><td>{{ r['Reasons']|text }}</td><td>{{ r['Close']|num }}</td><td>{% if r['Dollar Volume'] == r['Dollar Volume'] %}{{ (r['Dollar Volume'] / 1e6)|num(1) }}M{% else %}—{% endif %}</td><td>{{ r['Bars']|num(0) }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+        <p class="muted">Every candidate passed.</p>
+    {% endif %}
+
+    <h2>Members</h2>
+    <div class="table-container">
+        <table class="table">
+            <thead><tr><th>Symbol</th><th>Sources</th><th>Added</th><th>Close</th><th>Dollar Volume <span class="tip" title="63-day median Close x Volume at the last rebuild.">?</span></th><th>Bars</th><th>Notes</th></tr></thead>
+            <tbody>
+                {% for m in view.funds + view.stocks %}
+                <tr><td><a class="ticker-link" href="{{ url_for('ticker_runs', symbol=m['Symbol']) }}">{{ m['Symbol'] }}</a></td><td>{{ m['Sources']|text }}</td><td>{{ m['Added'] }}</td><td>{{ m['Close']|num }}</td><td>{% if m['Dollar Volume'] == m['Dollar Volume'] %}{{ (m['Dollar Volume'] / 1e6)|num(1) }}M{% else %}—{% endif %}</td><td>{{ m['Bars']|num(0) }}</td><td>{{ m['Notes']|text }}</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+{% endblock %}

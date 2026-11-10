@@ -26,7 +26,7 @@ from flask import (
 from werkzeug.wrappers import Response as RedirectResponse
 
 from finance_vibe import config
-from finance_vibe.data import market_snapshot, raw
+from finance_vibe.data import market_snapshot, raw, universe
 from finance_vibe.log import setup_logging
 from finance_vibe.web import health, insights, playbook
 from finance_vibe.web.playbook import (
@@ -473,6 +473,7 @@ def setups() -> str:
         cobra=cobra,
         failed=failed,
         market_rows=market_rows,
+        universe_counts=universe.counts(),
     )
 
 
@@ -621,10 +622,19 @@ def runs() -> str:
     newest = max((str(r["date"]) for mode_runs in runs.values() for r in mode_runs), default=None)
     return render_template(
         "runs.html",
+        universe_counts=universe.counts(),
         runs=runs,
         as_of=_page_as_of(newest),
         symbols=sorted({s for f in LOG_DIRS.values() for s in playbook.known_symbols(f)}),
     )
+
+
+@app.route("/universe")
+def universe_page() -> str:
+    """The scan universe: members, rebuild changes and rejected candidates."""
+    view = universe.page()
+    built = view["meta"]["built"] if view else None
+    return render_template("universe.html", view=view, as_of=_page_as_of(built))
 
 
 @app.route("/runs/ticker")

@@ -180,10 +180,11 @@ python -m finance_vibe.scanners.breakout weekly
   the stage always exits 0, so it never fails the pipeline. Its quality report
   (`data/logs/market/data_quality_<date>.csv`) skips `zero_volume` for VIX, VIX3M,
   TNX and DXY (`MARKET_NO_VOLUME`; an index has no volume).
-- **`data.universe_breadth`** (daily, last stage) counts the scanned tickers above their
+- **`data.universe_breadth`** (daily, last stage) counts the universe stocks (daily raw
+  files minus `UNIVERSE_FUNDS`) above their
   50- and 200-day averages and at 252-session highs and lows, for the newest session and the
   one before, into `data/logs/market/universe_breadth.json`. It only reads raw files, a bad
-  file is skipped, and the stage always exits 0. Page loads read the JSON, not 277 files.
+  file is skipped, and the stage always exits 0. Page loads read the JSON, not ~900 files.
 - **Bar-quality report (`data.quality`).** After each ingest (weekly: `ingest.main`;
   daily: `daily_ingest.ingest_daily`, after today's bar is dropped) every raw CSV is
   checked and each issue is written to `data_quality_<date>.csv`
@@ -328,7 +329,8 @@ dashboard and the next scheduled run pick it up.
 | `/market` | Redirects (301) to `/` |
 | `/setups` | Setups (unproven), by evidence: weekly BREAKOUT_CONFIRMED cards (unproven), untested Coiled Cobra setups (collapsed), since last run (new weekly CONFIRMED, stock list in / out, status-change counts), counts of signals that failed in-sample |
 | `/changes` | Market facts that changed since the previous daily run (SMA50 / SMA200 crossings, new heavy-volume support breaks, growth-vs-dividend label) |
-| `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages |
+| `/runs` | Run dates per mode, linking each date's Coiled Cobra and breakout pages; a line with the universe size links to `/universe` |
+| `/universe` | The scan universe (`data.universe.page`): one "built" date badge; tiles for stocks, S&P 500 / S&P 400 / watchlist counts, funds, rejected candidates and the next rebalance date; rebuild changes after the first build (first-build additions only counted in the tooltip); rejected candidates with reasons; every member (funds first) with sources, date added, close, dollar volume, bars and notes. "⚠ last rebuild failed" when the newest attempt kept the previous members, "⚠ index lists older than the last rebalance" when a list needs `scripts/refresh_index_lists.py` |
 | `/runs/ticker/<SYMBOL>` | One ticker in every saved run (run closes, except one Live tile in the header: the live quote and its % change from the newest daily run close, or weekly when no daily run lists it; "⚠ no quote" when none comes back), with a "Download CSV" link. "Last 10" is an inline SVG of the 10 closes up to each run (raw bars on disk, same as-of cut as the scanners) against that run's Resistance, the trigger line, dashed; the last-close dot is green above it, red at or below. Raw bars are re-downloaded each run and dividend-adjusted, so an old row's line can sit a little off the Close it was scanned with. "—" when the raw file is missing. Next to the name, a neutral badge (`playbook.timeframe_compare`) compares the newest weekly row with the newest daily row: `= <Status>` when the Status names match exactly, `≠ W: … · D: …` when they differ; Readiness for each mode with the weekly-minus-daily difference; Cobra `both` / `weekly only` / `daily only` / `neither` with the scores. "⚠ weekly row from <date>" (or daily) when that row is older than the mode's newest run |
 | `/runs/ticker/<SYMBOL>/history.csv` | That history as CSV: one row per mode and run date (`Mode`, `Date`, `Close`, `Status`, `Breakout Readiness`, `Trend`, `Breakout Distance`, `Cobra Score`, `Cobra Grade`) |
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
@@ -471,11 +473,11 @@ naming the funds. Top to bottom:
    A tile shows "⚠ HYG stale" (or missing, or a bar-quality check) when a file is
    missing, older than the last closed session, or has an error row in the newest
    `data/logs/market/data_quality_<date>.csv`. The tiles themselves stay uncoloured.
-3. **Scanned tickers** (`data.universe_breadth`, `health.scanned_breadth`), a full-width tile
-   from closes only: how many of the scanned tickers are above their 50- and 200-day
+3. **Universe stocks** (`data.universe_breadth`, `health.scanned_breadth`), a full-width tile
+   from closes only: how many of the universe stocks (funds left out) are above their 50- and 200-day
    averages, and new highs / new lows (a close at a 252-session extreme), each next to its
-   value at the previous close. The list is screener-picked and changes over time, so it is
-   not S&P breadth and the page only compares it with the previous session. It shows "⚠
+   value at the previous close. The members change once a quarter (S&P 500 + S&P 400 +
+   watchlist names that pass the universe rules), so it is not S&P breadth. It shows "⚠
    scanned tickers stale" when the counts are older than the last session that closed
    more than 2 hours ago, so it stays quiet until that evening's scan has run.
 4. **Levels** (`insights.levels_table`), one table for the same funds as the top table, from

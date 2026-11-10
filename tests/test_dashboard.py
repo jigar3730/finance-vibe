@@ -1141,7 +1141,7 @@ def test_nav_order_market_changes_setups_runs(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
     nav = client.get("/runs").get_data(as_text=True).split('class="top-nav"')[1].split("</nav>")[0]
     labels = [part.split("</a>")[0].split(">")[-1] for part in nav.split('class="nav-link')[1:]]
-    assert labels == ["Market", "Changes", "Setups (unproven)", "Scan stats", "Runs"]
+    assert labels == ["Market", "Changes", "Setups (unproven)", "Scan stats", "Runs", "Universe"]
     assert 'href="/setups"' in nav
 
 
@@ -1529,3 +1529,61 @@ def test_scan_stats_near_misses(client, scan_stats):
 def test_scan_stats_without_near_misses_in_an_older_summary(client, scan_stats):
     html = client.get("/scan-stats?mode=weekly").get_data(as_text=True)
     assert "Cobra near misses" not in html
+
+
+def _seed_universe(monkeypatch, tmp_path, *, status="ok"):
+    out = tmp_path / "universe"
+    out.mkdir()
+    pd.DataFrame(
+        [
+            {"Symbol": "SPY", "Role": "fund", "Sources": "fund", "Added": "2026-11-10",
+             "Close": 680.0, "Dollar Volume": 3.5e10, "Bars": 500, "Notes": ""},
+            {"Symbol": "AAA", "Role": "stock", "Sources": "S&P 500;watchlist",
+             "Added": "2026-11-10", "Close": 50.0, "Dollar Volume": 2.25e7, "Bars": 500,
+             "Notes": ""},
+        ]
+    ).to_csv(out / "members.csv", index=False)  # fmt: skip
+    pd.DataFrame(
+        [{"Date": "2026-11-10", "Symbol": "AAA", "Change": "added", "Reason": "initial build"},
+         {"Date": "2026-12-19", "Symbol": "ZZZ", "Change": "removed",
+          "Reason": "dollar_volume_below_15M"}]
+    ).to_csv(out / "changes.csv", index=False)  # fmt: skip
+    pd.DataFrame(
+        [{"Symbol": "AMC", "Sources": "watchlist", "Reasons": "close_below_5", "Close": 3.4,
+          "Dollar Volume": 5.89e7, "Bars": 500}]
+    ).to_csv(out / "rejected.csv", index=False)  # fmt: skip
+    meta = {"built": "2026-12-19", "status": status, "attempted": "2026-12-20T09:00:00-05:00",
+            "index_lists_stale": []}  # fmt: skip
+    (out / "meta.json").write_text(json.dumps(meta))
+    monkeypatch.setattr(app_module.config, "UNIVERSE_DIR", str(out))
+
+
+def test_universe_page(client, breakout_logs, tmp_path, monkeypatch):
+    body = client.get("/universe").get_data(as_text=True)
+    assert "No universe build yet." in body
+    _seed_universe(monkeypatch, tmp_path)
+    body = client.get("/universe").get_data(as_text=True)
+    assert body.count("asof-badge") == 1 and "built Sat 2026-12-19" in body
+    assert "⚠" not in body
+    changes = body.split("<h2>Changes")[1].split("<h2>")[0]
+    assert "ZZZ" in changes and "dollar_volume_below_15M" in changes
+    assert "AAA" not in changes  # first-build additions are only counted
+    assert "AMC" in body and "close_below_5" in body and "58.9M" in body
+    members = body.split("<h2>Members</h2>")[1]
+    assert members.index("SPY") < members.index("AAA") and "22.5M" in members
+    assert 'href="/runs/ticker/AAA"' in members
+    nav = body.split('class="top-nav"')[1].split("</nav>")[0]
+    assert 'nav-link active" href="/universe"' in nav
+
+
+def test_universe_page_flags_a_failed_rebuild(client, breakout_logs, tmp_path, monkeypatch):
+    _seed_universe(monkeypatch, tmp_path, status="kept_previous")
+    body = client.get("/universe").get_data(as_text=True)
+    assert "⚠ last rebuild failed 2026-12-20; members from 2026-12-19" in body
+
+
+def test_runs_page_notes_universe_size(client, breakout_logs, tmp_path, monkeypatch):
+    assert '/universe">Universe</a>:' not in client.get("/runs").get_data(as_text=True)
+    _seed_universe(monkeypatch, tmp_path)
+    body = client.get("/runs").get_data(as_text=True)
+    assert '<a href="/universe">Universe</a>: 1 stocks + 1 funds' in body

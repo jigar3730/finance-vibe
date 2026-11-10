@@ -372,3 +372,21 @@ def test_main_failed_first_build_keeps_old_list_and_exit_code(lists, tmp_path, m
     out.mkdir(exist_ok=True)
     (out / "active_tickers.csv").write_text("Ticker\nOLD\n")
     assert uv.main(["--out", str(out)]) == 0  # the old list is scanned instead
+
+
+def test_page_splits_first_build_from_later_changes(lists, tmp_path):
+    out, tickers = tmp_path / "universe", tmp_path / "active_tickers.csv"
+    assert uv.page(out) is None and uv.counts(out) is None
+    uv.refresh(out=out, ticker_list_path=tickers, now=NOW, downloader=_fake_downloader(PRICES))
+    later = PRICES | {"BBB": (50.0, 5e5)}  # joins at the December rebuild
+    uv.refresh(out=out, ticker_list_path=tickers,
+               now=datetime(2026, 12, 19, 9, 0, tzinfo=ingest.MARKET_TZ),
+               downloader=_fake_downloader(later))  # fmt: skip
+    view = uv.page(out)
+    assert view["initial"] == len(config.UNIVERSE_FUNDS) + 2
+    assert [c["Symbol"] for c in view["changes"]] == ["BBB"]
+    assert [s["Symbol"] for s in view["stocks"]] == ["AAA", "BBB", "DDD"]
+    assert view["by_source"] == {"S&P 500": 2, "watchlist": 1}
+    assert [r["Symbol"] for r in view["rejected"]] == ["CCC"]
+    assert uv.counts(out) == {"stocks": 3, "funds": len(config.UNIVERSE_FUNDS)}
+    assert not view["last_failed"]

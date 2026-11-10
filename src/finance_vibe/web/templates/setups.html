@@ -11,7 +11,7 @@
         {% for m in market_rows %}
         <p><strong>{{ m.symbol }}:</strong> {{ m.facts|join(' · ') }}</p>
         {% endfor %}
-        <p><a href="{{ url_for('market') }}">Market page</a></p>
+        <p><a href="{{ url_for('market') }}">Market page</a>{% if universe_counts %} · <a href="{{ url_for('universe_page') }}">Universe</a>: {{ universe_counts.stocks }} stocks + {{ universe_counts.funds }} funds{% endif %}</p>
     </div>
 
     <section class="top-section tested-section">

@@ -573,6 +573,53 @@ def scan_tickers(ticker_list_path: str, as_of: str | None = None) -> set[str]:
     return set(pd.read_csv(ticker_list_path)["Ticker"].astype(str).str.strip().str.upper())
 
 
+def page(out: Path | None = None) -> dict[str, Any] | None:
+    """Everything the ``/universe`` page shows, or None before the first build.
+
+    ``changes`` are the rebuild changes after the first build, newest first; the
+    first build's additions are only counted (``initial``).
+    """
+    out = out or Path(config.UNIVERSE_DIR)
+    meta, members = read_meta(out), read_members(out)
+    if not meta.get("built") or members.empty:
+        return None
+    path = out / CHANGES
+    changes = (
+        pd.read_csv(path, dtype=str) if path.exists() else pd.DataFrame(columns=CHANGE_COLUMNS)
+    )
+    initial = changes["Reason"].isin(["initial build", "fund"]) & (
+        changes["Date"] == changes["Date"].min()
+    )
+    rejected_path = out / REJECTED
+    rejected = (
+        pd.read_csv(rejected_path)
+        if rejected_path.exists()
+        else pd.DataFrame(columns=REJECTED_COLUMNS)
+    )
+    stocks = members[members["Role"] == "stock"]
+    today = datetime.now(ingest.MARKET_TZ).date()
+    return {
+        "meta": meta,
+        "stocks": stocks.sort_values("Symbol").to_dict("records"),
+        "funds": members[members["Role"] == "fund"].to_dict("records"),
+        "by_source": summarize(members, rejected)["by_source"],
+        "changes": changes[~initial].iloc[::-1].to_dict("records"),
+        "initial": int(initial.sum()),
+        "rejected": rejected.sort_values("Symbol").to_dict("records"),
+        "next_rebalance": next_rebalance(today).isoformat(),
+        "last_failed": meta.get("status") == "kept_previous",
+    }
+
+
+def counts(out: Path | None = None) -> dict[str, int] | None:
+    """Member counts for a one-line note on other pages, or None before the first build."""
+    members = read_members(out or Path(config.UNIVERSE_DIR))
+    if members.empty:
+        return None
+    roles = members["Role"].value_counts()
+    return {"stocks": int(roles.get("stock", 0)), "funds": int(roles.get("fund", 0))}
+
+
 def health_problems(today: date, out: Path | None = None) -> list[str]:
     """Problems for the cron health checks: no build yet, or today's rebuild failed."""
     out = out or Path(config.UNIVERSE_DIR)

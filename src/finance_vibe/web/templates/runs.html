@@ -12,6 +12,8 @@
         <datalist id="symbols">{% for s in symbols %}<option value="{{ s }}">{% endfor %}</datalist>
     </form>
 
+    {% if universe_counts %}<p class="meta"><a href="{{ url_for('universe_page') }}">Universe</a>: {{ universe_counts.stocks }} stocks + {{ universe_counts.funds }} funds</p>{% endif %}
+
     {% set labels = {'weekly': '📅 Weekly', 'daily': '⚡ Daily'} %}
     <div class="container">
         {% for mode, mode_runs in runs.items() %}
