@@ -112,7 +112,7 @@ def test_in_process_calls_each_stage_main(monkeypatch):
 def test_in_process_stage_lists_match_subprocess(monkeypatch):
     calls = _fake_stages(monkeypatch)
     pipeline.run_workflow(["--mode", "daily", "--in-process"])
-    assert [c[0] for c in calls][:2] == ["tickers", "daily_ingest"]
+    assert [c[0] for c in calls][:2] == ["universe", "daily_ingest"]
     assert calls[1][1] == []  # daily_ingest takes no mode argument
 
 

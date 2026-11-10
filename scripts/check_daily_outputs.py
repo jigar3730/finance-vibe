@@ -21,7 +21,7 @@ from datetime import datetime
 import pandas as pd
 
 from finance_vibe import config
-from finance_vibe.data import quality
+from finance_vibe.data import quality, universe
 from finance_vibe.data.daily_ingest import MARKET_TZ, last_complete_session
 from finance_vibe.web.playbook import MARKET_SYMBOLS
 
@@ -65,7 +65,7 @@ def main() -> int:
     stamp = now.strftime("%Y-%m-%d")
     cfg = config.get_mode_config(MODE)
     logs, raw = cfg["logs_dir"], cfg["raw_dir"]
-    problems: list[str] = []
+    problems: list[str] = universe.health_problems(now.date())
 
     for prefix in EXPECTED_PREFIXES:
         path = os.path.join(logs, f"{prefix}{stamp}.csv")

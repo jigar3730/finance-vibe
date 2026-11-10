@@ -532,7 +532,23 @@ def main(argv: Iterable[str] | None = None) -> int:
     out = args.out or Path(config.UNIVERSE_DIR)
     tickers = (args.out / "active_tickers.csv") if args.out else Path(config.TICKER_LIST_PATH)
     meta = refresh(out=out, ticker_list_path=tickers, force=args.rebuild)
-    return 0 if meta.get("built") else 1
+    # A failed first build leaves the old list in place; only no list at all stops a run.
+    return 0 if meta.get("built") or tickers.exists() else 1
+
+
+def health_problems(today: date, out: Path | None = None) -> list[str]:
+    """Problems for the cron health checks: no build yet, or today's rebuild failed."""
+    out = out or Path(config.UNIVERSE_DIR)
+    meta = read_meta(out)
+    if not meta.get("built"):
+        return ["universe has no build yet (data/universe/meta.json); scanned the old list"]
+    attempted = str(meta.get("attempted", ""))[:10]
+    if meta.get("status") == "kept_previous" and attempted == today.isoformat():
+        return [
+            f"universe rebuild failed ({meta.get('download_failures')} downloads failed); "
+            f"kept the {meta['built']} members"
+        ]
+    return []
 
 
 if __name__ == "__main__":

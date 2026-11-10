@@ -35,7 +35,7 @@ schedule (weekly Saturdays 09:00 ET, daily 18:30 ET with a 22:30 retry), and
 ## Pipeline
 
 1. Wipe `data/raw/{mode}/` (skipped with `--reuse-raw` / `--as-of`)
-2. `data.tickers` → `data/active_tickers.csv`
+2. `data.universe` → `data/universe/` (S&P 500 + S&P 400 + watchlist, rebuilt once a quarter with join/stay rules) and `data/active_tickers.csv` from its members
 3. `data.ingest` (weekly) / `data.daily_ingest` (daily) → `data/raw/{mode}/<TICKER>_<period>_<interval>.csv`, plus a bar-quality report `data/logs/{mode}/data_quality_<date>.csv`
 4. `scanners.coiled_cobra` → `data/logs/{mode}/coiled_cobra_setups_<date>.csv`
 5. `scanners.breakout` → `data/logs/{mode}/breakout_setups_<date>.csv`

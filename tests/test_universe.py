@@ -351,3 +351,24 @@ def test_download_bars_retries_empty_and_short_results(tmp_path, monkeypatch):
     assert failed == {"EMPTY": "empty_download"}
     assert len(pd.read_csv(tmp_path / "SHORT_2y_1d.csv")) == 300
     assert len(pd.read_csv(tmp_path / "NEW_2y_1d.csv")) == 30  # a real new listing is kept
+
+
+def test_health_problems(tmp_path):
+    assert "no build yet" in uv.health_problems(LAST, tmp_path)[0]
+    meta = {"built": "2026-11-10", "status": "ok", "attempted": "2026-11-10T18:30:00-05:00"}
+    (tmp_path / uv.META).write_text(json.dumps(meta))
+    assert uv.health_problems(LAST, tmp_path) == []
+    meta |= {"status": "kept_previous", "attempted": "2026-12-19T09:00:00-05:00",
+             "download_failures": 300}  # fmt: skip
+    (tmp_path / uv.META).write_text(json.dumps(meta))
+    assert "kept the 2026-11-10 members" in uv.health_problems(date(2026, 12, 19), tmp_path)[0]
+    assert uv.health_problems(date(2026, 12, 21), tmp_path) == []  # only on the day it failed
+
+
+def test_main_failed_first_build_keeps_old_list_and_exit_code(lists, tmp_path, monkeypatch):
+    monkeypatch.setattr(uv, "download_bars", _fake_downloader({}))
+    out = tmp_path / "trial"
+    assert uv.main(["--out", str(out)]) == 1  # no build and no list: stop the run
+    out.mkdir(exist_ok=True)
+    (out / "active_tickers.csv").write_text("Ticker\nOLD\n")
+    assert uv.main(["--out", str(out)]) == 0  # the old list is scanned instead

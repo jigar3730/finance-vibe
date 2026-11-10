@@ -81,7 +81,7 @@ if ! flock -n 9; then
     exit 1
 fi
 
-# Both pipelines refresh data/active_tickers.csv, so never overlap a weekly run
+# Both pipelines write data/active_tickers.csv (data.universe), so never overlap a weekly run
 # (e.g. one started by hand): wait for its lock and hold it while we run.
 exec 8>"$WEEKLY_LOCK_FILE"
 if ! flock -w "$WEEKLY_WAIT_SECONDS" 8; then

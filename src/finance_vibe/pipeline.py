@@ -51,7 +51,9 @@ class Stage:
 
 # Run in this order. Data timeframe and signal profile are the same mode.
 STAGES: tuple[Stage, ...] = (
-    Stage("finance_vibe.data.tickers", pass_mode=False, ingest=True),
+    # Rule-based universe (S&P 500 + 400 + watchlist), rebuilt once a quarter; every run
+    # writes data/active_tickers.csv from its members.
+    Stage("finance_vibe.data.universe", pass_mode=False, ingest=True),
     Stage("finance_vibe.data.ingest", modes=("weekly",), ingest=True),
     # Daily has its own ingest wrapper (drops today's in-progress bar).
     Stage("finance_vibe.data.daily_ingest", modes=("daily",), pass_mode=False, ingest=True),

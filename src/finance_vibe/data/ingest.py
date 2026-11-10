@@ -187,7 +187,7 @@ def ingest_market_data(mode="weekly", batch_size=BATCH_SIZE):
 
     if not os.path.exists(csv_path):
         logger.error(
-            f"Could not find ticker list at {csv_path}. Please run `python -m finance_vibe.data.tickers` first."
+            f"Could not find ticker list at {csv_path}. Please run `python -m finance_vibe.data.universe` first."
         )
         return
 

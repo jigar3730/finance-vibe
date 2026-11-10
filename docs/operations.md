@@ -112,7 +112,7 @@ python -m finance_vibe.pipeline --as-of 2025-11-07       # replay a past date
 | Step | Module | Output |
 | ---- | ------ | ------ |
 | 0 | (pipeline) | wipes `data/raw/{mode}/` unless `--reuse-raw` / `--as-of` |
-| 1 | `data.tickers` | `data/active_tickers.csv` (skipped with `--reuse-raw`) |
+| 1 | `data.universe` | `data/universe/` (members, changes, rejected, meta; a rebuild only when due) and `data/active_tickers.csv` from the members (skipped with `--reuse-raw`) |
 | 2 | `data.ingest` (weekly) / `data.daily_ingest` (daily) | raw CSVs in `data/raw/{mode}/` (skipped with `--reuse-raw`) |
 | 3 | `scanners.coiled_cobra` | `coiled_cobra_setups_<date>.csv` |
 | 4 | `scanners.breakout` | `breakout_setups_<date>.csv` |
@@ -122,7 +122,7 @@ python -m finance_vibe.pipeline --as-of 2025-11-07       # replay a past date
 Each stage also runs on its own:
 
 ```bash
-python -m finance_vibe.data.tickers
+python -m finance_vibe.data.universe                     # rebuild only when due; --rebuild to force
 python -m finance_vibe.data.ingest weekly
 python -m finance_vibe.data.daily_ingest                 # takes no mode
 python -m finance_vibe.data.market_ingest                # takes no mode; 23 tickers
@@ -134,12 +134,12 @@ python -m finance_vibe.scanners.breakout weekly
 
 ### Stages
 
-- **`data.tickers`** merges `STATIC_TICKERS` and `UNIVERSE_FUNDS` (`config.py`),
+- **`data.tickers`** (no longer a pipeline stage; removal pending) merges `STATIC_TICKERS` and `UNIVERSE_FUNDS` (`config.py`),
   the stock watchlist `data/ticker_manifest.csv` (one `Symbol` column) and Yahoo screeners (`SCREENER_IDS`, `SCREENER_COUNT`
   each) into `data/active_tickers.csv`, capped at `ACTIVE_TICKER_CAP` (1000). If the
   screeners fail, the static baseline is saved so the pipeline is never blocked.
-- **`data.universe`** (built, not yet a pipeline stage): the rule-based scan universe
-  that will replace `data.tickers`. Candidates are `sp500_tickers.csv`, `sp400_tickers.csv`
+- **`data.universe`** (stage 1 since 2026-11-10): the rule-based scan universe; it
+  replaced `data.tickers` and the Yahoo `most_actives` screener. Candidates are `sp500_tickers.csv`, `sp400_tickers.csv`
   and the watchlist; `UNIVERSE_FUNDS` are always members. At a rebuild it downloads
   `UNIVERSE_HISTORY_PERIOD` of daily bars per candidate into `data/universe/bars/`
   (never `data/raw/`; empty or very short downloads are fetched once more) and applies:
@@ -541,7 +541,8 @@ run"). The old `/changes?show=all` link redirects to `/setups?show=all#since-las
 
 | Symptom | Action |
 | ------- | ------ |
-| Missing `active_tickers.csv` | `python -m finance_vibe.data.tickers` |
+| Missing `active_tickers.csv` | `python -m finance_vibe.data.universe` (writes it from the members) |
+| Health check: `universe rebuild failed` | Yahoo failed too many downloads; the previous members were scanned. The 22:30 retry (daily) rebuilds again, or run `python -m finance_vibe.data.universe --rebuild` later |
 | Ingest skips a symbol | No yfinance data for that ticker; check `ingest_errors_<date>.csv` |
 | Empty `coiled_cobra_setups_*.csv` | No ticker passed the gates (expected in quiet markets) |
 | Health check: `<ETF> data quality ohlc_incoherent` | Yahoo's provisional bar; re-run with `--now` later, or check the bar on Yahoo |
