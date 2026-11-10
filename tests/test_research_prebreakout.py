@@ -2,71 +2,29 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
-from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pytest
 
+import prebreakout_fixture as pf
 from finance_vibe import config
 from finance_vibe.research import prebreakout as pb
-from finance_vibe.research import snapshot as sn
 from finance_vibe.scanners import breakout as bs
 
-DAYS = pd.bdate_range("2025-06-02", periods=240)  # runs past the 2026-03-31 seal
+DAYS = pf.DAYS
 H = config.RESEARCH_HORIZON
 PRE, WATCH = bs.STATUS_PRE, bs.STATUS_WATCH
 
 
-def _bars(seed: int = 0, days: pd.DatetimeIndex = DAYS, volume: float = 1e6) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    close = 50 * np.exp(np.cumsum(0.01 * rng.standard_normal(len(days))))
-    open_ = close * (1 + 0.003 * rng.standard_normal(len(days)))
-    return pd.DataFrame(
-        {
-            "Date": days,
-            "Open": open_,
-            "High": np.maximum(open_, close) * 1.01,
-            "Low": np.minimum(open_, close) * 0.99,
-            "Close": close,
-            "Volume": volume,
-        }
-    )
-
-
-def _universe(n: int = 30) -> dict[str, pd.DataFrame]:
-    bars = {f"T{i:02d}": _bars(i) for i in range(n)}
-    bars["SPY"] = _bars(999)
-    return bars
-
-
-def _cobra(symbol: str, passed: list[bool], days=DAYS) -> pd.DataFrame:
-    return pd.DataFrame({"Date": days[: len(passed)], "Symbol": symbol, "Passed": passed})
-
-
-def _breakout(symbol: str, status: list[str], days=DAYS) -> pd.DataFrame:
-    return pd.DataFrame({"Date": days[: len(status)], "Symbol": symbol, "Status": status})
-
-
-def _full_breakout(bars: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    rows = []
-    for s, b in bars.items():
-        if s == "SPY":
-            continue
-        rows.append(
-            pd.DataFrame(
-                {
-                    "Date": b["Date"],
-                    "Symbol": s,
-                    "Status": WATCH,
-                    "Resistance": b["Close"] * 1.02,
-                    "Support": b["Close"] * 0.98,
-                }
-            )
-        )
-    return pd.concat(rows, ignore_index=True)
+_bars, _universe, _cobra, _breakout, _full_breakout = (
+    pf.make_bars,
+    pf.make_universe,
+    pf.make_cobra,
+    pf.make_breakout,
+    pf.make_full_breakout,
+)
 
 
 # --- events ---------------------------------------------------------------
@@ -265,50 +223,11 @@ def test_duplicate_events_are_rejected(world):
 
 
 def _load_script():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "research_prebreakout_labels.py"
-    spec = importlib.util.spec_from_file_location("research_prebreakout_labels", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+    return pf.load_script("research_prebreakout_labels")
 
 
 def test_blind_run_writes_labels_and_counts_only(tmp_path, capsys):
-    bars = {"AAA": _bars(1), "BBB": _bars(2), "CCC": _bars(3), "SPY": _bars(999)}
-    snap = tmp_path / "snap"
-    (snap / "daily").mkdir(parents=True)
-    names = []
-    for s, b in bars.items():
-        name = f"daily/{s}_10y_1d.csv"
-        b.to_csv(snap / name, index=False)
-        names.append(name)
-    (snap / sn.MANIFEST).write_text(
-        json.dumps({"stamp": "2026-11-09", "files": {n: sn._sha256(snap / n) for n in names}})
-    )
-    pd.DataFrame({"Symbol": ["AAA", "BBB", "CCC", "SPY"], "In Universe": [1, 1, 1, 0]}).astype(
-        {"In Universe": bool}
-    ).to_csv(snap / sn.UNIVERSE, index=False)
-
-    history = tmp_path / "hist"
-    (history / f"rubric-{config.RUBRIC_VERSION}").mkdir(parents=True)
-    (history / f"rubric-{config.BREAKOUT_RUBRIC_VERSION}").mkdir(parents=True)
-    passed = np.zeros(len(DAYS), dtype=bool)
-    passed[[100, 101, 230]] = True  # day 230 is after the seal: never labelled
-    status = np.full(len(DAYS), WATCH, dtype=object)
-    status[100] = PRE
-    cobra = pd.concat(
-        [_cobra(s, list(passed)) for s in ["AAA", "BBB", "CCC"]], ignore_index=True
-    ).assign(**{"Rubric Version": config.RUBRIC_VERSION})
-    breakout = _full_breakout({s: bars[s] for s in ["AAA", "BBB", "CCC"]})
-    breakout.loc[breakout["Date"] == DAYS[100], "Status"] = PRE
-    breakout = breakout.assign(**{"Rubric Version": config.BREAKOUT_RUBRIC_VERSION})
-    cobra.to_csv(
-        history / f"rubric-{config.RUBRIC_VERSION}" / "coiled_cobra_daily_history.csv.gz",
-        index=False,
-    )
-    breakout.to_csv(
-        history / f"rubric-{config.BREAKOUT_RUBRIC_VERSION}" / "breakout_daily_history.csv.gz",
-        index=False,
-    )
+    snap, history = pf.write_snapshot(tmp_path)
 
     script = _load_script()
     out = tmp_path / "out"
