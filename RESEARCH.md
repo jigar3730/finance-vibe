@@ -165,6 +165,7 @@ Every run: date, commit, what changed, which hypotheses, result. Includes failed
 | 2026-10-27 | — | **Exploratory, not a finding:** CONFIRMED has the largest per-event excess (+0.69% vs random) but heavy-tailed noise (t 0.86). A new hypothesis (e.g. a longer horizon or another universe) would be a new pre-registered test, not a re-run of this one. | — | — |
 | 2026-10-27 | weekly addendum commit | Weekly addendum pre-registered (§11) before any weekly forward return was computed. Daily sections unchanged. | W-E1–W-E3 | — |
 | 2026-11-09 | draft commit | Pre-breakout addendum (§12) drafted: Coiled Cobra first pass (C1) and Cobra pass on a PRE_BREAKOUT bar (C2), daily, on the 2026-11-09 backfill snapshot. DRAFT, not frozen. No forward return computed; event counts only (statuses, no prices). | C1–C2 | — |
+| 2026-11-09 | freeze commit | Pre-breakout addendum frozen (§12) as drafted: status set to FROZEN, no change in meaning. No forward return for C1 or C2 computed. | C1–C2 | — |
 
 ## 11. Weekly addendum (pre-registered 2026-10-27, before any weekly return)
 
@@ -237,11 +238,11 @@ which a 10-year Yahoo download then will not cover, so the raw history must be k
 | 2026-10-27 | — | **Exploratory, not a finding:** weekly CONFIRMED's in-sample pass does not survive excluding the 28 split-flagged events (p Holm 0.400). An overlap-robust test (non-overlapping 4-week windows, or HAC errors) would be a new pre-registered test. It cannot replace the §11 rule, and it cannot be chosen after seeing the holdout. | — | — |
 | 2026-10-30 | — | Weekly holdout date set to **2035-09-07** (§11), chosen for about an 80% pass chance if the in-sample edge is real. Power was simulated by resampling in-sample CONFIRMED signal weeks only. No holdout bar was read, and the test, threshold, horizon and universe are unchanged. | W-E3 | Holdout not opened. |
 
-## 12. Pre-breakout addendum: Coiled Cobra (DRAFT, not frozen)
+## 12. Pre-breakout addendum: Coiled Cobra (pre-registered 2026-11-09, before any C1/C2 return)
 
-Status: **DRAFT.** Nothing here is pre-registered until it is reviewed, marked FROZEN and
-committed. No forward return has been computed for C1 or C2. Everything not stated here
-is as in §3–§7.
+Status: **FROZEN** on 2026-11-09, before any forward return for C1 or C2 was computed (commit:
+`git log -S"Pre-breakout addendum frozen" --format=%H -- RESEARCH.md`). Only §9 and §10 change
+from here; a changed hypothesis is a new one. Everything not stated here is as in §3–§7.
 
 **Question.** Does a Coiled Cobra pass catch a move before the breakout? Do C1 and C2 beat
 the market over the next 10 sessions?
@@ -320,7 +321,7 @@ after that date.
 3. Descriptive status counts for the whole backfill, 2026-04 → 2026-11 included, have been
    seen on `/scan-stats`. No price after any signal was read.
 
-**Procedure.** As §9–§10. Mark this section FROZEN and commit it. Then commit the label code
+**Procedure.** As §9–§10. This section is frozen. Next, commit the label code
 and run it blind, reporting counts and data checks only. Then commit the analysis code and
 run it once. Write the results in §9 and the run in §10.
 
