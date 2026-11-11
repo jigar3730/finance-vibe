@@ -84,7 +84,8 @@ If a doc disagrees with `pipeline.py` or `config.py`, the code wins.
   thresholds in a way that changes `Score` or which setups qualify, bump
   `config.RUBRIC_VERSION` and update `docs/coiled_cobra.md`.
   Breakout scanner state/status/score changes update `docs/breakout.md`. `tests/test_rubric_docs_sync.py`
-  fails when a quoted threshold in either doc drifts from the code.
+  fails when a quoted threshold in either doc drifts from the code, and fingerprints each
+  scanner's rule code and constants per rubric version (a logic change fails until you bump it).
 - **Data contracts.** Raw CSVs are named `<TICKER>_<period>_<interval>.csv`
   and must satisfy `REQUIRED_OHLCV`; setup rows must match
   `SETUP_ROW_COLUMNS`. Reject malformed input loudly rather than mis-scoring.

@@ -10,7 +10,8 @@ tested result; see Validation status.
 > `src/finance_vibe/market.py` (Gate B, RS). Indicator math is in
 > `src/finance_vibe/indicators.py`. This doc was re-audited line by line
 > against the code on 2026-10-10 and again on 2026-11-10; where they disagree,
-> the code wins.
+> the code wins. `tests/test_rubric_docs_sync.py` fingerprints the rule code and
+> constants per `RUBRIC_VERSION` and fails on any change until it is bumped.
 >
 > **Daily mode.** The rubric is weekly-native, but `coiled_cobra daily`
 > runs the same logic on daily bars with every week-denominated period scaled

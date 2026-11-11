@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from finance_vibe import config
+from finance_vibe import config, market
 from finance_vibe.scanners import breakout as bs
 from finance_vibe.scanners import coiled_cobra as cc
 
@@ -154,6 +154,54 @@ def test_breakout_rules_match_rubric_version():
     assert BREAKOUT_RULE_FINGERPRINTS.get(config.BREAKOUT_RUBRIC_VERSION) == got, (
         "breakout rule code or constants changed. If states/Status/Readiness can change, "
         "bump config.BREAKOUT_RUBRIC_VERSION and docs/breakout.md and add the new "
+        "fingerprint here; for a behaviour-neutral refactor (golden IDENTICAL), replace "
+        f"the current version's fingerprint. New fingerprint: {got}"
+    )
+
+
+# Coiled Cobra rule code and constants, fingerprinted per config.RUBRIC_VERSION, so a
+# logic change that keeps every quoted constant still fails until the rubric is bumped.
+_COBRA_RULES = [
+    (cc, "Timeframe"), (cc, "apply_timeframe"), (cc, "local_swing_low"),
+    (cc, "add_macro_indicators"), (cc, "_volume_shelf_once"),
+    (cc, "evaluate_volume_profile_shelf"), (cc, "macd_directional_penalty"),
+    (cc, "vol_contraction_score"), (cc, "_trend_extension_penalty"), (cc, "structure_score"),
+    (cc, "rvol_trigger_score"), (cc, "overhead_clearance_score"), (cc, "_rs_line_new_high"),
+    (cc, "relative_strength_score"), (cc, "evaluate_coiled_cobra"), (cc, "_setup_row"),
+    (cc, "_history_rows"), (cc, "scan_history"),
+    (market, "check_coiled_cobra_market_gate"), (market, "relative_strength"),
+]  # fmt: skip
+
+COBRA_RULE_FINGERPRINTS = {
+    "4.0": "cad9183baeeb68412f10deef5c44ec1ee952b190cd897cb7128233664f2f8ac3",
+}
+
+
+def cobra_rule_fingerprint() -> str:
+    """sha256 of the Cobra rule code's AST plus every UPPER_CASE Cobra constant, as set
+    for each mode (paths and directories excluded), and the Cobra output schemas."""
+    parts = []
+    for module, name in _COBRA_RULES:
+        tree = _strip_docstrings(ast.parse(inspect.getsource(getattr(module, name))))
+        parts.append(ast.dump(tree, include_attributes=False))
+    previous = cc.mode
+    try:
+        for mode in ("weekly", "daily"):
+            cc.apply_timeframe(mode)
+            for k in sorted(dir(cc)):
+                if k.isupper() and not k.endswith(("_PATH", "_DIR")):
+                    parts.append(f"{mode}:{k}={getattr(cc, k)!r}")
+    finally:
+        cc.apply_timeframe(previous)
+    parts += [f"{k}={getattr(config, k)!r}" for k in ("SETUP_ROW_COLUMNS", "COBRA_HISTORY_COLUMNS")]
+    return hashlib.sha256("\n".join(parts).encode()).hexdigest()
+
+
+def test_cobra_rules_match_rubric_version():
+    got = cobra_rule_fingerprint()
+    assert COBRA_RULE_FINGERPRINTS.get(config.RUBRIC_VERSION) == got, (
+        "Coiled Cobra rule code or constants changed. If Score or which setups qualify can "
+        "change, bump config.RUBRIC_VERSION and docs/coiled_cobra.md and add the new "
         "fingerprint here; for a behaviour-neutral refactor (golden IDENTICAL), replace "
         f"the current version's fingerprint. New fingerprint: {got}"
     )
