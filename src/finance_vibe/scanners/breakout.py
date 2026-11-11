@@ -448,8 +448,6 @@ def add_indicators(
     out["Resistance"] = high.rolling(STRUCTURE_BARS, min_periods=STRUCTURE_BARS).max().shift(1)
     out["Support"] = low.rolling(STRUCTURE_BARS, min_periods=STRUCTURE_BARS).min().shift(1)
 
-    # Confirmed 3-bar swing pivots (pivot at i-1, confirmed on bar i).
-
     atr = out["ATR"].replace(0, np.nan)
     out["Distance Resistance ATR"] = (out["Resistance"] - close) / atr
     out["Extension ATR"] = (close - out["SMA20"]) / atr

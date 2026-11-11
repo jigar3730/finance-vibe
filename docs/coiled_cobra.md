@@ -1,13 +1,16 @@
 # Coiled Cobra Scanner
 ## Rubric v4.0 — Weekly-Native, Hard-Gated (daily mode scales ×5)
 
-Supersedes v3.1. Target: identify coils likely to break out within 1-2 weekly
-bars, scanned against 10 years of weekly OHLCV history.
+Supersedes v3.1. Design intent: flag coils that may break out within 1-2 weekly
+bars, scanned against 10 years of weekly OHLCV history. That intent is not a
+tested result; see Validation status.
 
 > **Source of truth:** `src/finance_vibe/scanners/coiled_cobra.py`
-> (`evaluate_coiled_cobra`; `config.RUBRIC_VERSION = "4.0"`). Indicator math
-> is in `src/finance_vibe/indicators.py`. This doc was re-audited line by
-> line against the code on 2026-10-10; where they disagree, the code wins.
+> (`evaluate_coiled_cobra`; `config.RUBRIC_VERSION = "4.0"`) and
+> `src/finance_vibe/market.py` (Gate B, RS). Indicator math is in
+> `src/finance_vibe/indicators.py`. This doc was re-audited line by line
+> against the code on 2026-10-10 and again on 2026-11-10; where they disagree,
+> the code wins.
 >
 > **Daily mode.** The rubric is weekly-native, but `coiled_cobra daily`
 > runs the same logic on daily bars with every week-denominated period scaled
@@ -17,7 +20,10 @@ bars, scanned against 10 years of weekly OHLCV history.
 > (also the local-high and RS-line windows), RS ratio MA = 20, overhead
 > lookback = 252. Bar-count settings are **not** scaled: EMA50 in Gate B,
 > ATR(14), RVOL's 20-bar volume SMA, the 20-bar volume-shelf window, and
-> MACD 12/26/9. All of these are defined in `coiled_cobra.Timeframe`.
+> MACD 12/26/9. The per-mode constants come from `coiled_cobra.Timeframe`; the
+> week-scaled periods and history floors are derived from its `wk_to_bar` (5 on
+> daily, 1 on weekly) in `apply_timeframe()`. Daily raw files hold 5 years
+> (about 1,255 bars), weekly files 10 years.
 
 ---
 
@@ -124,9 +130,9 @@ pillars.
 > **Hardened 2026-09-18**: `structure_score`'s hard stack check originally
 > only compared EMA10w/20w/40w, leaving EMA30w unconstrained — a stock with
 > a hole mid-stack (e.g. EMA20w dipping below EMA30w) could still pass both
-> Gate A and Gate C despite not being a clean ascending EMA fan. Now requires
-> the full EMA10w ≥ EMA20w ≥ EMA30w ≥ EMA40w hierarchy (see Structure & MA
-> Alignment below).
+> Gate A and Gate C despite not being a clean ascending EMA fan. Now every
+> adjacent pair of EMA10w / EMA20w / EMA30w / EMA40w is checked, each with a 2%
+> allowance (see Structure & MA Alignment below).
 
 ## Gate D — Breadth (`Checks Met`)
 ```
@@ -145,7 +151,8 @@ genuine multi-factor confluence.
 > ~65% of otherwise equal-or-better `B/Watchlist`-tier signal volume, where
 > the blocked increment actually outperformed (+0.121R vs +0.087R). The
 > `A/Actionable` tier — the strongest cohort by far — was unaffected by the
-> threshold either way.
+> threshold either way. That backtest predates `RESEARCH.md` and is not one of
+> its pre-registered tests (see Validation status).
 
 ---
 
@@ -211,7 +218,10 @@ without treating MACD as a squeeze detector.
 ## 3. Structure & MA Alignment (20 Points)
 
 ```
-Required: EMA10w ≥ 0.98 × EMA20w ≥ 0.98 × EMA30w ≥ 0.98 × EMA40w   → else 0 (hard fail, Gate C)
+Required, each pair on its own:                      → else 0 (hard fail, Gate C)
+  EMA10w ≥ 0.98 × EMA20w
+  EMA20w ≥ 0.98 × EMA30w
+  EMA30w ≥ 0.98 × EMA40w
 ```
 | Condition | Points |
 |---|---:|
@@ -229,8 +239,9 @@ output column:
 | 0.30 - 0.40 | linear -4 → -8 (leader) / -4 → -12 (laggard) |
 | > 0.40 | pillar floored at 0, treated as extended, not a coil |
 
-"Leader" means `RS_13w > +10%` (`RS_LEADER_EXT`). Deductions are rounded to
-whole points and the pillar is floored at 0.
+"Leader" means `RS_13w > +10%` (`RS_LEADER_EXT`); no RS reading counts as a
+laggard. Deductions are rounded to whole points (Python `round`, ties to even)
+and the pillar is floored at 0.
 
 Check counted when `structure ≥ 8`. Independently gates via Gate C.
 
@@ -264,7 +275,7 @@ stock and QQQ series are inner-joined on Date (RS needs at least
 the as-of bar, i.e. the RS line cresting, a leading institutional-accumulation
 tell that v3.1 didn't check. It applies only when the pillar already scores
 > 0 and does not check the price coil itself. The final value is rounded to
-an integer.
+an integer (Python `round`, ties to even: 12.5 → 12).
 
 The group-RS part of the pillar is **not implemented** (see Known
 Limitations).
@@ -284,6 +295,10 @@ the full available history (up to 10yr, previously capped at the 52-week
 | Topology | 6 | `min(6, (bin_vol/avg_neighbor_vol) * 2)` |
 | Auction value vs POC | 6 | ≤3 bins from POC = 6; ≤6 bins = 3; else 0 |
 | Behavior | 3 | Close above bin center = 3, else 1 |
+
+"Neighbors" are the bins either side of the price's bin. In the first or last
+bin the missing neighbor is the price's own bin, so the topology ratio there is
+against the average of itself and its one real neighbor.
 
 Check counted when `volume_shelf ≥ 8`.
 
@@ -365,6 +380,16 @@ columns exactly `config.SETUP_ROW_COLUMNS`. The scorecard fields are:
 - `Market Gate`, also copied to `Regime OK`.
 - `Fib Score`, always 0.0.
 
+The other columns:
+
+- `Setup Type` is always `SETUP_LONG`.
+- `EMA20` / `EMA50` are plain 20- and 50-bar EMAs, not week-scaled: on daily runs
+  they are 20 and 50 days.
+- `Swing Low` is the lowest Low of the last 10 bars (`STRUCTURE_STOP_BARS`).
+- `Swing High` and `Risk Per Share` are always empty.
+- `MACD` / `MACD Signal` are the 12/26/9 values, rounded to 2 decimals.
+- `Score` is in practice a whole number, because every pillar scores whole points.
+
 The per-pillar `Parts` and `BBWidth Pctile` are returned by
 `evaluate_coiled_cobra` but **not** written to the CSV (the golden-output
 scorecard records them). Rows are sorted by `Score`, descending. Ties have no
@@ -389,6 +414,20 @@ question.
 | 70-84, all gates pass, Watchlist tier | B - Watch |
 | Any gate fail | `Rejected - Gate Fail (A/C)`: every failing gate listed, `/`-joined |
 | Score < 70 with gates passed | Rejected - Below Threshold |
+
+---
+
+# Validation status
+
+- **Daily, failed in-sample** (`RESEARCH.md` §12, run once on 2026-11-09, rubric v4.0).
+  Two events were tested over the next 10 sessions on the 2026-11-09 backfill snapshot:
+  C1, the first bar of a Cobra pass, and C2, a Cobra pass on a breakout PRE_BREAKOUT bar.
+  Neither beat SPY or random entries (p Holm 1.000 for both). Both were dropped, not
+  tuned, and their holdout stays unopened.
+- **Weekly: never tested** under `RESEARCH.md`. A weekly test would need its own
+  pre-registered addendum.
+- The Gate D recalibration backtest quoted above predates `RESEARCH.md` and is not
+  evidence under its rules.
 
 ---
 

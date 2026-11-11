@@ -1,7 +1,8 @@
 # Breakout Readiness Scanner
 
 **Module:** `src/finance_vibe/scanners/breakout.py`
-**Pipeline step:** last stage of `finance_vibe.pipeline` (after Coiled Cobra)
+**Pipeline step:** runs after Coiled Cobra in `finance_vibe.pipeline`; in daily mode
+`data.market_ingest` and `data.universe_breadth` run after it
 **Output:** `data/logs/{mode}/breakout_setups_<YYYY-MM-DD>.csv`
 **UI:** `/breakout/<mode>/<date>` in `web/app.py` (weekly, daily)
 **Rubric:** Rubric v1.0 (`config.BREAKOUT_RUBRIC_VERSION = "1.0"`), stamped on
@@ -18,7 +19,7 @@ It runs beside Coiled Cobra and is independent of it: neither scanner reads
 the other's output. Breakout output is descriptive, for inspection.
 
 > **Source of truth:** the module. This doc was audited line by line against
-> the code on 2026-10-10. Every threshold below is a module constant or a
+> the code on 2026-10-10 and again on 2026-11-10. Every threshold below is a module constant or a
 > literal in `add_indicators`, `classify_states_frame`, `classify_status_frame`
 > or `score_readiness_frame`. Since 2026-10-26 the rules exist only in those
 > vectorized functions; the per-row `classify_states` / `classify_status` /
@@ -38,8 +39,10 @@ the other's output. Breakout output is descriptive, for inspection.
   date. Intraday (4H/1H) is out of scope until the raw dataset includes
   those bars.
 - **Causal percentiles.** Width/ATR/range percentiles are rolling ranks of the
-  current value (0-100) over a window of daily 252, weekly 52 or monthly 36
-  bars, needing at least 20 bars. They never use the full series.
+  current value (0-100) over the native timeframe's window (`PCTL_WINDOW`:
+  daily 252, weekly 52 or monthly 36 bars), needing at least 20 bars. They never
+  use the full series. Percentiles are only computed on the native frame, and
+  monthly is never native, so the monthly 36 is defined but unused.
 
 ## Flow
 
@@ -81,13 +84,16 @@ Files with fewer than 80 native bars (`MIN_PRIMARY_BARS`) are rejected as
 `insufficient_data`. Other rejection keys: `inactive_ticker`, `read_error`,
 `missing_columns`, `invalid_ohlcv`, `execution_error`.
 
-## Indicators (`add_indicators`, per timeframe)
+## Indicators (`add_indicators`, native timeframe only)
 
-Implementations are in `indicators.py` (pandas-ta 0.4.71b0 semantics).
+Implementations are in `indicators.py` (pandas-ta 0.4.71b0 semantics). Everything
+below is computed on the native bars (daily or weekly). The higher timeframes
+(weekly on daily data, and monthly) get only the SMAs their trend flags need:
+SMA20/50/200 weekly, SMA20/50 monthly.
 
 | Column | Definition |
 | ------ | ---------- |
-| `SMA20/50/200` | Simple moving averages of Close. Monthly frames skip SMA200. |
+| `SMA20/50/200` | Simple moving averages of Close. |
 | `RSI` | RSI(14), Wilder smoothing |
 | `MACD_Hist` | MACD(15, 30, 9) histogram (EMA-based, SMA-seeded) |
 | `BB_*`, `BB_Width` | Bollinger(20, 2) on SMA20 with **sample** std (ddof=1); width = (upper − lower) / mid |
@@ -287,10 +293,18 @@ golden, regenerate history):
   in the last bit from the same window inside a longer series. That can flip a
   trend-flag tie (e.g. `SMA20 ≥ previous`) on the bar where the SMA first warms
   up. `scan_history` reproduces it deliberately.
-- **Rounding before thresholds.** Features are rounded (prices, ATR, RVOL20,
-  slopes and distances to 4 dp; percentiles to 2 dp; MACD values to 6 dp) before
-  the states, status and score compare them with their thresholds. A value just
-  under a cut can round onto it (e.g. RVOL20 1.49996 counts as 1.5).
+- **Rounding before numeric thresholds only.** The numeric features are rounded
+  (prices, ATR, RVOL20, slopes and distances to 4 dp; percentiles to 2 dp; MACD
+  values to 6 dp) before `classify_states_frame`, `classify_status_frame` and
+  `score_readiness_frame` compare them with thresholds. A value just under a cut
+  can round onto it: RVOL20 1.49996 counts as 1.5 for Volume State,
+  PRE_BREAKOUT's volume check and the score. The boolean events are computed
+  earlier, from unrounded values: `Breakout Triggered`, `Breakout Confirmation`,
+  `Failed Breakout`, `Wick Reject`, `Compression`, `Squeeze`, `Volume Dryup`,
+  OBV rising and the daily/weekly/monthly trend flags (in `add_indicators` and
+  `_feature_frame`). So a row can show RVOL20 1.5 and still not be
+  `BREAKOUT_CONFIRMED`, and `COMPRESSING` (unrounded) and `EXPANDING` (rounded)
+  read their percentiles at different precision.
 
 - **Bollinger width uses sample std (ddof=1)**, as pandas-ta did; textbook
   Bollinger uses population std. Kept on purpose (decided 2026-10-10):
@@ -324,6 +338,8 @@ Tested in-sample under `RESEARCH.md` (§7 daily, §11 weekly):
 
 - **Weekly BREAKOUT_CONFIRMED** (first bar of a run) passed in-sample. It is unproven
   until its one holdout run on 2035-09-07. Tested as: buy next open, hold 4 weeks, no stop.
+  It was tested on the old scan list (snapshot 2026-10-27: the 200 most-traded of 268
+  weekly names each week), not on the current S&P 500 + 400 universe.
 - **Every other event failed**: daily PRE_BREAKOUT, BREAKOUT_TRIGGERED and
   BREAKOUT_CONFIRMED, and weekly PRE_BREAKOUT and BREAKOUT_TRIGGERED.
 - Breakout Readiness was dropped from the research plan and is untested.
