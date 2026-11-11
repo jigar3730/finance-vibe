@@ -375,7 +375,7 @@ It opens with the SPY / QQQ facts box (`playbook.market_facts`: weekly `Trend`, 
    is not marked). Each card shows the close, the weekly position bar
    (`playbook.position_bar`, `Support` to `Resistance`, as on the market home), then
    SMA50, ATR, extension, RVOL20 and MTF.
-2. **Coiled Cobra setups** (`playbook.untested_cobra`), tooltip "Never backtested":
+2. **Coiled Cobra setups** (`playbook.untested_cobra`), tooltip "Daily: failed the in-sample test (RESEARCH.md §12). Weekly: never backtested.":
    collapsed by default; a table per mode with Score, Grade, Close and the ticker's
    breakout status.
 3. **Since last run** (`templates/_since_last_run.html`, `insights.run_changes`), the two

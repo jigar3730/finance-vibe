@@ -317,7 +317,7 @@ def test_cobra_view_orders_by_score_with_live_price_and_no_row_highlight(
     assert "live-surge" not in body
     assert ">+11.00%<" in body and ">-5.00%<" in body  # BBB, AAA
     head = body.split('class="page-head"')[1].split("</div>")[0]
-    assert "weekly run 2026-09-04" in head and "Never backtested" in head
+    assert "weekly run 2026-09-04" in head and "Weekly: never backtested" in head
 
 
 def test_run_grids_drop_asof_column_and_flag_only_lagging_rows(client, tmp_path, monkeypatch):
@@ -546,7 +546,8 @@ def test_home_cobra_is_collapsed_and_untested(client, tmp_path, monkeypatch):
     body = _home_logs(client, tmp_path, monkeypatch)
     section = body.split('class="failed-section untested-section"')[1].split("</details>")[0]
     assert '<details class="failed-section untested-section">' in body  # closed by default
-    assert "Coiled Cobra setups" in section and "Never backtested" in section
+    assert "Coiled Cobra setups" in section
+    assert "Daily: failed the in-sample test" in section and "Weekly: never backtested" in section
     assert "t=VRNS" in section and "Untested:" not in section
     assert "No weekly Cobra setups." in section and ">85<" in section
 

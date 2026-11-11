@@ -51,7 +51,7 @@
         {% set n_cobra = cobra|map(attribute='rows')|map('length')|sum %}
         <details class="failed-section untested-section">
             <summary>Coiled Cobra setups <span class="chip-count">{{ n_cobra }}</span>
-                <span class="tip" title="Never backtested: a watchlist, not evidence.">?</span></summary>
+                <span class="tip" title="Daily: failed the in-sample test (RESEARCH.md §12, 2026-11-09). Weekly: never backtested. A watchlist, not evidence.">?</span></summary>
             {% for group in cobra %}
             <h3>{{ group.mode|capitalize }}</h3>
             {% if not group.rows %}
