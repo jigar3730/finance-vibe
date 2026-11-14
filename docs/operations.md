@@ -2,7 +2,8 @@
 
 How to run, schedule and maintain the Finance Vibe pipeline: ticker universe,
 Yahoo OHLCV ingest, the two scanners (Coiled Cobra and breakout readiness), and
-the dashboard.
+the dashboard. For step-by-step procedures (daily check, failures, deploying,
+recovery) see [`runbook.md`](runbook.md).
 
 ## Environment
 
@@ -313,7 +314,8 @@ skipped because a lock is held, or when the health check fails (daily: only if t
 22:30 retry or a `--now` run also fails). SMTP settings live in
 `~/.config/finance-vibe/notify.env` (mode 600, not in the repo; same `SMTP_*` /
 `EMAIL_*` names as quant-hub). Without that file the alert is logged as not sent.
-On mediabox that file does not exist yet, so no alert email is sent: check the run logs.
+On mediabox that file does not exist yet, so no alert email is sent: check the run logs
+(the daily check in [`runbook.md`](runbook.md#daily-check-a-minute)).
 
 ## Dashboard
 

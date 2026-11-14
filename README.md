@@ -29,8 +29,8 @@ Without uv: `pip install -r requirements.txt` (exported from `uv.lock`) and
 
 In production the pipeline runs in the `finance_vibe` container on a cron
 schedule (weekly Saturdays 09:00 ET, daily 18:30 ET with a 22:30 retry), and
-`docker compose up -d` serves the dashboard on port 5000. See
-[`docs/operations.md`](docs/operations.md).
+`docker compose up -d` serves the dashboard on port 5000. Day-to-day steps are in
+[`docs/runbook.md`](docs/runbook.md), details in [`docs/operations.md`](docs/operations.md).
 
 ## Pipeline
 
@@ -66,7 +66,7 @@ src/finance_vibe/
   web/                app.py (incl. /universe), playbook.py (Setups page sections, Market rows, Runs ticker history), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers
 tests/                pytest suite
-docs/                 operations, scanner specs, UX standards
+docs/                 runbook, operations, scanner specs, UX standards
 ```
 
 ## Requirements
