@@ -308,12 +308,21 @@ or has an error row (e.g. a stale VIX file). It exits 1 for a problem with the s
 outputs and 2 when only market-context data failed. Run one by hand with
 `docker exec -i finance_vibe python - < scripts/check_daily_outputs.py`.
 
-`scripts/notify_email.py` (stdlib only, runs on the host) emails an alert with the end
-of the run log when the pipeline fails or times out (daily: 25 minutes), when a run is
+`scripts/notify_email.py` (stdlib only, runs on the host) emails an alert when the pipeline fails or times out (daily: 25 minutes), when a run is
 skipped because a lock is held, or when the health check fails (daily: only if the
 22:30 retry or a `--now` run also fails). SMTP settings live in
 `~/.config/finance-vibe/notify.env` (mode 600, not in the repo; same `SMTP_*` /
-`EMAIL_*` names as quant-hub). Without that file the alert is logged as not sent.
+`EMAIL_*` names as quant-hub; optional `DASHBOARD_URL`, default `http://<host>:5000`).
+Without that file the alert is logged as not sent.
+
+The email is plain text: subject, one line on what happened, host and log path, a link to
+the runbook's failure table on the dashboard, then a summary of the run log, not the log
+itself. The summary keeps the `===` start / end lines, finished stages, runner messages,
+the health check result (up to 20 problems), ERROR lines and the last traceback, at most
+60 lines, then the first 10 WARNING lines with their total. Scanner console tables and
+info lines are left out. Preview one without sending:
+`python3 scripts/notify_email.py --subject test --body-file <run log> --dry-run`
+(`--tail N` sends the last N raw lines instead).
 On mediabox that file does not exist yet, so no alert email is sent: check the run logs
 (the daily check in [`runbook.md`](runbook.md#daily-check-a-minute)).
 

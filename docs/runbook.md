@@ -102,7 +102,7 @@ two must hold the same code.
 | `data/research/backfill/snapshots/` | **Cannot be rebuilt** byte for byte (Yahoo restates prices). A new download is a new snapshot |
 | The golden fixture (`/mnt/fast/finance-vibe-data/golden/`) | `snapshot --force` then `baseline --force`; the new baseline only shows that the code still behaves as it does today |
 | The crontab | The lines in [`operations.md`](operations.md#scheduling); an old copy is in `~/.local/state/finance-vibe/crontab.bak-2026-10-20` |
-| Alert email | Create `~/.config/finance-vibe/notify.env` (mode 600) with `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `EMAIL_FROM`, `EMAIL_TO` (read by `scripts/notify_email.py`), then send a test: `python3 scripts/notify_email.py --subject test --body ok` |
+| Alert email | Create `~/.config/finance-vibe/notify.env` (mode 600) with `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_USE_TLS`, `EMAIL_FROM`, `EMAIL_TO` (read by `scripts/notify_email.py`), then send a test: `python3 scripts/notify_email.py --subject test --body ok`. Add `--body-file <run log> --dry-run` to see what an alert for that run would say, without sending |
 
 Back up `data/logs/` and `data/research/` from time to time, since they cannot be downloaded again:
 
