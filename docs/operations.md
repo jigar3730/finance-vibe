@@ -9,7 +9,7 @@ recovery) see [`runbook.md`](runbook.md).
 
 - Python 3.12 (the Docker image) or 3.13
 - Install from repo root with `uv sync` (or `pip install -r requirements.txt` and `export PYTHONPATH=src`)
-- Core packages: `pandas`, `numpy`, `yfinance`, `Flask`. Indicators are in-house (`finance_vibe/indicators.py`).
+- Core packages: `pandas`, `numpy`, `yfinance`, `Flask`, `markdown` (the `/docs` pages). Indicators are in-house (`finance_vibe/indicators.py`).
 
 ## Layout
 
@@ -341,6 +341,7 @@ dashboard and the next scheduled run pick it up.
 | `/api/bars/<mode>/<SYMBOL>` | JSON OHLC bars from the raw silo (last 60 daily / 52 weekly) for the level charts |
 | `/cobra/<mode>/<date>` | Coiled Cobra setups, highest Score first, Live Price and vs Run Close (% from the run's close; green above / red below; no row highlight) |
 | `/breakout/<mode>/<date>` | Breakout scan: KPIs, status chips, highlights (or `?show=all` / `?status=`), failed breakouts collapsed |
+| `/docs`, `/docs/<name>` | The operating docs (`web/docs.py`, `config.DOCS_PAGES`: runbook, operations, both scanner specs, UX standards, README) rendered from the Markdown files baked into the image, so they match the running code. Links between them stay inside the app; links to anything not served (research notes, source files) keep their text only. Any other name is a 404 |
 | `/download/<mode>/<cobra\|breakout>/<date>.csv` | That run's scanner CSV as written (every row and column, closes only); linked as "Download CSV" on both run pages |
 
 Live prices (scanner run pages only) come from `yfinance` `fast_info`, fetched 16 at a

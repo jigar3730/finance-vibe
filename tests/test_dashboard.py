@@ -1143,7 +1143,15 @@ def test_nav_order_market_changes_setups_runs(client, tmp_path, monkeypatch):
     _market_logs(tmp_path, monkeypatch, weekly_trend="BULLISH")
     nav = client.get("/runs").get_data(as_text=True).split('class="top-nav"')[1].split("</nav>")[0]
     labels = [part.split("</a>")[0].split(">")[-1] for part in nav.split('class="nav-link')[1:]]
-    assert labels == ["Market", "Changes", "Setups (unproven)", "Scan stats", "Runs", "Universe"]
+    assert labels == [
+        "Market",
+        "Changes",
+        "Setups (unproven)",
+        "Scan stats",
+        "Runs",
+        "Universe",
+        "Docs",
+    ]
     assert 'href="/setups"' in nav
 
 

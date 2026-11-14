@@ -20,7 +20,7 @@ uv run python -m finance_vibe.pipeline          # weekly: refresh tickers + data
 uv run python -m finance_vibe.pipeline --mode daily
 uv run python -m finance_vibe.pipeline --reuse-raw          # keep raw data; scanners only
 uv run python -m finance_vibe.pipeline --as-of 2025-11-07   # replay a past date
-uv run python -m finance_vibe.web.app           # dashboard: market home, changes, setups (unproven), run pages + ticker history at http://127.0.0.1:5000
+uv run python -m finance_vibe.web.app           # dashboard: market home, changes, setups (unproven), run pages + ticker history, docs at http://127.0.0.1:5000
 uv run pytest -q
 ```
 
@@ -63,7 +63,7 @@ src/finance_vibe/
   data/               universe.py (rule-based scan universe, quarterly), ingest.py, daily_ingest.py, market_ingest.py, market_snapshot.py, universe_breadth.py, raw.py, quality.py, database.py (SQLite copy of scan outputs), analysis.py (standard queries), ticker_manifest.csv (stock watchlist), sp500_tickers.csv / sp400_tickers.csv + index_lists.json (scripts/refresh_index_lists.py)
   scanners/           coiled_cobra.py, breakout.py
   research/           backfill snapshot, scanner backfill and RESEARCH.md studies (not run by the pipeline)
-  web/                app.py (incl. /universe), playbook.py (Setups page sections, Market rows, Runs ticker history), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), templates/, static/
+  web/                app.py (incl. /universe), playbook.py (Setups page sections, Market rows, Runs ticker history), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), docs.py (/docs: operating docs in the app), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers
 tests/                pytest suite
 docs/                 runbook, operations, scanner specs, UX standards

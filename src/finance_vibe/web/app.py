@@ -28,7 +28,7 @@ from werkzeug.wrappers import Response as RedirectResponse
 from finance_vibe import config
 from finance_vibe.data import market_snapshot, raw, universe
 from finance_vibe.log import setup_logging
-from finance_vibe.web import health, insights, playbook
+from finance_vibe.web import docs, health, insights, playbook
 from finance_vibe.web.playbook import (
     BREAKOUT_PREFIX,
     COBRA_PREFIX,
@@ -635,6 +635,21 @@ def universe_page() -> str:
     view = universe.page()
     built = view["meta"]["built"] if view else None
     return render_template("universe.html", view=view, as_of=_page_as_of(built))
+
+
+@app.route("/docs")
+def docs_index() -> str:
+    """The operating docs served in the app (config.DOCS_PAGES)."""
+    return render_template("docs.html", index=docs.index(), doc=None)
+
+
+@app.route("/docs/<name>")
+def doc_page(name: str) -> str:
+    """One operating doc rendered from its Markdown file; 404 for any other name."""
+    doc = docs.page(name)
+    if doc is None:
+        abort(404)
+    return render_template("docs.html", index=docs.index(), doc=doc)
 
 
 @app.route("/runs/ticker")

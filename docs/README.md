@@ -10,4 +10,5 @@
 | [`research_review.md`](research_review.md), [`reviews/`](reviews/) | Reviews of the research and the dashboard |
 
 Research plan and results: [`RESEARCH.md`](../RESEARCH.md). Project overview and quick start:
-the root [`README.md`](../README.md). Where a doc and the code disagree, the code wins.
+the root [`README.md`](../README.md). The operating docs (not the research) are also served in the
+dashboard under **Docs** (`/docs`). Where a doc and the code disagree, the code wins.

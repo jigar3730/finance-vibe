@@ -13,7 +13,7 @@ WORK=/tmp/test_repo
 
 docker exec "$CONTAINER" rm -rf "$WORK"
 docker exec "$CONTAINER" mkdir -p "$WORK"
-for d in src tests docs scripts pyproject.toml; do docker cp "$REPO/$d" "$CONTAINER:$WORK/$d" >/dev/null; done
+for d in src tests docs scripts pyproject.toml README.md .dockerignore; do docker cp "$REPO/$d" "$CONTAINER:$WORK/$d" >/dev/null; done
 trap 'docker exec "$CONTAINER" rm -rf "$WORK"' EXIT
 
 docker exec -w "$WORK" -e PYTHONPATH="$WORK/src" "$CONTAINER" \

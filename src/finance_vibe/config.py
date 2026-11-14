@@ -378,6 +378,34 @@ ROTATION_GROWTH, ROTATION_DIVIDEND = "SCHG", "SCHD"
 ROTATION_MA_BARS = 50
 ROTATION_LOOKBACK = 63
 
+# Operating docs served in the dashboard under /docs (web.docs): URL name -> (path from the
+# repo root, one-line contents), in index order. Research notes stay out. The image copies
+# these files (.dockerignore).
+DOCS_DIR = PROJECT_ROOT
+DOCS_PAGES: dict[str, tuple[str, str]] = {
+    "runbook": (
+        "docs/runbook.md",
+        "Daily check, what to do when a run fails, deploying, recovery, recurring tasks",
+    ),
+    "operations": (
+        "docs/operations.md",
+        "Pipeline stages, schedule, health checks, database, every dashboard page, maintenance",
+    ),
+    "coiled-cobra": (
+        "docs/coiled_cobra.md",
+        "Coiled Cobra rules: hard gates, 100-point scorecard, grades, output columns",
+    ),
+    "breakout": (
+        "docs/breakout.md",
+        "Breakout readiness rules: states, status rules, 100-point score, display rule",
+    ),
+    "ux-standards": (
+        "docs/UX_STANDARDS.md",
+        "Rules for every dashboard page: facts not verdicts, colors, layout, number formats",
+    ),
+    "readme": ("README.md", "Project overview, quick start, pipeline and layout"),
+}
+
 # Breakout confirmation volume: RVOL20 at or above this on a close through
 # resistance confirms a breakout. Shared by scanners.breakout and the
 # dashboard's trigger rule (web.playbook).

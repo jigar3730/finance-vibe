@@ -8,7 +8,7 @@ What to do, step by step. Details and the reasons behind them are in
 
 | What | Where |
 | ---- | ----- |
-| Dashboard | http://mediabox:5000 (container `finance_vibe`) |
+| Dashboard | http://mediabox:5000 (container `finance_vibe`); these docs are under **Docs** |
 | Run logs, locks, markers | `~/.local/state/finance-vibe/` on the host |
 | Data volume | `/mnt/fast/finance-vibe-data` on the host, `/app/data` in the container (files are root-owned: change them through `docker exec`) |
 | Schedule | `crontab -l` (user `jigar`; host clock is New York time) |

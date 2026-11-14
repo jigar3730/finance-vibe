@@ -31,7 +31,8 @@ COPY pyproject.toml uv.lock .python-version README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project
 
-# Sources (templates and static files live in src/finance_vibe/web/; docs/ is excluded)
+# Sources (templates and static files live in src/finance_vibe/web/; of docs/ only the
+# operating docs the dashboard serves, see .dockerignore)
 COPY . .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen

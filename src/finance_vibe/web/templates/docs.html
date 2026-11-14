@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}{{ doc.title ~ ' - ' if doc else '' }}Docs - Finance Vibe{% endblock %}
+{% block content %}
+    <div class="page-head">
+        <h1>📘 {{ doc.title if doc else 'Docs' }} <span class="tip" title="The operating docs shipped with this build of the app. Where a doc and the code disagree, the code wins.">?</span></h1>
+    </div>
+
+    <nav class="doc-tabs" aria-label="Docs">
+        <a class="{% if not doc %}active{% endif %}" href="{{ url_for('docs_index') }}">All docs</a>
+        {% for row in index if not row.missing %}
+        <a class="{% if doc and doc.name == row.name %}active{% endif %}" href="{{ url_for('doc_page', name=row.name) }}">{{ row.title }}</a>
+        {% endfor %}
+    </nav>
+
+    {% if doc %}
+        {% if doc.sections|length > 2 %}
+        <p class="doc-sections"><span class="label">Sections</span>
+            {% for s in doc.sections %}<a href="#{{ s.id }}">{{ s.name }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+        </p>
+        {% endif %}
+        <article class="doc-body">{{ doc.html|safe }}</article>
+    {% else %}
+        <table class="table">
+            <thead><tr><th>Doc</th><th>Contents</th></tr></thead>
+            <tbody>
+            {% for row in index %}
+                <tr>
+                    <td>{% if row.missing %}{{ row.title }} <span class="warn">⚠ file missing</span>{% else %}<a href="{{ url_for('doc_page', name=row.name) }}">{{ row.title }}</a>{% endif %}</td>
+                    <td>{{ row.contents }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    {% endif %}
+{% endblock %}

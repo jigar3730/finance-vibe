@@ -19,6 +19,7 @@
         <a class="nav-link {% if request.endpoint == 'scan_stats' %}active{% endif %}" href="{{ url_for('scan_stats') }}">Scan stats</a>
         <a class="nav-link {% if request.endpoint in ['runs', 'ticker_runs', 'cobra_view', 'breakout_view'] %}active{% endif %}" href="{{ url_for('runs') }}">Runs</a>
         <a class="nav-link {% if request.endpoint == 'universe_page' %}active{% endif %}" href="{{ url_for('universe_page') }}">Universe</a>
+        <a class="nav-link {% if request.endpoint in ['docs_index', 'doc_page'] %}active{% endif %}" href="{{ url_for('docs_index') }}">Docs</a>
     </nav>
     {% if market_strip %}
     <div class="market-strip" aria-label="Market summary">

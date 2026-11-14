@@ -15,6 +15,8 @@ Rules for every dashboard template and stylesheet (`src/finance_vibe/web/templat
   state names as data (BREAKOUT_CONFIRMED, FAILED_BREAKOUT, Trend BULLISH, MTF
   ALIGNED). Everything about individual stocks lives there, including "Since last
   run" changes; `/changes` is market facts only.
+- **Exception: `/docs`** shows the repo's operating docs as written, so the scanner specs'
+  state names appear there. Its template (`docs.html`) follows every rule.
 - Comparisons say what was compared and over what window: "Growth outperforming
   (last 63 days)", "Dividend/value outperforming (last 63 days)", "Mixed".
 

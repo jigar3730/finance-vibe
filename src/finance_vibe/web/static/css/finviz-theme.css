@@ -524,6 +524,48 @@ td.spark-cell { padding-top: 4px; padding-bottom: 4px; }
 .market-facts p { margin: 2px 0; }
 .market-facts a { color: var(--finviz-accent-blue); }
 
+/* Docs (/docs): rendered Markdown from the repo's operating docs. */
+.doc-tabs { display: flex; flex-wrap: wrap; gap: 6px 18px; margin: 0 0 16px; font-size: 0.95rem; }
+.doc-tabs a { color: var(--link); text-decoration: none; }
+.doc-tabs a.active { color: var(--finviz-text-strong); font-weight: 700; }
+.doc-sections { font-size: 0.95rem; line-height: 1.8; margin: 0 0 20px; }
+.doc-sections .label { margin-right: 8px; }
+.doc-body { max-width: 1100px; line-height: 1.6; }
+.doc-body h2 { margin-top: 1.8em; padding-bottom: 4px; border-bottom: 1px solid var(--finviz-border); }
+.doc-body h3 { margin-top: 1.4em; color: var(--finviz-text-strong); }
+.doc-body code {
+    font-family: var(--finviz-font-mono);
+    font-size: 0.9em;
+    background-color: var(--finviz-bg-code);
+    padding: 1px 5px;
+    border-radius: 4px;
+}
+.doc-body pre {
+    background-color: var(--finviz-bg-code);
+    border: 1px solid var(--finviz-border);
+    border-radius: 6px;
+    padding: 12px 14px;
+    overflow-x: auto;
+    line-height: 1.45;
+}
+.doc-body pre code { padding: 0; background: none; font-size: 0.85rem; }
+.doc-body table {
+    border-collapse: collapse;
+    margin: 12px 0;
+    font-size: 0.9rem;
+    display: block;
+    overflow-x: auto;
+}
+.doc-body th,
+.doc-body td {
+    border: 1px solid var(--finviz-border);
+    padding: 5px 9px;
+    text-align: left;
+    vertical-align: top;
+}
+.doc-body th { background-color: var(--finviz-bg-header); color: var(--finviz-text-muted); }
+.doc-body tr:nth-child(even) { background-color: #181c27; }
+
 @media (max-width: 880px) {
     .page-body { padding: 20px 16px 36px; }
     .container { flex-direction: column; }

@@ -6,4 +6,10 @@ data/
 *.pyc
 .pytest_cache/
 .env
-docs/
+# docs/: only the operating docs the dashboard serves (config.DOCS_PAGES).
+docs/*
+!docs/runbook.md
+!docs/operations.md
+!docs/coiled_cobra.md
+!docs/breakout.md
+!docs/UX_STANDARDS.md
