@@ -15,16 +15,21 @@ the dashboard.
 | Path | Contents |
 | ---- | -------- |
 | `src/finance_vibe/` | `config`, `log`, `indicators`, `market` (benchmark, RS, market gate), `pipeline` |
-| `src/finance_vibe/data/` | `tickers` (universe), `ingest` (Yahoo download), `daily_ingest`, `market_ingest` (market-context funds), `raw` (raw CSV loader), `quality` |
+| `src/finance_vibe/data/` | `universe` (rule-based scan universe), `ingest` (Yahoo download), `daily_ingest`, `market_ingest` (market-context funds), `universe_breadth`, `market_snapshot` (live quotes), `raw` (raw CSV loader), `quality`, `database` (SQLite copy of scan outputs), `analysis` (standard queries); `ticker_manifest.csv` (watchlist), `sp500_tickers.csv` / `sp400_tickers.csv` / `index_lists.json` |
 | `src/finance_vibe/scanners/` | `coiled_cobra`, `breakout` |
-| `src/finance_vibe/web/` | Flask dashboard (`app`, `templates/`, `static/`) |
+| `src/finance_vibe/research/` | Backfill snapshot, scanner backfill and the `RESEARCH.md` studies; never run by the pipeline |
+| `src/finance_vibe/web/` | Flask dashboard (`app`, `playbook`, `health`, `insights`, `templates/`, `static/`) |
 | `scripts/` | Cron runners, output health checks, email alerts, test/lint/golden helpers |
-| `data/active_tickers.csv` | Ticker universe |
+| `data/active_tickers.csv` | Tickers scanned this run, written from the universe members |
+| `data/universe/` | Universe `members.csv`, `changes.csv`, `rejected.csv`, `meta.json`, rebuild bars in `bars/` |
 | `data/raw/{weekly,daily}/` | Raw OHLCV CSVs (`*_10y_1wk.csv`, `*_5y_1d.csv`) |
-| `data/logs/{weekly,daily}/` | Dated scan outputs and ingest errors |
-| `data/raw/market/`, `data/logs/market/` | Market-context raw CSVs (`*_2y_1d.csv`), their ingest errors and quality reports |
+| `data/logs/{weekly,daily}/` | Dated scan outputs, ingest errors and bar-quality reports |
+| `data/raw/market/`, `data/logs/market/` | Market-context raw CSVs (`*_2y_1d.csv`), their ingest errors and quality reports, `universe_breadth.json` |
 | `data/live/market_snapshot.json` | Latest live quotes for the market home; never read by a scanner |
+| `data/db/` | `finance_vibe.sqlite` and `analysis_summary.json` (rebuildable, see [Database](#database)) |
 | `data/research/backfill/snapshots/<date>/` | Frozen 10-year bars for the backfill: `daily/`, `weekly/`, `manifest.json` (file hashes), `universe.csv`, `report.md` |
+| `data/research/backfill/history/` | Scanner backfill output |
+| `~/.local/state/finance-vibe/` (host) | One log per cron run, lock files, `daily_ok_<date>` markers |
 
 ## Backfill snapshot
 
@@ -308,6 +313,7 @@ skipped because a lock is held, or when the health check fails (daily: only if t
 22:30 retry or a `--now` run also fails). SMTP settings live in
 `~/.config/finance-vibe/notify.env` (mode 600, not in the repo; same `SMTP_*` /
 `EMAIL_*` names as quant-hub). Without that file the alert is logged as not sent.
+On mediabox that file does not exist yet, so no alert email is sent: check the run logs.
 
 ## Dashboard
 
@@ -531,8 +537,8 @@ run"). The old `/changes?show=all` link redirects to `/setups?show=all#since-las
   without `--dry-run` and commit `sp500_tickers.csv`, `sp400_tickers.csv` and
   `index_lists.json` (date taken, count, source). It refuses a list far from its index size.
   The backfill snapshot keeps its own record of the S&P 500 list it requested, so this does
-  not change it. The `UNIVERSE_*` values in `config.py` (join $20M / $5, stay $15M / $4,
-  63-day window, 252 bars) are for the coming universe stage and not used yet.
+  not change it. The next universe rebuild then applies the `UNIVERSE_*` rules in `config.py`
+  (join $20M / $5, stay $15M / $4, 63-day window, 252 bars; see [Stages](#stages)).
 - **Change lookback or cadence:** edit `TIMEFRAME_PROFILES` in `config.py`.
 - **Change scanner rules:** edit `evaluate_coiled_cobra()` in `scanners/coiled_cobra.py`
   (update [`coiled_cobra.md`](coiled_cobra.md) and bump `config.RUBRIC_VERSION` when

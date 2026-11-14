@@ -60,12 +60,13 @@ src/finance_vibe/
   indicators.py       EMA/SMA/RSI/ATR/MACD/BB/KC/OBV (pandas-ta 0.4.71b0 semantics)
   market.py           QQQ benchmark frame, relative strength, Cobra market gate
   pipeline.py         orchestrator (python -m finance_vibe.pipeline)
-  data/               universe.py (rule-based scan universe, quarterly), ingest.py, daily_ingest.py, market_ingest.py, market_snapshot.py, universe_breadth.py, raw.py, quality.py, ticker_manifest.csv (stock watchlist), sp500_tickers.csv / sp400_tickers.csv + index_lists.json (scripts/refresh_index_lists.py)
+  data/               universe.py (rule-based scan universe, quarterly), ingest.py, daily_ingest.py, market_ingest.py, market_snapshot.py, universe_breadth.py, raw.py, quality.py, database.py (SQLite copy of scan outputs), analysis.py (standard queries), ticker_manifest.csv (stock watchlist), sp500_tickers.csv / sp400_tickers.csv + index_lists.json (scripts/refresh_index_lists.py)
   scanners/           coiled_cobra.py, breakout.py
+  research/           backfill snapshot, scanner backfill and RESEARCH.md studies (not run by the pipeline)
   web/                app.py (incl. /universe), playbook.py (Setups page sections, Market rows, Runs ticker history), health.py (VIX, credit, sector breadth), insights.py (freshness, changes, ETF relative view), templates/, static/
 scripts/              cron runners, health checks, email alerts, test/lint/golden helpers
 tests/                pytest suite
-docs/                 scanner specs and operations
+docs/                 operations, scanner specs, UX standards
 ```
 
 ## Requirements
