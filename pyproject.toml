@@ -31,6 +31,11 @@ lint = [
     "mypy>=2.4.0,<3",
     "pandas-stubs>=3.0.5.260914",
 ]
+# RESEARCH.md §13 ranker (finance_vibe.research only; no scanner or page imports it).
+# A default group so the image can run the research scripts and their tests.
+research = [
+    "lightgbm>=4.6,<5",
+]
 
 [build-system]
 requires = ["hatchling"]
@@ -40,8 +45,9 @@ build-backend = "hatchling.build"
 packages = ["src/finance_vibe"]
 
 [tool.uv]
-# A plain `uv sync` installs pytest too (scripts/test_in_container.sh runs it in the image).
-default-groups = ["dev"]
+# A plain `uv sync` installs pytest and lightgbm too (scripts/test_in_container.sh runs
+# the tests in the image).
+default-groups = ["dev", "research"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

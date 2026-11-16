@@ -21,12 +21,14 @@ WORKDIR /app
 # No compiler needed: every locked dependency ships a wheel.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     tzdata \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=uv /uv /usr/local/bin/uv
 
-# Dependencies first (cached layer), exactly as locked. Default group = dev;
-# dev (pytest) stays because scripts/test_in_container.sh runs tests in this image.
+# Dependencies first (cached layer), exactly as locked. Default groups = dev, research;
+# dev (pytest) stays because scripts/test_in_container.sh runs tests in this image;
+# research (lightgbm, which needs libgomp1 above) runs the RESEARCH.md §13 scripts.
 COPY pyproject.toml uv.lock .python-version README.md ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project
