@@ -35,10 +35,14 @@ What to do, step by step. Details and the reasons behind them are in
 
    A `daily_market_retry_<date>` file with no `daily_ok_<date>` means only the market
    context data failed, and the retry did not fix it either (see below).
-3. Friday evening: the same for `weekly_<date>_*.log`, and the Runs page should list the new
+3. The Top 3 digest email should arrive a few minutes after the run passes (subject
+   "[finance-vibe] Top 3 digest <date>: …"). If it doesn't: `grep digest
+   ~/.local/state/finance-vibe/daily_$(date +%F)_*.log`.
+4. Friday evening: the same for `weekly_<date>_*.log`, and the Runs page should list the new
    weekly date.
 
-Until `notify.env` exists, this check is the only way to learn that a run failed.
+Failures are also emailed (`notify.env`, set up 2026-11-13), but this check still catches a run
+that never started.
 
 ## When something fails
 
@@ -57,6 +61,8 @@ Find the newest log for the run, then read its end: `tail -40 <log>`.
 | `daily pipeline TIMED OUT after 25m` | Yahoo very slow, or something hung | Re-run with `--now`. If it repeats, time the stages separately |
 | `run skipped: previous run still holds the lock` | An earlier run is still going, or died while holding the lock | Check with `docker exec finance_vibe ps aux`. If nothing is running, the next run takes the lock as normal (`flock` locks are freed when the process ends) |
 | `database rebuild FAILED` | The SQLite copy could not be rebuilt; scans are fine | Run `docker exec finance_vibe python -m finance_vibe.data.database rebuild` and read the error. Only `/scan-stats` is affected (it shows a ⚠) |
+| `digest FAILED (exit N)` | The Top 3 digest could not be built; scans are fine | Run `docker exec finance_vibe python -m finance_vibe.digest` and read the error. Only the digest email is affected |
+| `digest email not sent` | The digest was built but the email failed | Read the `notify_email` line above it. The digest is still in `data/digest/digest_<date>.csv`; resend with `scripts/notify_email.py --message-json ~/.local/state/finance-vibe/digest_mail_<date>.json` |
 | `universe rebuild failed` | More than 10% of the quarterly rebuild downloads failed; the previous members were scanned | The 22:30 retry tries again, or run `docker exec finance_vibe python -m finance_vibe.data.universe --rebuild` later |
 | Market home "⚠ quotes N min old" | Live quote fetches are failing | `tail ~/.local/state/finance-vibe/snapshot_$(date +%F).log`. Closes and scans are not affected |
 | Dashboard down | Container stopped | `docker compose ps`, then `docker compose up -d`, then `docker compose logs --tail 50` |

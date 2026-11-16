@@ -65,9 +65,10 @@ rows never appear as real past runs, and it refuses to overwrite a finished file
 today's rules say about past bars, not what the scanner reported at the time.
 
 Differences from the real scans are expected. Daily scans see 5 years of bars and the backfill 10,
-which moves some scores by a few points (long-window volume shelf, EMA seeds). Weekly scans run
-before 2026-11-14 ran on Friday 18:00 and read a newest-week volume about 20% below Yahoo's final figure
-on 2026-11-06, which moves RVOL.
+which moves some scores by a few points (long-window volume shelf, EMA seeds). The 2026-11-09
+snapshot was downloaded on a Monday before the open, so its newest weekly bar (week of 2026-11-02)
+counts Friday's volume twice (median +17%), which moves RVOL for that week; earlier weekly bars are
+clean. Friday 18:00 weekly runs match Yahoo's settled volume (2026-11-06: 96% of tickers within 1%).
 
 ## Database
 
