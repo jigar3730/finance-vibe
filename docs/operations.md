@@ -263,14 +263,14 @@ New York, so the cron line only has to cover that hour in the host's clock:
 - **Top 3 digest.** After a daily run passes its health check, the runner builds the
   digest (`python -m finance_vibe.digest`) from that run's breakout scan, bar-quality report
   and daily raw files. Candidates: BREAKOUT_CONFIRMED or BREAKOUT_TRIGGERED, or PRE_BREAKOUT
-  within 1.5 ATR of resistance, with Trend BULLISH and MTF ALIGNED (no funds). They are
+  within 1.5 ATR of resistance, with Trend BULLISH and MTF ALIGNED or PARTIAL (no funds). They are
   ranked by 12-1 momentum (`C[t-21] / C[t-252] - 1`), and a candidate is dropped for a
   bar-quality flag that day or earnings on t or within 5 sessions (Yahoo's date). The top
   10 survivors are kept for review and the top 3 are the digest. Output goes to
   `data/digest/`. A digest failure is only logged. It is a shortlist for review, not a
   tested edge: §13 found 12-1 momentum beat the average stock on a survivor universe, and
-  nothing in RESEARCH.md beat it. On the 911-stock universe the filter has left 2–17
-  candidates a day (2026-11-10 → 11-13).
+  nothing in RESEARCH.md beat it. PARTIAL was added on 2026-11-15: with ALIGNED alone the
+  filter left 2–17 candidates a day on the 911-stock universe (2026-11-10 → 11-13).
 - **Locks.** Each runner holds a lock so runs cannot overlap; the daily runner also
   waits for the weekly lock (up to 30 min), since both refresh `active_tickers.csv`.
 - **Logs.** One file per run in `~/.local/state/finance-vibe/`

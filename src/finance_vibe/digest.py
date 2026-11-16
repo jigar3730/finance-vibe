@@ -7,7 +7,7 @@ dashboard reads its output.
 
 1. **Candidates**: Status BREAKOUT_CONFIRMED or BREAKOUT_TRIGGERED, or PRE_BREAKOUT with
    ``Distance Resistance ATR`` <= ``DIGEST_PRE_BREAKOUT_MAX_ATR``; Trend BULLISH; MTF
-   ALIGNED; not a fund.
+   ALIGNED or PARTIAL; not a fund.
 2. **Rank** by ``MOM_12_1 = C[t-21] / C[t-252] - 1`` (RESEARCH.md §13's baseline), highest
    first, ties by Symbol. No 252-bar history: dropped (``no_momentum``).
 3. **Drops**, in rank order: any flag in that day's bar-quality report (``data_quality``),
@@ -138,7 +138,7 @@ def candidates(setups: pd.DataFrame) -> pd.DataFrame:
     keep = (
         state_ok
         & setups["Trend"].eq(config.DIGEST_TREND)
-        & setups["MTF"].eq(config.DIGEST_MTF)
+        & setups["MTF"].isin(config.DIGEST_MTF)
         & ~setups["Symbol"].isin(config.UNIVERSE_FUNDS)
     )
     return setups.loc[keep, CARRY].reset_index(drop=True)

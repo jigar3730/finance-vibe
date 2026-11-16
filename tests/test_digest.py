@@ -66,10 +66,11 @@ def test_candidate_filter():
             _row("WATCH", status="WATCH"),
             _row("BEAR", trend="BEARISH"),
             _row("PART", mtf="PARTIAL"),
+            _row("DIV", mtf="DIVERGENT"),
             _row("SPY"),  # a fund
         ]
     )
-    assert list(digest.candidates(setups)["Symbol"]) == ["CONF", "TRIG", "NEAR"]
+    assert list(digest.candidates(setups)["Symbol"]) == ["CONF", "TRIG", "NEAR", "PART"]
 
 
 def test_sessions_and_the_earnings_window():
