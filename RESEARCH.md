@@ -203,6 +203,7 @@ Every run: date, commit, what changed, which hypotheses, result. Includes failed
 | 2026-11-09 | analysis commit | §12 analysis code committed before the run (`research.prebreakout_insample`, `scripts/prebreakout_insample_report.py`): §7 test on C1 and C2 as frozen, with each event's draws matched on (Symbol, Date, Event) because a bar can be both C1 and C2. The PRE_BREAKOUT reference (§12, reported only) was not in the blind label run, so the report labels it with the same §12 label code and snapshot. No forward return computed yet. | C1–C2 | — |
 | 2026-11-09 | d8bab00 | In-sample analysis run once (§12 as frozen) on `prebreakout_labels_2026-11-09`. No threshold, horizon or definition changed. | C1–C2 | Both FAIL in-sample (p Holm 1.000 / 1.000). Holdout not opened. Signals dropped. |
 | 2026-11-09 | — | **Exploratory, not a finding:** C2 reaches a breakout status in 10 sessions far more often than random (60% vs 40%) and touches resistance before support in 75% of events (47% random), yet trails SPY and random over 10 sessions. The same pattern as §9's PRE_BREAKOUT: the scanners anticipate the price reaching the level, not a gain after it. A test of what happens after the level is reached would be a new pre-registered test with its own holdout. | — | — |
+| 2026-11-15 | freeze commit | Cross-sectional ranker (§13) pre-registered and frozen: LightGBM lambdarank on 12 point-in-time price/volume features, 20-session horizon, six walk-forward folds with a ≥ 21-session gap, pass = beats the eligible mean and the 12-1 momentum top 10% (p < 0.05 each) and momentum in ≥ 4 of 6 folds. No feature or forward return computed yet. | §13 | — |
 
 ## 11. Weekly addendum (pre-registered 2026-10-27, before any weekly return)
 
@@ -374,3 +375,138 @@ C2 is rare in the holdout so far: 29 events in 7 months, so its holdout will pro
 several years. C1 has plenty of events. Successive 10-session windows overlap, as in §11.
 
 **Survivorship.** As §8.4, plus the look-ahead in choosing the universe stated above.
+
+## 13. Cross-sectional ranker: LightGBM (pre-registered 2026-11-15, before any return was computed for it)
+
+Status: **FROZEN** on 2026-11-15, before any forward return was computed for this test (commit:
+`git log -S"Cross-sectional ranker: LightGBM" --format=%H -- RESEARCH.md`). Only §9 and §10
+change from here; a changed hypothesis, feature, parameter or pass bar is a new test.
+
+**Question.** Does a LightGBM ranking model, fed only price and volume features known at the
+close, pick stocks whose next 20 sessions beat both random picks and a plain 12-1 momentum
+rank from the same universe?
+
+**Why this is a new test.** §9, §11 and §12 tested the scanners' own events, and all failed.
+This test drops the scanners' statuses and scores. It ranks every eligible stock on every
+score date from continuous features. Market-wide features (VIX, breadth, SPY vs its 50-day)
+are left out on purpose: they are the same on every row of a date, so they cannot rank stocks
+by themselves.
+
+**Data.** The frozen snapshot `data/research/backfill/snapshots/2026-11-09/` (checked against
+its `manifest.json`), daily bars only, read through `raw.load_raw`. Support and Resistance come
+from the same snapshot's breakout backfill history (rubric v1.0, code `883bc21`,
+`history/2026-11-09/rubric-1.0/breakout_daily_history.csv.gz`). SPY and QQQ are in the snapshot.
+
+**Eligible stocks on date t.** `universe.csv` `In Universe` = True (520 tickers), **and** the
+§12 point-in-time check at t (Close ≥ $5, 63-bar median Close × Volume ≥ $20M, bars up to and
+including t), **and** every feature below is defined at t. Stocks that fail are not ranked
+that day. The blind feature run reports how many each rule removes.
+
+**Features (bar t and earlier only; `indicators.py` for ATR and OBV).** C = Close, H = High,
+V = Volume, shifts in the ticker's own bars. Benchmark closes are taken on the ticker's own
+bar dates.
+
+| Feature | Definition |
+|---------|------------|
+| `RS_QQQ_63` | (C[t] / C[t−63]) / (QQQ[t] / QQQ[t−63]) − 1 |
+| `RS_QQQ_126` | the same over 126 bars |
+| `RS_SPY_63` | (C[t] / C[t−63]) / (SPY[t] / SPY[t−63]) − 1 |
+| `RS_SPY_126` | the same over 126 bars |
+| `MOM_12_1` | C[t−21] / C[t−252] − 1 |
+| `REV_1M` | C[t] / C[t−21] − 1 |
+| `HIGH_52W` | C[t] / max(H[t−251 … t]) − 1 |
+| `ATR_PCT` | ATR14[t] / C[t] |
+| `RES_ATR` | (Resistance[t] − C[t]) / ATR14[t] |
+| `SUP_ATR` | (C[t] − Support[t]) / ATR14[t] |
+| `OBV_SLOPE_20` | (OBV[t] − OBV[t−20]) / sum(V[t−19 … t]) |
+| `VOL_RATIO` | V[t] / mean(V[t−20 … t−1]) |
+
+Every feature is converted to its percentile rank among the stocks eligible that day, so
+the model sees each stock's position against the others, not raw levels that drift over
+the years.
+
+**Label.** As §4 with a 20-session horizon: `R20 = Close[t+20] / Open[t+1] − 1` (entry at the
+open of t+1, exit at the close of the 20th session). No costs, no stops. A row whose label
+window is short or has a session gap (§4 DQ flags) is excluded; `split_suspect` rows are kept
+and flagged. For training only, R20 is turned into a grade from 0 to 4: its quintile among
+that date's eligible stocks.
+
+**Dates.** In-sample signals run 2018-01-02 → 2026-03-31 (the first year of the snapshot
+feeds `MOM_12_1`). As in §9, forward bars after 2026-03-31 may be read to label late-March
+signals.
+- Training dates: every 5th SPY session from 2018-01-02.
+- Score dates: every 20th SPY session from 2018-01-02. Their 20-session label windows do not
+  overlap, so each score date is one independent observation.
+
+**Walk-forward.** Six test folds by score date: 2020, 2021, 2022, 2023, 2024, and 2025 together
+with 2026-01-01 → 2026-03-31. Each fold's model trains on the expanding window of training dates
+from 2018-01-02 whose label exit date comes **before** the fold's first score date. That
+mandatory gap of at least 21 sessions keeps any training label from overlapping the test
+period. One model per fold, retrained from scratch, never tuned on test results.
+
+**Model (fixed, no tuning).** LightGBM native API, `objective = lambdarank`, one query group
+per training date. Settings: 300 boosting rounds, learning rate 0.05, 31 leaves,
+`min_data_in_leaf` 100, `feature_fraction` 0.8, `bagging_fraction` 0.8 with `bagging_freq` 1,
+`seed` 20261115 and `deterministic` on, 3 threads. No early stopping, no search over
+settings, no feature selection.
+
+**Pickers compared on every score date.**
+- **Model:** the top 10% of eligible stocks by model score (rounded up).
+- **Momentum:** the top 10% by `MOM_12_1`, the same count.
+- **Random:** the mean R20 of all eligible stocks, which is what a random pick returns on
+  average. A seeded random picker is also run, as a check that it lands near that mean.
+
+**Decision rule (in-sample).** For each score date in the six folds (78 dates):
+`A = model top-10% mean R20 − eligible mean R20` and
+`B = model top-10% mean R20 − momentum top-10% mean R20`.
+1. One-sided one-sample t-test on the score-date values of A, and the same for B
+   (H1: mean > 0). The p used is the larger of the two, and the pass is at p < 0.05. One model
+   and one horizon, so there is no multiple-test correction.
+2. The mean of B is above 0 in at least 4 of the 6 folds.
+
+The model passes in-sample only if both hold. If it fails, it is dropped, not tuned.
+
+**Reported, never a pass criterion.**
+- Mean Spearman rank correlation between model score and R20 per score date (rank IC), in
+  total and by fold.
+- Top 3 and top 10 picks against the eligible mean (the digest's actual use).
+- SPY's R20 over the same windows.
+- A flat 0.20% round-trip cost per pick, against SPY.
+- The same results excluding `split_suspect` rows.
+- Feature importance (gain), as context only.
+
+**Holdout.** Signals known on or after 2026-04-01. It runs once, only if the in-sample rule
+passes, on a date set after the in-sample result from in-sample data only (as §11 and §12 did).
+The model is trained on every in-sample training date whose label ends by 2026-03-31, with
+the settings above. Score dates continue the same 20-session grid. It needs a new snapshot of
+the same 520 tickers taken after that date. Same rules A and B at p < 0.05; the fold rule does
+not apply. The sample so far is small: 153 sessions since 2026-04-01, about 7 score dates.
+
+**Known contamination (stated, the rule is not changed for it).**
+1. The 2026-11-10 read-only audit computed rank correlations of the scanners' Readiness and
+   Cobra Score with 1-, 5- and 20-day forward returns on this backfill, in-sample only. So
+   aggregate 20-day returns of this universe have been seen. None of the features above was
+   tested against returns.
+2. 12-1 momentum, 1-month reversal and distance from the 52-week high are published effects,
+   chosen from the literature, not from this data. `RS_QQQ_63` is close to Coiled Cobra's
+   `RS 63d`, whose rubric was tuned with returns (§12, contamination 2).
+3. The feature list was agreed in conversation on 2026-11-15, before any feature was computed
+   on this snapshot.
+
+**Survivorship.** The 520 tickers are today's survivors, picked with data up to 2026-11
+(§12). A ranker trained on them can learn "survived" instead of "outperformed", so
+results here are a prototype result only. A pass, in-sample and on the holdout, must be
+re-tested on a survivorship-free source that includes delisted stocks (a paid vendor,
+budgeted only after a pass) before the model is used for anything. After that comes about
+3 months of live shadow logging.
+
+**Procedure.** As §9–§10. This section is frozen. Next:
+1. Commit the feature code and run it blind: counts and data checks only, no labels.
+2. Commit the label, model and evaluation code, tested on synthetic data only.
+3. Run the in-sample evaluation once.
+
+Write the results in §9 and each run in §10.
+
+**Sample size (calendar only, no prices).** 2,072 in-sample sessions; 104 score dates, 78 of
+them in the test folds (2020: 12, 2021: 13, 2022: 12, 2023: 13, 2024: 13, 2025 + 2026 Q1: 15).
+Eligible stocks per date are counted by the blind feature run.
