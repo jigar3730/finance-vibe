@@ -89,14 +89,17 @@ def test_failed_scan_is_not_loaded(tmp_path, mode):
 def test_daily_digest_runs_after_a_passing_health_check(tmp_path):
     code, calls, text, _ = _run(tmp_path, "daily")
     assert code == 0
-    assert "exec -i" in calls[2] and "finance_vibe.digest" in calls[3]
+    assert "exec -i" in calls[2] and "finance_vibe.digest --email-json" in calls[3]
     assert "digest FAILED" not in text
+    # the stub prints no message, so the email step reports it and the run still counts
+    assert "digest email not sent" in text
 
 
 def test_failed_digest_is_logged_and_the_run_still_counts(tmp_path):
     code, _, text, logs = _run(tmp_path, "daily", digest=1)
     assert code == 0
     assert "digest FAILED (exit 1)" in text
+    assert "digest email" not in text  # nothing to send
     assert list(logs.glob("daily_ok_*"))
 
 

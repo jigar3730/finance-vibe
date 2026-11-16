@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import date
 
 import numpy as np
@@ -11,6 +12,7 @@ import pytest
 from finance_vibe import config, digest
 from finance_vibe.research import ranker_features as rf
 from finance_vibe.scanners import breakout as bs
+from test_ux_standards import verdict_words
 
 AS_OF = date(2026, 11, 13)  # a Friday
 
@@ -178,3 +180,73 @@ def test_run_end_to_end_from_run_files(tmp_path, monkeypatch):
     assert table.set_index("Symbol").loc["B", digest.MOMENTUM] == pytest.approx(0.3)
     assert (tmp_path / "digest" / "digest_2026-11-13.csv").exists()
     assert len(pd.read_csv(tmp_path / "digest" / "ledger.csv")) == 3
+
+
+# --- the email (step 2) -----------------------------------------------------
+
+
+def _day():
+    names = ["A", "B", "C", "D", "E", "F"]
+    setups = pd.DataFrame([_row(s) for s in [*names, "NEW"]])
+    mom = {"A": 0.10, "B": 0.50, "C": 0.40, "D": 0.30, "E": 0.20, "F": -0.05}
+    closes = {s: _closes(m) for s, m in mom.items()} | {"NEW": _closes(0.9, n=200)}
+    lookup = {"C": date(2026, 11, 17)}.get
+    return digest.build(setups, closes, {"D"}, AS_OF, lookup)
+
+
+def test_email_lists_the_top_three_with_facts():
+    mail = digest.render_email(_day(), "2026-11-13")
+    assert mail["subject"] == "[finance-vibe] Top 3 digest 2026-11-13: B, E, A"
+    text = mail["text"]
+    assert text.startswith("Daily run 2026-11-13 (closed bars). 7 candidates, 3 dropped, 3 shown.")
+    assert "1. B  https://finviz.com/quote.ashx?t=B" in text
+    assert "12-1 momentum: +50.00%" in text and "Close: 100.00" in text
+    assert "Close vs resistance: 0.5 ATR below" in text and "Volume vs 20-day: 1.10x" in text
+    assert "Earnings: unknown" in text
+    assert "Next in line: F −5.00%" in text
+    assert "C (earnings 2026-11-17)" in text and "D (bar-quality flag)" in text
+    assert "NEW (under a year of bars)" in text
+    assert f"Setups: {digest.DASHBOARD_TOKEN}/setups" in text
+    assert "<b>B</b>" in mail["html"] and "#cf222e" not in mail["html"]  # all shown are up
+
+
+def test_email_on_a_day_without_candidates():
+    empty = digest.build(pd.DataFrame([_row("W", status="WATCH")]), {}, set(), AS_OF, None)
+    mail = digest.render_email(empty, "2026-11-13")
+    assert mail["subject"].endswith(": none")
+    assert "No stock met the filter today." in mail["text"]
+    assert "No stock met the filter today." in mail["html"]
+
+
+def test_email_has_no_verdict_words_beyond_state_names():
+    mail = digest.render_email(_day(), "2026-11-13")
+    allowed = {"bullish", "aligned"}  # Trend / MTF state names shown as data
+    assert verdict_words(mail["html"]) <= allowed
+    assert verdict_words(mail["text"]) <= allowed
+
+
+def test_email_json_cli(tmp_path, monkeypatch, capsys):
+    logs, raw_dir = tmp_path / "logs", tmp_path / "raw"
+    logs.mkdir()
+    raw_dir.mkdir()
+    monkeypatch.setattr(
+        config,
+        "get_mode_config",
+        lambda mode=None: {"logs_dir": str(logs), "raw_dir": str(raw_dir)},
+    )
+    monkeypatch.setattr(config, "DIGEST_DIR", str(tmp_path / "digest"))
+    monkeypatch.setattr(config, "DIGEST_LEDGER", str(tmp_path / "digest" / "ledger.csv"))
+    pd.DataFrame([_row("WATCHME", status="WATCH")]).to_csv(
+        logs / "breakout_setups_2026-11-13.csv", index=False
+    )
+    assert digest.main(["--no-earnings", "--email-json"]) == 0
+    mail = json.loads(capsys.readouterr().out)
+    assert set(mail) == {"subject", "text", "html"} and mail["subject"].endswith("2026-11-13: none")
+
+
+def test_email_earnings_and_level_wording():
+    assert digest._earnings("2026-10-29", "2026-11-13") == "last 2026-10-29, next not listed"
+    assert digest._earnings("2026-11-20", "2026-11-13") == "2026-11-20"
+    assert digest._earnings("", "2026-11-13") == "not looked up"
+    assert digest._atr(-0.34) == "0.3 ATR above" and digest._atr(0.7) == "0.7 ATR below"
+    assert digest._pct(-0.1156) == "−11.56%" and digest._pct(float("nan")) == "-"

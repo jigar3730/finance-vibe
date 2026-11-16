@@ -18,7 +18,7 @@ What to do, step by step. Details and the reasons behind them are in
 | --------- | --- | --- |
 | Mon–Fri every 5 min, 08:00–16:15 | Live quotes for the market home | `snapshot_<date>.log` |
 | Mon–Fri 17:05 | Market closes for the market home | `market_close_<date>.log` |
-| Mon–Fri 18:30, retry 22:30 | Daily pipeline, database rebuild, health check, Top 3 digest (`data/digest/`) | `daily_<date>_<time>.log` |
+| Mon–Fri 18:30, retry 22:30 | Daily pipeline, database rebuild, health check, Top 3 digest (`data/digest/`) and its email | `daily_<date>_<time>.log` |
 | Fri 18:00 | Weekly pipeline, database rebuild, health check | `weekly_<date>_<time>.log` |
 
 ## Daily check (a minute)

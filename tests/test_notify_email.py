@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "notify_email.py"
@@ -131,3 +132,34 @@ def test_dashboard_url_from_env(tmp_path, capsys):
     env.write_text("DASHBOARD_URL=http://fv.local:5000\n")
     notify.main(["--subject", "S", "--dry-run", "--env-file", str(env)])
     assert "http://fv.local:5000/docs/runbook#when-something-fails" in capsys.readouterr().out
+
+
+def test_message_json_sends_the_finished_message(tmp_path, capsys):
+    msg = tmp_path / "mail.json"
+    msg.write_text(
+        json.dumps(
+            {"subject": "Top 3", "text": "A\nSetups: {DASHBOARD}/setups\n", "html": "<p>A</p>"}
+        )
+    )
+    env = tmp_path / "notify.env"
+    env.write_text("DASHBOARD_URL=http://box:5000/\n")
+    assert notify.main(["--message-json", str(msg), "--env-file", str(env), "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "Subject: Top 3" in out and "Setups: http://box:5000/setups" in out
+    assert "[html part: 8 characters]" in out
+    assert "What to do" not in out  # not an alert: no runbook line
+
+
+def test_message_json_builds_a_text_and_html_email(tmp_path):
+    m = notify.build_message({"EMAIL_TO": "a@b.c"}, "s", "plain", "<p>x</p>")
+    assert m.is_multipart()
+    assert [p.get_content_type() for p in m.iter_parts()] == ["text/plain", "text/html"]
+
+
+def test_unusable_message_json_is_refused(tmp_path, capsys):
+    bad = tmp_path / "bad.json"
+    bad.write_text("")
+    assert notify.main(["--message-json", str(bad), "--dry-run"]) == 1
+    bad.write_text('{"subject": "x"}')
+    assert notify.main(["--message-json", str(bad), "--dry-run"]) == 1
+    assert "needs a subject and a text" in capsys.readouterr().err

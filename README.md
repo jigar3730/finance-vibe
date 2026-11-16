@@ -15,7 +15,7 @@ RSP, VIX, rates, dollar, credit and sector breadth); the scans live on a back pa
 After each daily run a **Top 3 digest** (`python -m finance_vibe.digest`, `data/digest/`) narrows the
 breakout scan to a shortlist: confirmed / triggered breakouts or PRE_BREAKOUT near resistance, Trend
 BULLISH and timeframes ALIGNED or PARTIAL, ranked by 12-1 momentum, minus bar-quality flags and earnings within
-5 sessions. Every digest is kept in `data/digest/ledger.csv` so the picks can be measured. It is a
+5 sessions. It is emailed after the run, and every digest is kept in `data/digest/ledger.csv` so the picks can be measured. It is a
 shortlist for review, not a tested edge (`RESEARCH.md` §13).
 
 ## Quick start

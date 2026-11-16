@@ -11,6 +11,11 @@ SMTP_USE_TLS, EMAIL_FROM, EMAIL_TO (comma-separated). Optional DASHBOARD_URL
     scripts/notify_email.py --subject "..." [--body "..."] [--body-file run.log]
     scripts/notify_email.py --subject "..." --body-file run.log --dry-run   # print, send nothing
 
+``--message-json FILE`` (``-`` for stdin) sends a finished message instead: a JSON object
+with ``subject``, ``text`` and optional ``html`` (the Top 3 digest, written by
+``python -m finance_vibe.digest --email-json``). ``{DASHBOARD}`` in it becomes the
+dashboard URL. Text goes out as written, with the HTML as an alternative part.
+
 With ``--body-file`` the email carries a summary of the run log, not the whole log:
 stage start / end lines, the health check result, errors, the last traceback and the
 first warnings. Scanner console tables are left out. ``--tail N`` sends the last N
@@ -22,6 +27,7 @@ Exit codes: 0 sent (or printed), 2 not configured, 1 send failed.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import smtplib
@@ -143,13 +149,30 @@ def build_body(body: str, body_file: str | None, tail: int | None, dashboard: st
     return "\n\n".join(p for p in parts if p) + "\n"
 
 
-def build_message(cfg: dict[str, str], subject: str, body: str) -> EmailMessage:
+def build_message(
+    cfg: dict[str, str], subject: str, body: str, html: str | None = None
+) -> EmailMessage:
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = cfg.get("EMAIL_FROM") or cfg.get("SMTP_USER", "")
     msg["To"] = ", ".join(a.strip() for a in cfg.get("EMAIL_TO", "").split(",") if a.strip())
     msg.set_content(body)
+    if html:
+        msg.add_alternative(html, subtype="html")
     return msg
+
+
+def load_message(source: str, dashboard: str) -> dict[str, str]:
+    """A finished message from JSON (``-`` = stdin); raises ``ValueError`` if it is unusable."""
+    raw = sys.stdin.read() if source == "-" else Path(source).read_text()
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"not JSON ({exc})") from exc
+    if not isinstance(data, dict) or not data.get("subject") or not data.get("text"):
+        raise ValueError("needs a subject and a text")
+    url = dashboard.rstrip("/")
+    return {k: str(v).replace("{DASHBOARD}", url) for k, v in data.items() if v}
 
 
 def send(cfg: dict[str, str], msg: EmailMessage) -> None:
@@ -164,7 +187,8 @@ def send(cfg: dict[str, str], msg: EmailMessage) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--subject", required=True)
+    ap.add_argument("--subject")
+    ap.add_argument("--message-json", help="Send a finished message (JSON file, - = stdin)")
     ap.add_argument("--body", default="", help="Message text placed before the log summary")
     ap.add_argument("--body-file", help="Run log to summarize into the email")
     ap.add_argument("--tail", type=int, help="Send the last N raw log lines instead of a summary")
@@ -174,12 +198,28 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = ap.parse_args(argv)
 
+    if not args.subject and not args.message_json:
+        ap.error("--subject or --message-json is required")
+
     cfg = load_env(Path(args.env_file))
     dashboard = cfg.get("DASHBOARD_URL") or f"http://{socket.gethostname()}:5000"
-    body = build_body(args.body, args.body_file, args.tail, dashboard)
-    msg = build_message(cfg, args.subject, body)
+    html = None
+    if args.message_json:
+        try:
+            message = load_message(args.message_json, dashboard)
+        except (OSError, ValueError) as exc:
+            print(f"notify_email: unusable message {args.message_json}: {exc}", file=sys.stderr)
+            return 1
+        subject, body, html = message["subject"], message["text"], message.get("html")
+    else:
+        subject = args.subject
+        body = build_body(args.body, args.body_file, args.tail, dashboard)
+    msg = build_message(cfg, subject, body, html)
     if args.dry_run:
-        print(f"To: {msg['To'] or '(EMAIL_TO not set)'}\nSubject: {args.subject}\n\n{body}", end="")
+        extra = f"\n[html part: {len(html)} characters]\n" if html else ""
+        print(
+            f"To: {msg['To'] or '(EMAIL_TO not set)'}\nSubject: {subject}\n\n{body}{extra}", end=""
+        )
         return 0
     if not cfg.get("SMTP_HOST") or not cfg.get("EMAIL_TO"):
         print(f"notify_email: not configured ({args.env_file}); alert not sent", file=sys.stderr)

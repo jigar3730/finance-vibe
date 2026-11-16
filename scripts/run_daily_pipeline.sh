@@ -28,7 +28,8 @@
 # leaves daily_ok_<YYYY-MM-DD> there, which makes the 22:30 retry a no-op.
 #
 # After a passing health check it builds the Top 3 digest (python -m finance_vibe.digest,
-# data/digest/); a digest failure is logged and does not change the exit status.
+# data/digest/) and emails it; a digest or email failure is logged and does not change
+# the exit status.
 #
 # Alerts (scripts/notify_email.py, ~/.config/finance-vibe/notify.env):
 #   - pipeline failure or timeout: emailed at once;
@@ -150,12 +151,19 @@ fi
 touch "$ok_marker"
 
 # Top 3 digest (finance_vibe.digest): a shortlist built from this run's files into
-# data/digest/. A failure is only logged: the scan and its health check already passed.
+# data/digest/, then emailed. A failure is only logged: the scan and its health check
+# already passed.
 digest=0
-docker exec "$CONTAINER" timeout "$DIGEST_TIMEOUT" python -m finance_vibe.digest >> "$log" 2>&1 || digest=$?
+digest_mail="$LOG_DIR/digest_mail_$today.json"
+docker exec "$CONTAINER" timeout "$DIGEST_TIMEOUT" python -m finance_vibe.digest --email-json \
+    > "$digest_mail" 2>> "$log" || digest=$?
 if [[ "$digest" -ne 0 ]]; then
     echo "$(date -Is) digest FAILED (exit $digest); scan results are not affected" >> "$log"
+else
+    python3 "$SCRIPT_DIR/notify_email.py" --message-json "$digest_mail" >> "$log" 2>&1 \
+        && echo "$(date -Is) digest email sent" >> "$log" \
+        || echo "$(date -Is) digest email not sent (see notify_email output above)" >> "$log"
 fi
 
-find "$LOG_DIR" -maxdepth 1 \( -name 'daily_ok_*' -o -name 'daily_market_retry_*' \) -mtime +14 -delete
+find "$LOG_DIR" -maxdepth 1 \( -name 'daily_ok_*' -o -name 'daily_market_retry_*' -o -name 'digest_mail_*' \) -mtime +14 -delete
 exit 0

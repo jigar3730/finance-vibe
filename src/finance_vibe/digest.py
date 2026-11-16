@@ -26,14 +26,19 @@ Usage::
     python -m finance_vibe.digest                  # newest daily run
     python -m finance_vibe.digest --date 2026-11-13
     python -m finance_vibe.digest --no-earnings    # skip the Yahoo lookups (offline)
+    python -m finance_vibe.digest --email-json     # print the email (step 2) as JSON
 """
 
 from __future__ import annotations
 
 import argparse
+import html
+import json
 import logging
+import math
 import os
 import re
+import sys
 from collections.abc import Callable
 from datetime import date
 
@@ -241,12 +246,160 @@ def run(
     return table
 
 
+# --- the email (step 2) ------------------------------------------------------
+# Facts only (docs/UX_STANDARDS.md): numbers and states, green / red only for the sign
+# of 12-1 momentum. The host runner sends it with scripts/notify_email.py
+# --message-json, which replaces DASHBOARD_TOKEN with the dashboard URL.
+
+DASHBOARD_TOKEN = "{DASHBOARD}"
+FINVIZ = "https://finviz.com/quote.ashx?t={symbol}"
+DROP_TEXT = {
+    DROP_NO_MOMENTUM: "under a year of bars",
+    DROP_QUALITY: "bar-quality flag",
+    DROP_EARNINGS: "earnings {date}",
+}
+FILTER_TEXT = (
+    "Candidates: BREAKOUT_CONFIRMED or BREAKOUT_TRIGGERED, or PRE_BREAKOUT within "
+    f"{config.DIGEST_PRE_BREAKOUT_MAX_ATR:g} ATR of resistance; Trend {config.DIGEST_TREND}; "
+    f"MTF {' or '.join(config.DIGEST_MTF)}. Ranked by 12-1 momentum. Dropped for a "
+    f"bar-quality flag or earnings within {config.DIGEST_EARNINGS_SESSIONS} sessions."
+)
+
+
+def _num(x: object) -> float | None:
+    """``x`` as a float, or None when it is missing or not a number."""
+    try:
+        v = float(x)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+    return None if math.isnan(v) else v
+
+
+def _price(x: object) -> str:
+    v = _num(x)
+    return "-" if v is None else f"{v:.2f}"
+
+
+def _pct(x: object) -> str:
+    v = _num(x)
+    if v is None:
+        return "-"
+    return f"{'+' if v >= 0 else '−'}{abs(v) * 100:.2f}%"
+
+
+def _ratio(x: object) -> str:
+    v = _num(x)
+    return "-" if v is None else f"{v:.2f}x"
+
+
+def _atr(x: object) -> str:
+    """Close against resistance: ``Distance Resistance ATR`` > 0 means below it."""
+    v = _num(x)
+    if v is None:
+        return "-"
+    return f"{abs(v):.1f} ATR {'below' if v > 0 else 'above'}"
+
+
+def _earnings(x: object, as_of: str) -> str:
+    """Yahoo's date; a past one is the last report (the next is not listed yet)."""
+    if not isinstance(x, str) or not x:
+        return "not looked up"
+    if x != "unknown" and x < as_of:
+        return f"last {x}, next not listed"
+    return x
+
+
+def _drop_text(row: pd.Series) -> str:
+    reason = str(row["Dropped"])
+    return DROP_TEXT.get(reason, reason).format(date=row["Earnings Date"])
+
+
+def render_email(table: pd.DataFrame, stamp: str) -> dict[str, str]:
+    """Subject, plain text and HTML of one day's digest."""
+    top = table[table["Selected"]].sort_values("Rank")
+    nxt = table[table["Review"] & ~table["Selected"]].sort_values("Rank")
+    dropped = table[table["Dropped"].fillna("") != ""]
+    names = ", ".join(top["Symbol"]) or "none"
+    subject = f"[finance-vibe] Top {config.DIGEST_TOP_N} digest {stamp}: {names}"
+    head = (
+        f"Daily run {stamp} (closed bars). {len(table)} candidates, "
+        f"{len(dropped)} dropped, {len(top)} shown."
+    )
+    fields = [
+        ("Status", lambda r: str(r["Status"])),
+        ("Close", lambda r: _price(r["Close"])),
+        ("Resistance", lambda r: _price(r["Resistance"])),
+        ("Support", lambda r: _price(r["Support"])),
+        ("Close vs resistance", lambda r: _atr(r["Distance Resistance ATR"])),
+        ("12-1 momentum", lambda r: _pct(r[MOMENTUM])),
+        ("Volume vs 20-day", lambda r: _ratio(r["RVOL20"])),
+        ("Timeframes", lambda r: str(r["MTF"])),
+        ("Earnings", lambda r: _earnings(r["Earnings Date"], str(r["Date"]))),
+    ]
+
+    text = [head, ""]
+    if top.empty:
+        text.append("No stock met the filter today.")
+    for _, r in top.iterrows():
+        text.append(f"{int(r['Rank'])}. {r['Symbol']}  {FINVIZ.format(symbol=r['Symbol'])}")
+        text += [f"   {label}: {fmt(r)}" for label, fmt in fields]
+        text.append("")
+    extra = []
+    if len(nxt):
+        line = ", ".join(f"{r['Symbol']} {_pct(r[MOMENTUM])}" for _, r in nxt.iterrows())
+        extra.append(f"Next in line: {line}")
+    if len(dropped):
+        line = ", ".join(f"{r['Symbol']} ({_drop_text(r)})" for _, r in dropped.iterrows())
+        extra.append(f"Dropped: {line}")
+    text += extra
+    text += ["", FILTER_TEXT, f"Setups: {DASHBOARD_TOKEN}/setups"]
+
+    e = html.escape
+    th = 'style="text-align:left;padding:4px 10px;color:#666;font-weight:normal"'
+    td = 'style="padding:4px 10px"'
+    rows = []
+    for _, r in top.iterrows():
+        mom = _num(r[MOMENTUM])
+        color = "#1a7f37" if mom is not None and mom >= 0 else "#cf222e"
+        cells = [f"<td {td}>{int(r['Rank'])}</td>"]
+        link = FINVIZ.format(symbol=e(str(r["Symbol"])))
+        cells.append(f'<td {td}><a href="{link}"><b>{e(str(r["Symbol"]))}</b></a></td>')
+        for label, fmt in fields:
+            style = f'style="padding:4px 10px;color:{color}"' if label == "12-1 momentum" else td
+            cells.append(f"<td {style}>{e(fmt(r))}</td>")
+        rows.append("<tr>" + "".join(cells) + "</tr>")
+    header = "".join(f"<th {th}>{e(h)}</th>" for h in ["#", "Ticker", *[f[0] for f in fields]])
+    body = [f"<p>{e(head)}</p>"]
+    if top.empty:
+        body.append("<p>No stock met the filter today.</p>")
+    else:
+        body.append(
+            '<table style="border-collapse:collapse;font-family:sans-serif;font-size:15px">'
+            f"<tr>{header}</tr>{''.join(rows)}</table>"
+        )
+    body += [f"<p>{e(line)}</p>" for line in extra]
+    body.append(f'<p style="color:#666;font-size:13px">{e(FILTER_TEXT)}<br>')
+    body.append(f'<a href="{DASHBOARD_TOKEN}/setups">Setups</a></p>')
+    page = (
+        '<html><body style="font-family:sans-serif;font-size:15px">'
+        + "".join(body)
+        + "</body></html>"
+    )
+    return {"subject": subject, "text": "\n".join(text) + "\n", "html": page}
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--date", help="the daily run's date stamp (default: newest)")
     parser.add_argument("--no-earnings", action="store_true", help="skip the Yahoo lookups")
+    parser.add_argument(
+        "--email-json",
+        action="store_true",
+        help="print the email as JSON (subject, text, html) instead of the table",
+    )
     args = parser.parse_args(argv)
-    table = run(args.date, earnings=None if args.no_earnings else yahoo_earnings)
+    stamp = args.date or latest_stamp(config.get_mode_config(MODE)["logs_dir"])
+    table = run(stamp, earnings=None if args.no_earnings else yahoo_earnings)
     dropped = table["Dropped"].value_counts().to_dict()
     top = table[table["Selected"]]
     logger.info(
@@ -258,7 +411,9 @@ def main(argv: list[str] | None = None) -> int:
         len(top),
         ", ".join(top["Symbol"]) or "none",
     )
-    if len(table):
+    if args.email_json:
+        json.dump(render_email(table, stamp), sys.stdout)
+    elif len(table):
         cols = ["Rank", "Symbol", "Status", "Close", MOMENTUM, "Earnings Date", "Dropped"]
         print(table[cols].to_markdown(index=False, floatfmt=".4f"))
     return 0

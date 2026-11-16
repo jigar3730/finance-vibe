@@ -267,10 +267,18 @@ New York, so the cron line only has to cover that hour in the host's clock:
   ranked by 12-1 momentum (`C[t-21] / C[t-252] - 1`), and a candidate is dropped for a
   bar-quality flag that day or earnings on t or within 5 sessions (Yahoo's date). The top
   10 survivors are kept for review and the top 3 are the digest. Output goes to
-  `data/digest/`. A digest failure is only logged. It is a shortlist for review, not a
+  `data/digest/`. The runner then emails it: `finance_vibe.digest --email-json` writes the
+  message (subject, text, HTML) to `~/.local/state/finance-vibe/digest_mail_<date>.json`
+  and `scripts/notify_email.py --message-json` sends it with the alert settings. Each pick
+  shows status, close, resistance and support, close vs resistance in ATR, 12-1 momentum,
+  volume vs its 20-day average, timeframes, earnings date and a Finviz link, then the rest
+  of the top 10 and what was dropped and why. A digest or email failure is only logged. It is a shortlist for review, not a
   tested edge: §13 found 12-1 momentum beat the average stock on a survivor universe, and
   nothing in RESEARCH.md beat it. PARTIAL was added on 2026-11-15: with ALIGNED alone the
   filter left 2–17 candidates a day on the 911-stock universe (2026-11-10 → 11-13).
+  To preview the email without sending it:
+  `docker exec finance_vibe python -m finance_vibe.digest --email-json > /tmp/m.json &&
+  scripts/notify_email.py --message-json /tmp/m.json --dry-run`.
 - **Locks.** Each runner holds a lock so runs cannot overlap; the daily runner also
   waits for the weekly lock (up to 30 min), since both refresh `active_tickers.csv`.
 - **Logs.** One file per run in `~/.local/state/finance-vibe/`
