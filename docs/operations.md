@@ -276,6 +276,19 @@ New York, so the cron line only has to cover that hour in the host's clock:
   tested edge: §13 found 12-1 momentum beat the average stock on a survivor universe, and
   nothing in RESEARCH.md beat it. PARTIAL was added on 2026-11-15: with ALIGNED alone the
   filter left 2–17 candidates a day on the 911-stock universe (2026-11-10 → 11-13).
+  **Event-risk review (step 3): not built yet.** Planned: the top 10 survivors go to an LLM
+  that may only drop a candidate (earnings, pending acquisition, share offering, legal or
+  regulatory issue, guidance cut), citing a dated source for each claim, with fixed flags
+  and validated JSON; on any failure the email goes out with the momentum list and
+  "⚠ AI review unavailable". Checked on 2026-11-15 with a Gemini key: plain calls work on
+  the free tier (gemini-3.5-flash-lite), but Grounding with Google Search is not available
+  on the free tier (every grounded call returns 429, and the pricing page lists it as "Not
+  available"). Without search the model cannot see recent news, so free Gemini is not
+  enough. Options: Gemini paid tier (5,000 grounded searches a month included across
+  Gemini 3+ models, then $14 per 1,000; about 200 a month needed; tokens only otherwise),
+  the Claude API with web search, or free Gemini classifying headlines we fetch ourselves
+  (yfinance's news call failed that day). gemini-3.8-flash timed out on a one-word prompt.
+  The key lives in `~/.config/finance-vibe/notify.env` as `GEMINI_API_KEY`.
   To preview the email without sending it:
   `docker exec finance_vibe python -m finance_vibe.digest --email-json > /tmp/m.json &&
   scripts/notify_email.py --message-json /tmp/m.json --dry-run`.
