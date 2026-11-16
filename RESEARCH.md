@@ -183,6 +183,33 @@ events that pass the point-in-time check only. **The universe was chosen with da
 - Robustness only (4 events and 212 draws flagged `split_suspect` excluded): same picture,
   p (Holm) 1.000 / 1.000.
 
+### In-sample, cross-sectional ranker (§13; run once on 2026-11-15)
+
+Analysis code `4c9d07c` (committed before the run, report run at `d57dd78`); features `99a8790`
+(`data/research/ranker_features_2026-11-15/`); snapshot `data/research/backfill/snapshots/2026-11-09/`.
+Full report: `data/research/ranker_insample_2026-11-15/report.md`. 78 score dates in 6 walk-forward
+folds, 2020-01 → 2026-03, about 500 eligible stocks per date, top 10% = about 50 picks. **The
+universe is today's survivors, chosen with data up to 2026-11** (§13 survivorship).
+
+| Test | Mean per score date (R20) | p (one-sided) | Needed | Result |
+|------|--------------------------:|--------------:|--------|--------|
+| A: model top 10% − eligible mean | +1.46% | 0.0038 | p < 0.05 | met |
+| B: model top 10% − momentum top 10% | +0.63% | 0.1516 | p < 0.05 | not met |
+| Folds with mean B > 0 | 3 of 6 | — | ≥ 4 | not met |
+
+By fold, mean B: 2020 −0.08%, 2021 +1.76%, 2022 −0.32%, 2023 +1.07%, 2024 −0.40%, 2025–26Q1 +1.52%.
+
+- **Decision (§13): FAIL in-sample (p = 0.152, folds 3 of 6). The holdout is not run and stays
+  unopened. The ranker is dropped, not tuned.**
+- Reported, not a pass criterion: momentum top 10% − eligible mean +0.82%; seeded random top 10%
+  − eligible mean +0.02% (the check holds); model top 3 +1.69% and top 10 +2.00% against the
+  eligible mean; model top 10% − SPY +1.55% (+1.35% after the flat 0.20% cost). Mean rank IC
+  0.014; by fold +0.018, −0.002, −0.033, +0.028, −0.018, +0.079.
+- Robustness only (`split_suspect` rows excluded): A +1.34% (p 0.0047), B +0.65% (p 0.138),
+  folds 4 of 6. The rule is still not met.
+- Gain importance (context only): ATR_PCT 18%, then HIGH_52W, MOM_12_1 and RS_QQQ_126 about 10%
+  each. The two RS-vs-SPY features carry almost nothing; they mostly duplicate RS vs QQQ.
+
 ## 10. Variant log
 
 Every run: date, commit, what changed, which hypotheses, result. Includes failed and abandoned runs.
@@ -206,6 +233,8 @@ Every run: date, commit, what changed, which hypotheses, result. Includes failed
 | 2026-11-15 | freeze commit | Cross-sectional ranker (§13) pre-registered and frozen: LightGBM lambdarank on 12 point-in-time price/volume features, 20-session horizon, six walk-forward folds with a ≥ 21-session gap, pass = beats the eligible mean and the 12-1 momentum top 10% (p < 0.05 each) and momentum in ≥ 4 of 6 folds. No feature or forward return computed yet. | §13 | — |
 | 2026-11-15 | 99a8790 | Blind feature run (§13): `data/research/ranker_features_2026-11-15/` from snapshot `data/research/backfill/snapshots/2026-11-09/` (checked against its `manifest.json`; breakout history hash and output hash in the run manifest). Training grid 2018-01-02 → 2026-03-30: 415 dates, 215,800 rows, 205,331 eligible; 10,469 removed by the point-in-time check; 0 missing features among members. Eligible per score date: 473–518 (median 497.5). Score dates by fold: 12 / 13 / 12 / 13 / 13 / 15 (78), plus 26 before 2020. Features only: no forward bar read, no label or return computed. | §13 | — |
 | 2026-11-15 | 4c9d07c | §13 analysis code committed before the run (`research.ranker`, `scripts/ranker_insample_report.py`): R20 labels, quintile grades, walk-forward with the exit-date gap, LightGBM lambdarank with the frozen settings, model / momentum / random pickers and the §13 rule, as frozen. Tested on synthetic data only. No forward return computed on the snapshot yet. | §13 | — |
+| 2026-11-15 | d57dd78 | In-sample evaluation run once (§13 as frozen) on `ranker_features_2026-11-15`. No feature, setting, fold or threshold changed. | §13 | FAIL in-sample (A +1.46% p 0.004; B +0.63% p 0.152; B > 0 in 3 of 6 folds). Holdout not opened. Ranker dropped. |
+| 2026-11-15 | — | **Exploratory, not a finding:** the model beats the eligible mean (A) but not plain 12-1 momentum, and momentum by itself beats the eligible mean by +0.82%. Both are measured on today's survivors, where any tilt towards stocks that went up, or towards volatile stocks that survived (ATR_PCT has the most gain), looks like skill. So A is weak evidence and B, which the survivorship tilt affects less, is the fair test; it failed. Any new ranker (other features, horizon or universe, or survivorship-free data) is a new pre-registered test with its own holdout; this run cannot pick it. | — | — |
 
 ## 11. Weekly addendum (pre-registered 2026-10-27, before any weekly return)
 
