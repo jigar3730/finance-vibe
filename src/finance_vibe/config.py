@@ -132,6 +132,42 @@ RESEARCH_WEEKLY_DV_WINDOW = 4
 # and a first bar needs the bar before it.
 RESEARCH_PREBREAKOUT_IN_SAMPLE_START = "2020-01-14"
 RESEARCH_PREBREAKOUT_SNAPSHOT = "2026-11-09"
+# RESEARCH.md §13 (cross-sectional LightGBM ranker, daily). Same seal
+# (RESEARCH_IN_SAMPLE_END) and snapshot as §12. The snapshot's first year feeds
+# MOM_12_1, so in-sample starts 2018-01-02; both date grids are anchored there.
+RESEARCH_RANKER_SNAPSHOT = "2026-11-09"
+RESEARCH_RANKER_IN_SAMPLE_START = "2018-01-02"
+RESEARCH_RANKER_HORIZON = 20  # R20 = Close[t+20] / Open[t+1] - 1
+RESEARCH_RANKER_TRAIN_STRIDE = 5  # training dates: every 5th SPY session
+RESEARCH_RANKER_SCORE_STRIDE = 20  # score dates: every 20th (non-overlapping labels)
+RESEARCH_RANKER_FOLDS = (  # test folds by score date, inclusive
+    ("2020-01-01", "2020-12-31"),
+    ("2021-01-01", "2021-12-31"),
+    ("2022-01-01", "2022-12-31"),
+    ("2023-01-01", "2023-12-31"),
+    ("2024-01-01", "2024-12-31"),
+    ("2025-01-01", "2026-03-31"),
+)
+RESEARCH_RANKER_TOP_FRACTION = 0.10  # top 10% of eligible stocks, rounded up
+RESEARCH_RANKER_GRADES = 5  # training relevance: R20 quintile within the date (0-4)
+RESEARCH_RANKER_MIN_FOLDS = 4  # mean B > 0 in at least this many of the 6 folds
+RESEARCH_RANKER_ALPHA = 0.05
+RESEARCH_RANKER_SEED = 20261115
+RESEARCH_RANKER_ROUNDS = 300
+RESEARCH_RANKER_LGB_PARAMS = {
+    "objective": "lambdarank",
+    "learning_rate": 0.05,
+    "num_leaves": 31,
+    "min_data_in_leaf": 100,
+    "feature_fraction": 0.8,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+    "seed": RESEARCH_RANKER_SEED,
+    "deterministic": True,
+    "num_threads": 3,
+    "verbosity": -1,
+}
+RESEARCH_RANKER_COST = 0.002  # flat round trip per pick, reported only
 
 # =====================================================================
 # BACKFILL SNAPSHOT (finance_vibe.research.snapshot; scanners and dashboard ignore it)

@@ -25,6 +25,8 @@ dashboard. It produces *signals* for review, not trades.
   `backfill` (both scanners' history for every snapshot ticker → `data/research/backfill/history/`),
   `prebreakout` (§12 C1/C2 events, point-in-time check and blind labels; run by `scripts/research_prebreakout_labels.py`),
   `prebreakout_insample` (§12 scorecard; `scripts/prebreakout_insample_report.py`, run once).
+  `ranker_features` (§13 point-in-time features, eligibility, date grids; blind run
+  `scripts/research_ranker_features.py`), `config.RESEARCH_RANKER_*`; lightgbm is in the uv `research` group.
   Not used by the pipeline.
 - `src/finance_vibe/web/` — Flask app, `playbook.py` (`/setups` sections by evidence, market home facts and levels, `/runs/ticker/<SYM>` history and its weekly-vs-daily badge (`timeframe_compare`); `/scan-stats` reads `data/db/analysis_summary.json`), `health.py` (market home: VIX, rates, dollar, credit, sector and scanned-ticker breadth, since last close), `insights.py` (ETF freshness, bar-quality lookups, `/changes`, Market table and levels, market strip), `docs.py` (`/docs`: the operating docs in `config.DOCS_PAGES` rendered with `markdown`; a new served doc also needs a `!docs/<file>` line in `.dockerignore`), `templates/`, `static/`
 - `tests/` — pytest suite
