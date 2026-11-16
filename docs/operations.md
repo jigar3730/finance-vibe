@@ -15,7 +15,7 @@ recovery) see [`runbook.md`](runbook.md).
 
 | Path | Contents |
 | ---- | -------- |
-| `src/finance_vibe/` | `config`, `log`, `indicators`, `market` (benchmark, RS, market gate), `pipeline` |
+| `src/finance_vibe/` | `config`, `log`, `indicators`, `market` (benchmark, RS, market gate), `pipeline`, `digest` (Top 3 digest) |
 | `src/finance_vibe/data/` | `universe` (rule-based scan universe), `ingest` (Yahoo download), `daily_ingest`, `market_ingest` (market-context funds), `universe_breadth`, `market_snapshot` (live quotes), `raw` (raw CSV loader), `quality`, `database` (SQLite copy of scan outputs), `analysis` (standard queries); `ticker_manifest.csv` (watchlist), `sp500_tickers.csv` / `sp400_tickers.csv` / `index_lists.json` |
 | `src/finance_vibe/scanners/` | `coiled_cobra`, `breakout` |
 | `src/finance_vibe/research/` | Backfill snapshot, scanner backfill and the `RESEARCH.md` studies; never run by the pipeline |
@@ -26,6 +26,7 @@ recovery) see [`runbook.md`](runbook.md).
 | `data/raw/{weekly,daily}/` | Raw OHLCV CSVs (`*_10y_1wk.csv`, `*_5y_1d.csv`) |
 | `data/logs/{weekly,daily}/` | Dated scan outputs, ingest errors and bar-quality reports |
 | `data/raw/market/`, `data/logs/market/` | Market-context raw CSVs (`*_2y_1d.csv`), their ingest errors and quality reports, `universe_breadth.json` |
+| `data/digest/` | `digest_<date>.csv` (every Top 3 candidate, its rank and drop reason) and `ledger.csv` (all digests, for measuring the picks later) |
 | `data/live/market_snapshot.json` | Latest live quotes for the market home; never read by a scanner |
 | `data/db/` | `finance_vibe.sqlite` and `analysis_summary.json` (rebuildable, see [Database](#database)) |
 | `data/research/backfill/snapshots/<date>/` | Frozen 10-year bars for the backfill: `daily/`, `weekly/`, `manifest.json` (file hashes), `universe.csv`, `report.md` |
@@ -259,6 +260,17 @@ New York, so the cron line only has to cover that hour in the host's clock:
   `daily_ok_<date>`). If only market-context data failed (it leaves
   `daily_market_retry_<date>`), the retry runs just `data.market_ingest`. Weekends are skipped; market holidays still run, and the health
   check then expects the previous session's bar.
+- **Top 3 digest.** After a daily run passes its health check, the runner builds the
+  digest (`python -m finance_vibe.digest`) from that run's breakout scan, bar-quality report
+  and daily raw files. Candidates: BREAKOUT_CONFIRMED or BREAKOUT_TRIGGERED, or PRE_BREAKOUT
+  within 1.5 ATR of resistance, with Trend BULLISH and MTF ALIGNED (no funds). They are
+  ranked by 12-1 momentum (`C[t-21] / C[t-252] - 1`), and a candidate is dropped for a
+  bar-quality flag that day or earnings on t or within 5 sessions (Yahoo's date). The top
+  10 survivors are kept for review and the top 3 are the digest. Output goes to
+  `data/digest/`. A digest failure is only logged. It is a shortlist for review, not a
+  tested edge: §13 found 12-1 momentum beat the average stock on a survivor universe, and
+  nothing in RESEARCH.md beat it. On the 911-stock universe the filter has left 2–17
+  candidates a day (2026-11-10 → 11-13).
 - **Locks.** Each runner holds a lock so runs cannot overlap; the daily runner also
   waits for the weekly lock (up to 30 min), since both refresh `active_tickers.csv`.
 - **Logs.** One file per run in `~/.local/state/finance-vibe/`

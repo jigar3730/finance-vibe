@@ -27,6 +27,9 @@
 # one file per run: daily_<YYYY-MM-DD_HHMM>.log. A run that passes the health check
 # leaves daily_ok_<YYYY-MM-DD> there, which makes the 22:30 retry a no-op.
 #
+# After a passing health check it builds the Top 3 digest (python -m finance_vibe.digest,
+# data/digest/); a digest failure is logged and does not change the exit status.
+#
 # Alerts (scripts/notify_email.py, ~/.config/finance-vibe/notify.env):
 #   - pipeline failure or timeout: emailed at once;
 #   - health check failure (missing outputs, stale newest bar, > 20% ingest errors):
@@ -40,6 +43,7 @@ FIRST_HOUR_ET="18"
 RETRY_HOUR_ET="22"
 RUN_TIMEOUT="25m"
 DATABASE_TIMEOUT="10m"
+DIGEST_TIMEOUT="5m"
 WEEKLY_WAIT_SECONDS=1800
 LOG_DIR="${FINANCE_VIBE_CRON_LOG_DIR:-$HOME/.local/state/finance-vibe}"
 LOCK_FILE="$LOG_DIR/daily.lock"
@@ -144,5 +148,14 @@ if [[ "$check" -ne 0 ]]; then
 fi
 
 touch "$ok_marker"
+
+# Top 3 digest (finance_vibe.digest): a shortlist built from this run's files into
+# data/digest/. A failure is only logged: the scan and its health check already passed.
+digest=0
+docker exec "$CONTAINER" timeout "$DIGEST_TIMEOUT" python -m finance_vibe.digest >> "$log" 2>&1 || digest=$?
+if [[ "$digest" -ne 0 ]]; then
+    echo "$(date -Is) digest FAILED (exit $digest); scan results are not affected" >> "$log"
+fi
+
 find "$LOG_DIR" -maxdepth 1 \( -name 'daily_ok_*' -o -name 'daily_market_retry_*' \) -mtime +14 -delete
 exit 0

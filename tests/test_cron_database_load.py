@@ -14,12 +14,22 @@ echo "$*" >> "$CALLS"
 case "$*" in
     *finance_vibe.data.database*) exit "$DATABASE_EXIT" ;;
     *finance_vibe.pipeline*) exit "$PIPELINE_EXIT" ;;
+    *finance_vibe.digest*) exit "$DIGEST_EXIT" ;;
+    "exec -i "*) exit "$CHECK_EXIT" ;;
 esac
 exit 0
 """
 
 
-def _run(tmp_path: Path, mode: str, *, pipeline: int = 0, database: int = 0):
+def _run(
+    tmp_path: Path,
+    mode: str,
+    *,
+    pipeline: int = 0,
+    database: int = 0,
+    digest: int = 0,
+    check: int = 0,
+):
     stub = tmp_path / "docker_stub.sh"
     stub.write_text(DOCKER_STUB)
     calls = tmp_path / "calls.txt"
@@ -32,6 +42,8 @@ def _run(tmp_path: Path, mode: str, *, pipeline: int = 0, database: int = 0):
         "CALLS": str(calls),
         "PIPELINE_EXIT": str(pipeline),
         "DATABASE_EXIT": str(database),
+        "DIGEST_EXIT": str(digest),
+        "CHECK_EXIT": str(check),
         # An exported function wins over any real docker on PATH.
         "BASH_FUNC_docker%%": f'() {{ bash "{stub}" "$@"; }}',
     }
@@ -50,7 +62,7 @@ def _run(tmp_path: Path, mode: str, *, pipeline: int = 0, database: int = 0):
 def test_rebuilds_after_the_scan_and_before_the_health_check(tmp_path, mode):
     code, calls, text, _ = _run(tmp_path, mode)
     assert code == 0
-    assert len(calls) == 3
+    assert len(calls) == (4 if mode == "daily" else 3)  # daily ends with the digest
     assert "finance_vibe.pipeline" in calls[0]
     assert "finance_vibe.data.database rebuild" in calls[1]
     assert "exec -i" in calls[2]
@@ -61,7 +73,7 @@ def test_rebuilds_after_the_scan_and_before_the_health_check(tmp_path, mode):
 def test_failed_rebuild_is_logged_and_the_run_still_counts(tmp_path, mode):
     code, calls, text, logs = _run(tmp_path, mode, database=1)
     assert code == 0
-    assert "exec -i" in calls[-1]  # the health check still ran
+    assert any("exec -i" in c for c in calls)  # the health check still ran
     assert "database rebuild FAILED (exit 1)" in text
     if mode == "daily":
         assert list(logs.glob("daily_ok_*"))
@@ -72,3 +84,23 @@ def test_failed_scan_is_not_loaded(tmp_path, mode):
     code, calls, _, _ = _run(tmp_path, mode, pipeline=1)
     assert code == 1
     assert not any("finance_vibe.data.database" in c for c in calls)
+
+
+def test_daily_digest_runs_after_a_passing_health_check(tmp_path):
+    code, calls, text, _ = _run(tmp_path, "daily")
+    assert code == 0
+    assert "exec -i" in calls[2] and "finance_vibe.digest" in calls[3]
+    assert "digest FAILED" not in text
+
+
+def test_failed_digest_is_logged_and_the_run_still_counts(tmp_path):
+    code, _, text, logs = _run(tmp_path, "daily", digest=1)
+    assert code == 0
+    assert "digest FAILED (exit 1)" in text
+    assert list(logs.glob("daily_ok_*"))
+
+
+def test_no_digest_when_the_health_check_fails(tmp_path):
+    code, calls, _, _ = _run(tmp_path, "daily", check=1)
+    assert code == 3
+    assert not any("finance_vibe.digest" in c for c in calls)

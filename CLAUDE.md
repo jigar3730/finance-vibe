@@ -13,7 +13,8 @@ dashboard. It produces *signals* for review, not trades.
 ## Layout
 
 - `src/finance_vibe/` — `config`, `log`, `indicators`, `market` (QQQ benchmark,
-  RS, Cobra market gate), `pipeline` (orchestrator)
+  RS, Cobra market gate), `pipeline` (orchestrator), `digest` (Top 3 digest after a
+  passing daily run: filter, 12-1 momentum rank, earnings/quality drops → `data/digest/`, `config.DIGEST_*`)
 - `src/finance_vibe/data/` — `universe` (rule-based scan universe: S&P 500 + 400 + watchlist, quarterly rebuild with join/stay hysteresis → `data/universe/`, pipeline stage 1), `ingest` (Yahoo download, both modes),
   `daily_ingest`, `market_ingest` (broad funds / VIX / HYG / IEF / sector funds → `data/raw/market/`, a folder no scanner reads), `universe_breadth` (counts across the universe stocks, funds left out → `data/logs/market/`), `market_snapshot` (live quotes for the market home → `data/live/`, not a pipeline stage), `raw` (the raw CSV loader), `quality` (bar-quality flags → `data_quality_<date>.csv`, never changes scores; also the full-history `bar_stats` / `quality_failures` checks), `database` (SQLite copy of scan outputs → `data/db/`, rebuildable, no scanner reads it), `analysis` (standard descriptive queries over that database)
 - `src/finance_vibe/scanners/` — `coiled_cobra`, `breakout` (each has `scan_history()`:

@@ -12,6 +12,12 @@ Both produce *signals* for review, not trades. The backtest found no proven edge
 (`RESEARCH.md`), so the dashboard's home page is market context, live in the session (SPY / QQQ / IWM /
 RSP, VIX, rates, dollar, credit and sector breadth); the scans live on a back page, Setups (unproven).
 
+After each daily run a **Top 3 digest** (`python -m finance_vibe.digest`, `data/digest/`) narrows the
+breakout scan to a shortlist: confirmed / triggered breakouts or PRE_BREAKOUT near resistance, Trend
+BULLISH and timeframes ALIGNED, ranked by 12-1 momentum, minus bar-quality flags and earnings within
+5 sessions. Every digest is kept in `data/digest/ledger.csv` so the picks can be measured. It is a
+shortlist for review, not a tested edge (`RESEARCH.md` §13).
+
 ## Quick start
 
 ```bash

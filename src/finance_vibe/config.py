@@ -310,6 +310,24 @@ DQ_FLAT_RUN = 5  # this many identical closes in a row looks like placeholder da
 DQ_JUMP_PCT = 0.40  # a close-to-close move this large may be a split or a bad print
 DQ_PRICE_TOL = 1e-6  # relative slack when checking High/Low against Open/Close
 
+# Top 3 digest (finance_vibe.digest): after a daily run that passed its health check.
+# It only reads the run's CSVs and raw files; no scanner or page reads its output.
+# Candidates must meet the filter below, are ranked by 12-1 momentum
+# (C[t-21] / C[t-252] - 1, the §13 baseline), and lose a place for a bar-quality flag
+# in that day's report or earnings within DIGEST_EARNINGS_SESSIONS sessions.
+# Nothing here is a tested edge (RESEARCH.md §9, §13): it is a shortlist for review.
+DIGEST_DIR = os.path.join(BASE_DIR, "digest")
+DIGEST_LEDGER = os.path.join(DIGEST_DIR, "ledger.csv")
+DIGEST_BREAKOUT_STATUSES = ("BREAKOUT_CONFIRMED", "BREAKOUT_TRIGGERED")
+DIGEST_PRE_BREAKOUT_MAX_ATR = 1.5  # PRE_BREAKOUT within this many ATR of resistance
+DIGEST_TREND = "BULLISH"
+DIGEST_MTF = "ALIGNED"
+DIGEST_MOMENTUM_BARS = 252  # MOM_12_1 reads C[t-252]
+DIGEST_MOMENTUM_SKIP = 21  # ... and C[t-21]
+DIGEST_EARNINGS_SESSIONS = 5  # earnings on t or within the next 5 sessions: dropped
+DIGEST_REVIEW_N = 10  # survivors passed on to the event-risk review
+DIGEST_TOP_N = 3
+
 # Market context (home page): an index and funds downloaded only for the market facts,
 # by data.market_ingest at 17:05 ET and at the end of each daily run. They live in their
 # own silo so neither scanner ever sees them (and no scan CSV changes), even for symbols
