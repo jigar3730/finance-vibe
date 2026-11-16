@@ -19,7 +19,7 @@ What to do, step by step. Details and the reasons behind them are in
 | Mon–Fri every 5 min, 08:00–16:15 | Live quotes for the market home | `snapshot_<date>.log` |
 | Mon–Fri 17:05 | Market closes for the market home | `market_close_<date>.log` |
 | Mon–Fri 18:30, retry 22:30 | Daily pipeline, database rebuild, health check | `daily_<date>_<time>.log` |
-| Sat 09:00 | Weekly pipeline, database rebuild, health check | `weekly_<date>_<time>.log` |
+| Fri 18:00 | Weekly pipeline, database rebuild, health check | `weekly_<date>_<time>.log` |
 
 ## Daily check (a minute)
 
@@ -35,7 +35,7 @@ What to do, step by step. Details and the reasons behind them are in
 
    A `daily_market_retry_<date>` file with no `daily_ok_<date>` means only the market
    context data failed, and the retry did not fix it either (see below).
-3. Saturday: the same for `weekly_<date>_*.log`, and the Runs page should list the new
+3. Friday evening: the same for `weekly_<date>_*.log`, and the Runs page should list the new
    weekly date.
 
 Until `notify.env` exists, this check is the only way to learn that a run failed.
@@ -86,7 +86,7 @@ two must hold the same code.
 4. Commit and merge to `main`.
 5. Rebuild and restart: `docker compose up -d --build`.
 6. Check in the browser: the market home, Setups, one run page, and whatever page changed.
-   Avoid rebuilding during a scheduled run (18:30–19:00 and 22:30 on weekdays, 09:00 on Saturday).
+   Avoid rebuilding during a scheduled run (18:00–19:00 on Fridays, 18:30–19:00 and 22:30 on weekdays).
 
 ## Recovery
 

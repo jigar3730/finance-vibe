@@ -237,15 +237,18 @@ New York, so the cron line only has to cover that hour in the host's clock:
 # host clock America/New_York (mediabox)
 5 17 * * 1-5     /opt/stacks/finance-vibe/scripts/run_market_close.sh
 30 18,22 * * 1-5 /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
-0 9 * * 6        /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
+0 18 * * 5       /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
 # host clock UTC: fire at every UTC hour those slots can map to (EDT and EST)
 5 21,22 * * 1-5    /opt/stacks/finance-vibe/scripts/run_market_close.sh
 30 22,23,2,3 * * * /opt/stacks/finance-vibe/scripts/run_daily_pipeline.sh
-0 13,14 * * 6      /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
+0 22,23 * * 5      /opt/stacks/finance-vibe/scripts/run_weekly_pipeline.sh
 ```
 
-- **Weekly: Saturdays 09:00 ET.** It scans the week that closed on Friday. On Friday evening
-  Yahoo's weekly bar was still short of volume (about 20% on 2026-11-06), which understated RVOL.
+- **Weekly: Fridays 18:00 ET.** It scans the week that closed that afternoon. Not Saturday:
+  until the next session opens, Yahoo's newest weekly bar counts Friday's volume twice (the
+  Sat 2026-11-14 09:00 run saved a median 1.17x the sum of the daily bars), while the Friday
+  18:00 bar matches the settled volume (2026-11-06: 96% of tickers within 1%). The daily
+  18:30 run waits for the weekly lock if the weekly run is still going.
 - **Market close: Monday–Friday 17:05 ET.** `run_market_close.sh` runs `data.market_ingest`
   by itself, so the home page has the day's closes without waiting for the scan. A failure
   is only logged (`market_close_<date>.log`), since the 18:30 run downloads the same files.
