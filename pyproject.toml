@@ -87,7 +87,7 @@ check_untyped_defs = true
 
 [[tool.mypy.overrides]]
 # Untyped third-party packages.
-module = ["yfinance.*", "markdown.*"]
+module = ["yfinance.*", "markdown.*", "lightgbm.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
